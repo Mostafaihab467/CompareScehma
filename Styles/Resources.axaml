@@ -1,0 +1,16 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Color x:Key="Primary500">#6750A4</Color>
+    <Color x:Key="PrimaryContainer">#EADDFF</Color>
+    <Color x:Key="OnSurfaceVariant">#49454F</Color>
+    <Color x:Key="Error">#B3261E</Color>
+    <Color x:Key="Success">#2E7D32</Color>
+    <Color x:Key="GradientStart">#6750A4</Color>
+    <Color x:Key="GradientEnd">#9A82DB</Color>
+    <Color x:Key="CodeBg">#1E1E2E</Color>
+    <LinearGradientBrush x:Key="HeaderGradient" StartPoint="0,0" EndPoint="1,0">
+        <GradientStop Offset="0" Color="{StaticResource GradientStart}" />
+        <GradientStop Offset="1" Color="{StaticResource GradientEnd}" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource Success}" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource Error}" />
+</ResourceDictionary>

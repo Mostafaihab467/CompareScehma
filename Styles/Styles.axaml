@@ -1,0 +1,59 @@
+<Styles xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Style Selector="TextBox">
+        <Setter Property="Background" Value="#F5F0FF" />
+        <Setter Property="BorderBrush" Value="{StaticResource PrimaryContainer}" />
+        <Setter Property="BorderThickness" Value="2" />
+        <Setter Property="CornerRadius" Value="8" />
+        <Setter Property="Padding" Value="12,8" />
+        <Setter Property="FontSize" Value="13" />
+    </Style>
+    <Style Selector="TextBox.codeBox">
+        <Setter Property="FontFamily" Value="Consolas" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Background" Value="{StaticResource CodeBg}" />
+        <Setter Property="Foreground" Value="#CDD6F4" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+    <Style Selector="Button.primary">
+        <Setter Property="Background" Value="{StaticResource HeaderGradient}" />
+        <Setter Property="Foreground" Value="White" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="20,10" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.secondary">
+        <Setter Property="Background" Value="{StaticResource PrimaryContainer}" />
+        <Setter Property="Foreground" Value="{StaticResource Primary500}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="16,8" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.link">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Foreground" Value="{StaticResource Primary500}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.link:pointerover">
+        <Setter Property="Foreground" Value="#9A82DB" />
+    </Style>
+    <Style Selector="Border.card">
+        <Setter Property="Background" Value="White" />
+        <Setter Property="CornerRadius" Value="12" />
+        <Setter Property="Padding" Value="16" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="#E8DEF8" />
+    </Style>
+    <Style Selector="TextBlock.sectionTitle">
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource OnSurfaceVariant}" />
+        <Setter Property="Margin" Value="0,0,0,6" />
+    </Style>
+</Styles>
