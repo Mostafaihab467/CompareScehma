@@ -156,7 +156,9 @@ public class SchemaCompareService
     }
 
     public async Task<(bool Success, string Script)> ApplyChangesAsync(
-        ConnectionInfo sourceInfo, ConnectionInfo targetInfo, IProgress<string>? progress = null)
+        ConnectionInfo sourceInfo, ConnectionInfo targetInfo, IProgress<string>? progress = null,
+        List<SchemaDiffItem>? includedItems = null)
+
     {
         return await Task.Run(async () =>
         {
@@ -171,6 +173,24 @@ public class SchemaCompareService
 
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
+
+            // If caller specified which items to apply, exclude everything else from the DacFx result
+            if (includedItems != null && includedItems.Count > 0)
+            {
+                // Build a lookup of selected object names (lower-case for case-insensitive match)
+                var selectedNames = includedItems
+                    .Select(i => i.ObjectName.ToLowerInvariant())
+                    .ToHashSet();
+
+                foreach (var diff in result.Differences)
+                {
+                    if (diff == null) continue;
+                    var name = (diff.Name ?? string.Empty).ToLowerInvariant();
+                    if (!selectedNames.Contains(name))
+                        result.Exclude(diff);
+                }
+                progress?.Report($"Filtered to {selectedNames.Count} selected item(s).");
+            }
 
             progress?.Report("Generating deployment script...");
             var scriptResult = result.GenerateScript(targetInfo.Database);

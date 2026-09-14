@@ -1,4 +1,4 @@
-using System.Collections.ObjectModel;
+﻿using System.Collections.ObjectModel;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -60,6 +60,10 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _changedFilterText = "Changed: 0";
     [ObservableProperty] private string _deletedFilterText = "Deleted: 0";
 
+    // Operation logs
+    [ObservableProperty] private string _logText = "";
+    [ObservableProperty] private bool _hasLogs;
+
     public ObservableCollection<SchemaDiffItem> Differences { get; } = [];
     public ObservableCollection<SchemaDiffItem> FilteredDifferences { get; } = [];
 
@@ -74,6 +78,12 @@ public partial class MainViewModel : ObservableObject
     public ICommand CancelApplyCommand { get; }
     public ICommand TestSourceConnectionCommand { get; }
     public ICommand TestTargetConnectionCommand { get; }
+    public ICommand SelectAllCommand { get; }
+    public ICommand DeselectAllCommand { get; }
+    public ICommand ClearLogsCommand { get; }
+
+    /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
+    public Func<string, Task>? CopyToClipboardAsync { get; set; }
 
     public MainViewModel()
     {
@@ -84,6 +94,9 @@ public partial class MainViewModel : ObservableObject
         CancelApplyCommand = new RelayCommand(CancelApply);
         TestSourceConnectionCommand = new AsyncRelayCommand(() => TestConnectionAsync(GetSourceInfo(), isSource: true));
         TestTargetConnectionCommand = new AsyncRelayCommand(() => TestConnectionAsync(GetTargetInfo(), isSource: false));
+        SelectAllCommand = new RelayCommand(SelectAll);
+        DeselectAllCommand = new RelayCommand(DeselectAll);
+        ClearLogsCommand = new RelayCommand(() => { LogText = ""; HasLogs = false; });
 
         _isComparingChanged = () =>
         {
@@ -132,6 +145,29 @@ public partial class MainViewModel : ObservableObject
     }
     private SchemaDiffItem? _previousSelected;
 
+    private void SelectAll()
+    {
+        foreach (var item in FilteredDifferences) item.IsIncluded = true;
+    }
+
+    private void DeselectAll()
+    {
+        foreach (var item in FilteredDifferences) item.IsIncluded = false;
+    }
+
+    private void AppendLog(string message)
+    {
+        var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
+        LogText = string.IsNullOrEmpty(LogText) ? line : LogText + Environment.NewLine + line;
+        HasLogs = true;
+    }
+
+    public async Task CopyLogsToClipboardAsync()
+    {
+        if (CopyToClipboardAsync != null && !string.IsNullOrEmpty(LogText))
+            await CopyToClipboardAsync(LogText);
+    }
+
     private void ApplyFilter()
     {
         FilteredDifferences.Clear();
@@ -160,8 +196,6 @@ public partial class MainViewModel : ObservableObject
     {
         var label = isSource ? "Source" : "Target";
         StatusMessage = $"Testing {label} connection...";
-        // Don't set IsComparing=true here — it disables the Compare button and
-        // shows the loading overlay. Use a lightweight status update instead.
         ShowError = false;
         if (isSource) { SourceConnectionStatus = "Testing..."; SourceConnectionOk = false; SourceHasConnectionResult = true; }
         else          { TargetConnectionStatus = "Testing..."; TargetConnectionOk = false; TargetHasConnectionResult = true; }
@@ -169,6 +203,7 @@ public partial class MainViewModel : ObservableObject
         {
             var msg = await _compareService.TestConnectionAsync(info);
             StatusMessage = $"{label}: {msg}";
+            AppendLog($"{label} connection: {msg}");
             if (isSource) { SourceConnectionStatus = msg; SourceConnectionOk = true; }
             else          { TargetConnectionStatus = msg; TargetConnectionOk = true; }
         }
@@ -177,6 +212,7 @@ public partial class MainViewModel : ObservableObject
             var errMsg = ex.Message;
             ErrorMessage = errMsg; ShowError = true;
             StatusMessage = $"{label} connection failed";
+            AppendLog($"{label} connection FAILED: {errMsg}");
             if (isSource) { SourceConnectionStatus = $"Failed: {errMsg}"; SourceConnectionOk = false; }
             else          { TargetConnectionStatus = $"Failed: {errMsg}"; TargetConnectionOk = false; }
         }
@@ -196,9 +232,15 @@ public partial class MainViewModel : ObservableObject
         FullDeployScript = ""; HasFullScript = false; SelectedDiff = null;
         HasSourceScript = false; HasTargetScript = false;
         StatusMessage = "Comparing...";
+        AppendLog($"--- Compare started: {sourceInfo.Server}/{sourceInfo.Database} -> {targetInfo.Server}/{targetInfo.Database} ---");
         try
         {
-            var p = new Progress<string>(m => { ProgressText = m; StatusMessage = m; });
+            var p = new Progress<string>(m =>
+            {
+                ProgressText = m;
+                StatusMessage = m;
+                AppendLog(m);
+            });
             var (items, summary) = await _compareService.CompareAsync(sourceInfo, targetInfo, p);
             TotalAdded = summary.AddedCount; TotalChanged = summary.ChangedCount; TotalDeleted = summary.DeletedCount;
             AddedFilterText = $"Added: {summary.AddedCount}"; ChangedFilterText = $"Changed: {summary.ChangedCount}"; DeletedFilterText = $"Deleted: {summary.DeletedCount}";
@@ -208,8 +250,9 @@ public partial class MainViewModel : ObservableObject
                 ? $"{summary.TotalDifferences} differences found (+{summary.AddedCount} / ~{summary.ChangedCount} / -{summary.DeletedCount})"
                 : "No differences found. Databases are identical.";
             StatusMessage = ResultSummaryText;
+            AppendLog($"--- Compare finished: {ResultSummaryText} ---");
         }
-        catch (Exception ex) { StatusMessage = $"Error: {ex.Message}"; ErrorMessage = ex.Message; ShowError = true; }
+        catch (Exception ex) { StatusMessage = $"Error: {ex.Message}"; ErrorMessage = ex.Message; ShowError = true; AppendLog($"ERROR: {ex.Message}"); }
         finally { IsComparing = false; ProgressValue = 100; }
     }
 
@@ -217,12 +260,14 @@ public partial class MainViewModel : ObservableObject
     {
         if (!HasResults) return;
         IsComparing = true; StatusMessage = "Generating deployment script...";
+        AppendLog("Generating deployment script...");
         try
         {
             FullDeployScript = await _compareService.GenerateScriptAsync(GetSourceInfo(), GetTargetInfo());
             HasFullScript = true; StatusMessage = "Deployment script generated.";
+            AppendLog("Deployment script generated successfully.");
         }
-        catch (Exception ex) { StatusMessage = $"Error generating script: {ex.Message}"; }
+        catch (Exception ex) { StatusMessage = $"Error generating script: {ex.Message}"; AppendLog($"Script generation ERROR: {ex.Message}"); }
         finally { IsComparing = false; }
     }
 
@@ -237,14 +282,27 @@ public partial class MainViewModel : ObservableObject
     private async Task ApplyAsync()
     {
         if (!HasResults) return;
-        IsComparing = true; StatusMessage = "Applying changes...";
+
+        // Only apply items the user has checked
+        var includedItems = Differences.Where(d => d.IsIncluded).ToList();
+        if (includedItems.Count == 0)
+        {
+            StatusMessage = "No items selected for apply. Check at least one item in the differences list.";
+            ErrorMessage = StatusMessage; ShowError = true;
+            return;
+        }
+
+        IsComparing = true; StatusMessage = $"Applying {includedItems.Count} selected changes...";
+        AppendLog($"--- Apply started: {includedItems.Count} item(s) selected ---");
         try
         {
-            var p = new Progress<string>(m => { ProgressText = m; StatusMessage = m; });
-            var (_, script) = await _compareService.ApplyChangesAsync(GetSourceInfo(), GetTargetInfo(), p);
-            FullDeployScript = script; HasFullScript = true; StatusMessage = "Changes applied successfully.";
+            var p = new Progress<string>(m => { ProgressText = m; StatusMessage = m; AppendLog(m); });
+            var (_, script) = await _compareService.ApplyChangesAsync(GetSourceInfo(), GetTargetInfo(), p, includedItems);
+            FullDeployScript = script; HasFullScript = true;
+            StatusMessage = "Changes applied successfully.";
+            AppendLog("--- Apply finished successfully ---");
         }
-        catch (Exception ex) { StatusMessage = $"Error applying changes: {ex.Message}"; }
+        catch (Exception ex) { StatusMessage = $"Error applying changes: {ex.Message}"; AppendLog($"Apply ERROR: {ex.Message}"); }
         finally { IsComparing = false; }
     }
 
