@@ -10,6 +10,8 @@ namespace SchemaCompare.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly SchemaCompareService _compareService = new();
+    private readonly SavedConnectionsService _savedService = new();
+    private bool _applyingProfile;
 
     [ObservableProperty] private string _sourceServer = "localhost";
     [ObservableProperty] private string _sourceDatabase = "EgyptMart";
@@ -63,6 +65,22 @@ public partial class MainViewModel : ObservableObject
     // Operation logs
     [ObservableProperty] private string _logText = "";
     [ObservableProperty] private bool _hasLogs;
+    [ObservableProperty] private bool _showLogsDialog;
+    [ObservableProperty] private int _logCount;
+
+    public string LogsButtonText => $"Logs ({LogCount})";
+    public string LogsDialogTitle => LogCount == 0 ? "Operation Logs" : $"Operation Logs ({LogCount})";
+
+    partial void OnLogCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(LogsButtonText));
+        OnPropertyChanged(nameof(LogsDialogTitle));
+    }
+
+    // Saved credential profiles (shared by Source + Target dropdowns)
+    public ObservableCollection<SavedConnection> SavedConnections { get; } = [];
+    [ObservableProperty] private SavedConnection? _selectedSavedSource;
+    [ObservableProperty] private SavedConnection? _selectedSavedTarget;
 
     public ObservableCollection<SchemaDiffItem> Differences { get; } = [];
     public ObservableCollection<SchemaDiffItem> FilteredDifferences { get; } = [];
@@ -81,6 +99,11 @@ public partial class MainViewModel : ObservableObject
     public ICommand SelectAllCommand { get; }
     public ICommand DeselectAllCommand { get; }
     public ICommand ClearLogsCommand { get; }
+    public ICommand OpenLogsCommand { get; }
+    public ICommand CloseLogsCommand { get; }
+    public ICommand SaveSourceProfileCommand { get; }
+    public ICommand SaveTargetProfileCommand { get; }
+    public ICommand DeleteSavedProfileCommand { get; }
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -96,7 +119,15 @@ public partial class MainViewModel : ObservableObject
         TestTargetConnectionCommand = new AsyncRelayCommand(() => TestConnectionAsync(GetTargetInfo(), isSource: false));
         SelectAllCommand = new RelayCommand(SelectAll);
         DeselectAllCommand = new RelayCommand(DeselectAll);
-        ClearLogsCommand = new RelayCommand(() => { LogText = ""; HasLogs = false; });
+        ClearLogsCommand = new RelayCommand(ClearLogs);
+        OpenLogsCommand = new RelayCommand(() => ShowLogsDialog = true);
+        CloseLogsCommand = new RelayCommand(() => ShowLogsDialog = false);
+        SaveSourceProfileCommand = new RelayCommand(() => SaveProfile(isSource: true));
+        SaveTargetProfileCommand = new RelayCommand(() => SaveProfile(isSource: false));
+        DeleteSavedProfileCommand = new RelayCommand<object?>(DeleteProfile);
+
+        foreach (var saved in _savedService.Load())
+            SavedConnections.Add(saved);
 
         _isComparingChanged = () =>
         {
@@ -123,8 +154,157 @@ public partial class MainViewModel : ObservableObject
     partial void OnShowAddedChanged(bool value) => ApplyFilter();
     partial void OnShowChangedChanged(bool value) => ApplyFilter();
     partial void OnShowDeletedChanged(bool value) => ApplyFilter();
-    partial void OnSourceUseWindowsAuthChanged(bool value) { OnPropertyChanged(nameof(SourceUseWindowsAuth)); ShowError = false; }
-    partial void OnTargetUseWindowsAuthChanged(bool value) { OnPropertyChanged(nameof(TargetUseWindowsAuth)); ShowError = false; }
+    partial void OnSourceUseWindowsAuthChanged(bool value) { OnPropertyChanged(nameof(SourceUseWindowsAuth)); ShowError = false; ClearSourceSelectionOnManualEdit(); }
+    partial void OnTargetUseWindowsAuthChanged(bool value) { OnPropertyChanged(nameof(TargetUseWindowsAuth)); ShowError = false; ClearTargetSelectionOnManualEdit(); }
+
+    partial void OnSourceServerChanged(string value) => ClearSourceSelectionOnManualEdit();
+    partial void OnSourceDatabaseChanged(string value) => ClearSourceSelectionOnManualEdit();
+    partial void OnSourceUsernameChanged(string value) => ClearSourceSelectionOnManualEdit();
+    partial void OnSourcePasswordChanged(string value) => ClearSourceSelectionOnManualEdit();
+    partial void OnTargetServerChanged(string value) => ClearTargetSelectionOnManualEdit();
+    partial void OnTargetDatabaseChanged(string value) => ClearTargetSelectionOnManualEdit();
+    partial void OnTargetUsernameChanged(string value) => ClearTargetSelectionOnManualEdit();
+    partial void OnTargetPasswordChanged(string value) => ClearTargetSelectionOnManualEdit();
+
+    partial void OnSelectedSavedSourceChanged(SavedConnection? value)
+    {
+        if (value != null && !_applyingProfile)
+            ApplyProfile(value, isSource: true);
+    }
+
+    partial void OnSelectedSavedTargetChanged(SavedConnection? value)
+    {
+        if (value != null && !_applyingProfile)
+            ApplyProfile(value, isSource: false);
+    }
+
+    private void ClearSourceSelectionOnManualEdit()
+    {
+        if (_applyingProfile) return;
+        if (SelectedSavedSource != null)
+            SelectedSavedSource = null;
+    }
+
+    private void ClearTargetSelectionOnManualEdit()
+    {
+        if (_applyingProfile) return;
+        if (SelectedSavedTarget != null)
+            SelectedSavedTarget = null;
+    }
+
+    private void ApplyProfile(SavedConnection profile, bool isSource)
+    {
+        _applyingProfile = true;
+        try
+        {
+            if (isSource)
+            {
+                SourceServer = profile.Server;
+                SourceDatabase = profile.Database;
+                SourceUseWindowsAuth = profile.UseWindowsAuth;
+                SourceUsername = profile.Username;
+                SourcePassword = profile.Password;
+                SourceHasConnectionResult = false;
+            }
+            else
+            {
+                TargetServer = profile.Server;
+                TargetDatabase = profile.Database;
+                TargetUseWindowsAuth = profile.UseWindowsAuth;
+                TargetUsername = profile.Username;
+                TargetPassword = profile.Password;
+                TargetHasConnectionResult = false;
+            }
+        }
+        finally { _applyingProfile = false; }
+        ShowError = false;
+        var side = isSource ? "Source" : "Target";
+        StatusMessage = $"Loaded saved profile '{profile.DisplayName}' into {side}.";
+        AppendLog($"{side}: loaded saved profile '{profile.DisplayName}'.");
+    }
+
+    private void SaveProfile(bool isSource)
+    {
+        var server = isSource ? SourceServer : TargetServer;
+        var database = isSource ? SourceDatabase : TargetDatabase;
+        var useWinAuth = isSource ? SourceUseWindowsAuth : TargetUseWindowsAuth;
+        var username = isSource ? SourceUsername : TargetUsername;
+        var password = isSource ? SourcePassword : TargetPassword;
+        var side = isSource ? "Source" : "Target";
+
+        if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database))
+        {
+            ErrorMessage = $"Cannot save {side} profile: server and database are required.";
+            ShowError = true;
+            return;
+        }
+
+        var existing = SavedConnections.FirstOrDefault(c => c.Matches(server, database, useWinAuth, username));
+        if (existing != null)
+        {
+            _applyingProfile = true;
+            try
+            {
+                existing.Server = server.Trim();
+                existing.Database = database.Trim();
+                existing.UseWindowsAuth = useWinAuth;
+                existing.Username = username?.Trim() ?? string.Empty;
+                existing.Password = password ?? string.Empty;
+            }
+            finally { _applyingProfile = false; }
+            PersistSavedConnections();
+            _applyingProfile = true;
+            try
+            {
+                if (isSource) SelectedSavedSource = existing;
+                else SelectedSavedTarget = existing;
+            }
+            finally { _applyingProfile = false; }
+            StatusMessage = $"Updated saved profile '{existing.DisplayName}'.";
+            AppendLog($"{side}: updated saved profile '{existing.DisplayName}'.");
+        }
+        else
+        {
+            var profile = new SavedConnection
+            {
+                Server = server.Trim(),
+                Database = database.Trim(),
+                UseWindowsAuth = useWinAuth,
+                Username = username?.Trim() ?? string.Empty,
+                Password = password ?? string.Empty,
+            };
+            SavedConnections.Add(profile);
+            PersistSavedConnections();
+            _applyingProfile = true;
+            try
+            {
+                if (isSource) SelectedSavedSource = profile;
+                else SelectedSavedTarget = profile;
+            }
+            finally { _applyingProfile = false; }
+            StatusMessage = $"Saved {side} credentials as '{profile.DisplayName}'.";
+            AppendLog($"{side}: saved new profile '{profile.DisplayName}'.");
+        }
+        ShowError = false;
+    }
+
+    private void DeleteProfile(object? param)
+    {
+        if (param is not SavedConnection profile)
+            return;
+        SavedConnections.Remove(profile);
+        if (SelectedSavedSource?.Id == profile.Id) SelectedSavedSource = null;
+        if (SelectedSavedTarget?.Id == profile.Id) SelectedSavedTarget = null;
+        PersistSavedConnections();
+        StatusMessage = $"Removed saved profile '{profile.DisplayName}'.";
+        AppendLog($"Removed saved profile '{profile.DisplayName}'.");
+    }
+
+    private void PersistSavedConnections()
+    {
+        try { _savedService.Save(SavedConnections); }
+        catch (Exception ex) { AppendLog($"WARNING: could not persist saved credentials: {ex.Message}"); }
+    }
 
     partial void OnSelectedDiffChanged(SchemaDiffItem? value)
     {
@@ -155,11 +335,19 @@ public partial class MainViewModel : ObservableObject
         foreach (var item in FilteredDifferences) item.IsIncluded = false;
     }
 
+    private void ClearLogs()
+    {
+        LogText = "";
+        HasLogs = false;
+        LogCount = 0;
+    }
+
     private void AppendLog(string message)
     {
         var line = $"[{DateTime.Now:HH:mm:ss}] {message}";
         LogText = string.IsNullOrEmpty(LogText) ? line : LogText + Environment.NewLine + line;
         HasLogs = true;
+        LogCount++;
     }
 
     public async Task CopyLogsToClipboardAsync()

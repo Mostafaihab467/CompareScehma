@@ -8,12 +8,12 @@
         x:Class="SchemaCompare.MainWindow"
         Title="Schema Compare - Database Diff Tool"
         Width="1200" Height="800" MinWidth="900" MinHeight="600"
-        Background="#F5F0FF" WindowStartupLocation="CenterScreen">
+        Background="{StaticResource PageBackground}" WindowStartupLocation="CenterScreen">
     <Design.DataContext><vm:MainViewModel /></Design.DataContext>
 
     <Grid RowDefinitions="Auto,Auto,*,Auto">
         <Border Background="{StaticResource HeaderGradient}" Padding="24,16">
-            <Grid ColumnDefinitions="*,Auto">
+            <Grid ColumnDefinitions="*,Auto,Auto">
                 <StackPanel>
                     <TextBlock Text="Schema Compare" FontSize="24" FontWeight="Bold" Foreground="White" />
                     <TextBlock Text="Compare SQL Server database schemas side by side" FontSize="13" Foreground="#E0D4FF" Margin="0,4,0,0" />
@@ -21,15 +21,38 @@
                 <Border Grid.Column="1" Background="#40FFFFFF" CornerRadius="8" Padding="14,8" VerticalAlignment="Center">
                     <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="13" />
                 </Border>
+                <Button Grid.Column="2" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="14,8"
+                        VerticalAlignment="Center" Margin="8,0,0,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Command="{Binding OpenLogsCommand}" ToolTip.Tip="Open operation logs">
+                    <TextBlock Text="{Binding LogsButtonText}" />
+                </Button>
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Padding="20,16" Background="#F5F0FF">
+        <Border Grid.Row="1" Padding="20,16" Background="{StaticResource PageBackground}">
             <Grid ColumnDefinitions="*,Auto,*">
                 <Border Classes="card" Padding="20">
                     <StackPanel>
                         <TextBlock Text="SOURCE DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
                         <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,6,0,12" />
+                        <TextBlock Text="Saved profile" Classes="sectionTitle" />
+                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                            <ComboBox ItemsSource="{Binding SavedConnections}"
+                                      SelectedItem="{Binding SelectedSavedSource}"
+                                      PlaceholderText="Select saved…"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="models:SavedConnection">
+                                        <TextBlock Text="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveSourceProfileCommand}"
+                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
+                            <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
+                                    CommandParameter="{Binding SelectedSavedSource}"
+                                    Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                        </Grid>
                         <TextBlock Text="Server" Classes="sectionTitle" />
                         <TextBox Text="{Binding SourceServer}" PlaceholderText="localhost, (local), or IP" />
                         <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
@@ -45,12 +68,12 @@
                         <Button Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
                         <StackPanel Margin="0,8,0,0" IsVisible="{Binding SourceHasConnectionResult}">
                             <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding SourceConnectionOk}"
-                                    Background="#E8F5E9" BorderBrush="#4CAF50" BorderThickness="1">
-                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="#2E7D32" />
+                                    Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
+                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" />
                             </Border>
                             <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !SourceConnectionOk}"
-                                    Background="#FFEBEE" BorderBrush="#F44336" BorderThickness="1">
-                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="#C62828" />
+                                    Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
+                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ErrorPanelText}" />
                             </Border>
                         </StackPanel>
                     </StackPanel>
@@ -65,8 +88,26 @@
 
                 <Border Grid.Column="2" Classes="card" Padding="20">
                     <StackPanel>
-                        <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="#F57F17" LetterSpacing="1" />
+                        <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
                         <Rectangle Height="2" Fill="{StaticResource WarningBrush}" Margin="0,6,0,12" />
+                        <TextBlock Text="Saved profile" Classes="sectionTitle" />
+                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                            <ComboBox ItemsSource="{Binding SavedConnections}"
+                                      SelectedItem="{Binding SelectedSavedTarget}"
+                                      PlaceholderText="Select saved…"
+                                      HorizontalAlignment="Stretch">
+                                <ComboBox.ItemTemplate>
+                                    <DataTemplate DataType="models:SavedConnection">
+                                        <TextBlock Text="{Binding DisplayName}" />
+                                    </DataTemplate>
+                                </ComboBox.ItemTemplate>
+                            </ComboBox>
+                            <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveTargetProfileCommand}"
+                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
+                            <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
+                                    CommandParameter="{Binding SelectedSavedTarget}"
+                                    Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                        </Grid>
                         <TextBlock Text="Server" Classes="sectionTitle" />
                         <TextBox Text="{Binding TargetServer}" PlaceholderText="localhost, (local), or IP" />
                         <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
@@ -82,12 +123,12 @@
                         <Button Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
                         <StackPanel Margin="0,8,0,0" IsVisible="{Binding TargetHasConnectionResult}">
                             <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding TargetConnectionOk}"
-                                    Background="#E8F5E9" BorderBrush="#4CAF50" BorderThickness="1">
-                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="#2E7D32" />
+                                    Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
+                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" />
                             </Border>
                             <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !TargetConnectionOk}"
-                                    Background="#FFEBEE" BorderBrush="#F44336" BorderThickness="1">
-                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="#C62828" />
+                                    Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
+                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ErrorPanelText}" />
                             </Border>
                         </StackPanel>
                     </StackPanel>
@@ -95,22 +136,22 @@
             </Grid>
         </Border>
 
-        <ProgressBar Grid.Row="2" Value="{Binding ProgressValue}" IsIndeterminate="{Binding IsComparing}" IsVisible="{Binding IsComparing}" Foreground="{StaticResource HeaderGradient}" Background="#E8DEF8" Height="6" />
+        <ProgressBar Grid.Row="2" Value="{Binding ProgressValue}" IsIndeterminate="{Binding IsComparing}" IsVisible="{Binding IsComparing}" Foreground="{StaticResource HeaderGradient}" Background="{StaticResource CardBorder}" Height="6" />
 
         <Grid Grid.Row="3" Margin="20,8,20,8">
-            <Grid RowDefinitions="Auto,Auto,*,Auto,Auto" IsVisible="{Binding HasResults}">
+            <Grid RowDefinitions="Auto,*,Auto" IsVisible="{Binding HasResults}">
                 <!-- Toolbar row -->
                 <Border Classes="card" Padding="14,10">
                     <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                         <TextBlock Text="{Binding ResultSummaryText}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="20,0,0,0">
-                            <Border Background="#E8F5E9" CornerRadius="6" Padding="8,4">
+                            <Border Background="{StaticResource SuccessPanelBg}" CornerRadius="6" Padding="8,4">
                                 <CheckBox IsChecked="{Binding ShowAdded}" Content="{Binding AddedFilterText}" Foreground="{StaticResource Success}" />
                             </Border>
-                            <Border Background="#FFF8E1" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
-                                <CheckBox IsChecked="{Binding ShowChanged}" Content="{Binding ChangedFilterText}" Foreground="#F57F17" />
+                            <Border Background="{StaticResource WarningPanelBg}" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
+                                <CheckBox IsChecked="{Binding ShowChanged}" Content="{Binding ChangedFilterText}" Foreground="{StaticResource Amber}" />
                             </Border>
-                            <Border Background="#FFEBEE" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
+                            <Border Background="{StaticResource ErrorPanelBg}" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
                                 <CheckBox IsChecked="{Binding ShowDeleted}" Content="{Binding DeletedFilterText}" Foreground="{StaticResource Error}" />
                             </Border>
                         </StackPanel>
@@ -125,10 +166,10 @@
                 </Border>
 
                 <!-- Diff list + detail pane -->
-                <Grid Grid.Row="2" ColumnDefinitions="*,4,*" Margin="0,8,0,0" MaxHeight="340">
+                <Grid Grid.Row="1" ColumnDefinitions="*,4,*" Margin="0,8,0,0" MaxHeight="340">
                     <Border Classes="card" Padding="0">
                         <Grid RowDefinitions="Auto,*">
-                            <Border Background="#F3EDF7" Padding="14,10"><TextBlock Text="Differences" FontWeight="Bold" FontSize="13" /></Border>
+                            <Border Background="{StaticResource SubtleHeader}" Padding="14,10"><TextBlock Text="Differences" FontWeight="Bold" FontSize="13" /></Border>
                             <ScrollViewer Grid.Row="1">
                                 <ItemsControl ItemsSource="{Binding FilteredDifferences}">
                                     <ItemsControl.ItemTemplate>
@@ -152,10 +193,10 @@
                             </ScrollViewer>
                         </Grid>
                     </Border>
-                    <GridSplitter Grid.Column="1" Width="4" Background="#E8DEF8" />
+                    <GridSplitter Grid.Column="1" Width="4" Background="{StaticResource CardBorder}" />
                     <Border Grid.Column="2" Classes="card" Padding="0">
                     <Grid RowDefinitions="Auto,*">
-                        <Border Background="#F3EDF7" Padding="14,10">
+                        <Border Background="{StaticResource SubtleHeader}" Padding="14,10">
                             <Grid ColumnDefinitions="*,Auto">
                                 <StackPanel>
                                     <TextBlock Text="Detail" FontWeight="Bold" FontSize="13" />
@@ -172,25 +213,23 @@
                             <Grid ColumnDefinitions="*,2,*">
                                 <Border Padding="8" IsVisible="{Binding HasTargetScript}">
                                     <Grid RowDefinitions="Auto,*">
-                                        <Border Background="#FFF3E0" Padding="8,4" CornerRadius="4,4,0,0">
-                                            <TextBlock Text="Target (Current)" FontWeight="SemiBold" FontSize="12" Foreground="#E65100" />
+                                        <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                            <TextBlock Text="Target (Current)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource WarningPanelText}" />
                                         </Border>
                                         <ScrollViewer Grid.Row="1">
-                                            <!-- IsReadOnly TextBox: CopyingToClipboard handled safely, no cut allowed -->
-                                            <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True"
-                                                     KeyDown="CodeBox_KeyDown" />
+                                            <!-- IsReadOnly TextBox: cut/copy handled safely at window level -->
+                                            <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True" />
                                         </ScrollViewer>
                                     </Grid>
                                 </Border>
-                                <GridSplitter Grid.Column="1" Width="2" Background="#E8DEF8" />
+                                <GridSplitter Grid.Column="1" Width="2" Background="{StaticResource CardBorder}" />
                                 <Border Grid.Column="2" Padding="8" IsVisible="{Binding HasSourceScript}">
                                     <Grid RowDefinitions="Auto,*">
-                                        <Border Background="#E8F5E9" Padding="8,4" CornerRadius="4,4,0,0">
-                                            <TextBlock Text="Source (New)" FontWeight="SemiBold" FontSize="12" Foreground="#1B5E20" />
+                                        <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                            <TextBlock Text="Source (New)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource SuccessPanelText}" />
                                         </Border>
                                         <ScrollViewer Grid.Row="1">
-                                            <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True"
-                                                     KeyDown="CodeBox_KeyDown" />
+                                            <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True" />
                                         </ScrollViewer>
                                     </Grid>
                                 </Border>
@@ -207,14 +246,14 @@
                 </Grid>
 
                 <!-- Apply confirmation banner -->
-                <Border Grid.Row="2" HorizontalAlignment="Center" VerticalAlignment="Top" ZIndex="50"
-                        Background="#FFF8E1" BorderBrush="#F57F17" BorderThickness="1" CornerRadius="8" Padding="20,12"
+                <Border Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Top" ZIndex="50"
+                        Background="{StaticResource WarningPanelBg}" BorderBrush="{StaticResource WarningPanelBorder}" BorderThickness="1" CornerRadius="8" Padding="20,12"
                         IsVisible="{Binding ShowApplyConfirmation}">
                     <ScrollViewer MaxHeight="300">
                         <StackPanel>
-                            <TextBlock Text="Apply changes to target database?" FontWeight="SemiBold" FontSize="14" Foreground="#E65100" />
+                            <TextBlock Text="Apply changes to target database?" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource WarningPanelText}" />
                             <TextBlock Text="{Binding ResultSummaryText}" Margin="0,4,0,4" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" />
-                            <TextBlock Text="Only checked items in the list will be applied." FontSize="11" Foreground="#888" Margin="0,0,0,12" />
+                            <TextBlock Text="Only checked items in the list will be applied." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,12" />
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                 <Button Classes="primary" Command="{Binding ConfirmApplyCommand}" Padding="20,8" Margin="0,0,12,0"><TextBlock Text="Yes, Apply" /></Button>
                                 <Button Classes="secondary" Command="{Binding CancelApplyCommand}" Padding="20,8"><TextBlock Text="Cancel" /></Button>
@@ -224,37 +263,20 @@
                 </Border>
 
                 <!-- Deployment script panel -->
-                <Border Grid.Row="3" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasFullScript}" MinHeight="150">
+                <Border Grid.Row="2" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasFullScript}" MinHeight="150">
                     <Grid RowDefinitions="Auto,*">
-                        <Border Background="#1E1E2E" Padding="14,10">
+                        <Border Background="{StaticResource CodeBg}" Padding="14,10">
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBlock Text="Deployment Script" FontWeight="Bold" FontSize="13" Foreground="#CDD6F4" />
                                 <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Click="CopyScript_Click"><TextBlock Text="Copy" /></Button>
                             </Grid>
                         </Border>
                         <ScrollViewer Grid.Row="1">
-                            <TextBox Text="{Binding FullDeployScript}" Classes="codeBox" IsReadOnly="True" MinHeight="120"
-                                     KeyDown="CodeBox_KeyDown" />
+                            <TextBox Text="{Binding FullDeployScript}" Classes="codeBox" IsReadOnly="True" MinHeight="120" />
                         </ScrollViewer>
                     </Grid>
                 </Border>
 
-                <!-- Logs panel -->
-                <Border Grid.Row="4" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasLogs}" MaxHeight="160">
-                    <Grid RowDefinitions="Auto,*">
-                        <Border Background="#1E1E2E" Padding="10,6">
-                            <Grid ColumnDefinitions="*,Auto,Auto">
-                                <TextBlock Text="Operation Log" FontWeight="Bold" FontSize="12" Foreground="#CDD6F4" VerticalAlignment="Center" />
-                                <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Click="CopyLogs_Click" Margin="0,0,6,0"><TextBlock Text="Copy Log" /></Button>
-                                <Button Grid.Column="2" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Command="{Binding ClearLogsCommand}"><TextBlock Text="Clear" /></Button>
-                            </Grid>
-                        </Border>
-                        <ScrollViewer Grid.Row="1" x:Name="LogScrollViewer">
-                            <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True" FontSize="11"
-                                     KeyDown="CodeBox_KeyDown" />
-                        </ScrollViewer>
-                    </Grid>
-                </Border>
             </Grid>
 
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !HasResults}">
@@ -262,21 +284,37 @@
                 <TextBlock Text="Enter connection details and click Compare" FontSize="16" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" />
                 <TextBlock Text="Discover schema differences between two databases" FontSize="13" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" />
             </StackPanel>
-            <Border VerticalAlignment="Bottom" Background="#FFEBEE" BorderBrush="{StaticResource Error}" BorderThickness="1" CornerRadius="8" Padding="16,10"
-                    IsVisible="{Binding ShowError}" ZIndex="50">
-                <Grid ColumnDefinitions="Auto,*">
-                    <TextBlock Text="&#x26A0;" FontSize="18" Foreground="{StaticResource Error}" VerticalAlignment="Center" />
-                    <TextBlock Grid.Column="1" Text="{Binding ErrorMessage}" Margin="10,0,0,0" Foreground="{StaticResource Error}" TextWrapping="Wrap" VerticalAlignment="Center" />
-                </Grid>
-            </Border>
         </Grid>
-        <Border Grid.Row="1" Grid.RowSpan="3" IsVisible="{Binding IsComparing}" Background="#80FFFFFF" ZIndex="100">
+        <Border Grid.Row="1" Grid.RowSpan="3" IsVisible="{Binding IsComparing}" Background="#CC0B0B10" ZIndex="100">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <Border Width="60" Height="60" CornerRadius="30" Background="{StaticResource HeaderGradient}">
                     <TextBlock Text="&#x21BB;" FontSize="32" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
                 <TextBlock Text="{Binding StatusMessage}" Margin="0,16,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Primary500}" HorizontalAlignment="Center" />
             </StackPanel>
+        </Border>
+        <!-- Operation logs dialog -->
+        <Border Grid.Row="0" Grid.RowSpan="4" IsVisible="{Binding ShowLogsDialog}" Background="#B30B0B10" ZIndex="200">
+            <Border Classes="card" Width="720" MaxHeight="540" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+                <Grid RowDefinitions="Auto,Auto,*,Auto">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="{Binding LogsDialogTitle}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryText}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="secondary" Command="{Binding CloseLogsCommand}" Padding="12,4" FontSize="12"><TextBlock Text="✕ Close" /></Button>
+                    </Grid>
+                    <Rectangle Grid.Row="1" Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,10,0,12" />
+                    <Border Grid.Row="2" Background="{StaticResource CodeBg}" CornerRadius="8" Padding="4" MinHeight="200">
+                        <ScrollViewer MaxHeight="360">
+                            <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True" FontSize="12"
+                                     AcceptsReturn="True" TextWrapping="Wrap"
+                                     PlaceholderText="No log entries yet." />
+                        </ScrollViewer>
+                    </Border>
+                    <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
+                        <Button Classes="secondary" Click="CopyLogs_Click" Padding="16,6" FontSize="12"><TextBlock Text="Copy Log" /></Button>
+                        <Button Classes="danger" Command="{Binding ClearLogsCommand}" Padding="16,6" FontSize="12" Margin="8,0,0,0"><TextBlock Text="Clear" /></Button>
+                    </StackPanel>
+                </Grid>
+            </Border>
         </Border>
     </Grid>
 </Window>
