@@ -1,3 +1,21 @@
+## .NET build artifacts
 bin/
 obj/
+publish/
+*.user
+
+## Visual Studio
 .vs/
+*.suo
+*.userosscache
+*.sln.docstates
+
+## Rider
+.idea/
+
+## OS
+.DS_Store
+Thumbs.db
+
+## Local build verify output
+.buildverify/

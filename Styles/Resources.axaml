@@ -1,16 +1,42 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Color x:Key="Primary500">#6750A4</Color>
-    <Color x:Key="PrimaryContainer">#EADDFF</Color>
-    <Color x:Key="OnSurfaceVariant">#49454F</Color>
-    <Color x:Key="Error">#B3261E</Color>
-    <Color x:Key="Success">#2E7D32</Color>
-    <Color x:Key="GradientStart">#6750A4</Color>
-    <Color x:Key="GradientEnd">#9A82DB</Color>
-    <Color x:Key="CodeBg">#1E1E2E</Color>
+    <!-- Dark near-black theme with violet accent. Text colors are brightened for contrast. -->
+    <Color x:Key="Primary500">#A78BFA</Color>
+    <Color x:Key="PrimaryContainer">#2A2140</Color>
+    <Color x:Key="OnSurfaceVariant">#B9B9CE</Color>
+    <Color x:Key="Error">#F87171</Color>
+    <Color x:Key="Success">#34D399</Color>
+    <Color x:Key="Amber">#FBBF24</Color>
+    <Color x:Key="GradientStart">#0B0B12</Color>
+    <Color x:Key="GradientEnd">#3B1D7A</Color>
+    <Color x:Key="CodeBg">#0E0E15</Color>
+
     <LinearGradientBrush x:Key="HeaderGradient" StartPoint="0,0" EndPoint="1,0">
         <GradientStop Offset="0" Color="{StaticResource GradientStart}" />
+        <GradientStop Offset="0.55" Color="#1B1235" />
         <GradientStop Offset="1" Color="{StaticResource GradientEnd}" />
     </LinearGradientBrush>
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource Success}" />
     <SolidColorBrush x:Key="ErrorBrush" Color="{StaticResource Error}" />
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource Amber}" />
+
+    <!-- Surfaces -->
+    <Color x:Key="PageBackground">#0B0B10</Color>
+    <Color x:Key="CardBackground">#14141C</Color>
+    <Color x:Key="CardBorder">#2A2A3D</Color>
+    <Color x:Key="SubtleHeader">#1D1D2A</Color>
+    <Color x:Key="InputBackground">#0F0F17</Color>
+    <Color x:Key="InputBorder">#3A3A55</Color>
+    <Color x:Key="PrimaryText">#F2F2F7</Color>
+    <Color x:Key="SecondaryButton">#23232F</Color>
+
+    <!-- Status panels -->
+    <Color x:Key="SuccessPanelBg">#0C2A1D</Color>
+    <Color x:Key="SuccessPanelBorder">#34D399</Color>
+    <Color x:Key="SuccessPanelText">#6EE7B7</Color>
+    <Color x:Key="WarningPanelBg">#2C2111</Color>
+    <Color x:Key="WarningPanelBorder">#FBBF24</Color>
+    <Color x:Key="WarningPanelText">#FCD34D</Color>
+    <Color x:Key="ErrorPanelBg">#2C1215</Color>
+    <Color x:Key="ErrorPanelBorder">#F87171</Color>
+    <Color x:Key="ErrorPanelText">#FCA5A5</Color>
 </ResourceDictionary>

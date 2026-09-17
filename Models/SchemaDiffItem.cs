@@ -11,14 +11,18 @@ public partial class SchemaDiffItem : ObservableObject
     public DiffStatus Status { get; set; }
     public string SourceScript { get; set; } = string.Empty;
     public string TargetScript { get; set; } = string.Empty;
+
     [ObservableProperty] private bool _isSelected;
-    public string RowBackground => IsSelected ? "#E8DEF8" : "Transparent";
+    [ObservableProperty] private bool _isIncluded = true;
+
+    public string RowBackground => IsSelected ? "#2E2547" : "Transparent";
     partial void OnIsSelectedChanged(bool value) => OnPropertyChanged(nameof(RowBackground));
+
     public string StatusColor => Status switch
     {
-        DiffStatus.Added => "#27AE60",
-        DiffStatus.Changed => "#F39C12",
-        DiffStatus.Deleted => "#E74C3C",
-        _ => "#95A5A6"
+        DiffStatus.Added   => "#34D399",
+        DiffStatus.Changed => "#FBBF24",
+        DiffStatus.Deleted => "#F87171",
+        _ => "#8E8EA3"
     };
 }
