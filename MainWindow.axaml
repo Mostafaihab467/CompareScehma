@@ -47,8 +47,9 @@
                         <Button Classes="secondary" Command="{Binding OpenSchemaCompareCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Schema Compare" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenMoveDataCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Move Data" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenBackupCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Local Backup" /></Button>
+                        <Button Classes="secondary" Command="{Binding OpenDiagramCommand}" HorizontalAlignment="Stretch"><TextBlock Text="DB Diagram" /></Button>
                         <Rectangle Height="1" Fill="{StaticResource CardBorder}" Margin="4,10" />
-                        <TextBlock Text="Move Data and Local Backup open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
+                        <TextBlock Text="Move Data, Local Backup and DB Diagram open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>

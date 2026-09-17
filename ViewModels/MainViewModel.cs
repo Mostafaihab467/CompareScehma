@@ -125,6 +125,7 @@ public partial class MainViewModel : ObservableObject
     public ICommand OpenSchemaCompareCommand { get; }
     public ICommand OpenMoveDataCommand { get; }
     public ICommand OpenBackupCommand { get; }
+    public ICommand OpenDiagramCommand { get; }
     public ICommand ExportBackupCommand { get; }
     public ICommand ToggleSidebarCommand { get; }
     public ICommand CopyErrorCommand { get; }
@@ -137,6 +138,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Supplied by the main window so navigation can open the separate data-sync window.</summary>
     public Action? OpenMoveDataWindowAction { get; set; }
     public Action? OpenBackupWindowAction { get; set; }
+    public Action? OpenDiagramWindowAction { get; set; }
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -161,6 +163,7 @@ public partial class MainViewModel : ObservableObject
         OpenSchemaCompareCommand = new RelayCommand(() => IsMoveDataPage = false);
         OpenMoveDataCommand = new RelayCommand(() => OpenMoveDataWindowAction?.Invoke());
         OpenBackupCommand = new RelayCommand(() => OpenBackupWindowAction?.Invoke());
+        OpenDiagramCommand = new RelayCommand(() => OpenDiagramWindowAction?.Invoke());
         ExportBackupCommand = new AsyncRelayCommand(ExportBackupAsync, () => !IsBackingUp && !string.IsNullOrWhiteSpace(BackupDestinationPath));
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarOpen = !IsSidebarOpen);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);

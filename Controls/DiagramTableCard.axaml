@@ -1,0 +1,48 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="SchemaCompare.Controls.DiagramTableCard"
+             Width="240">
+    <UserControl.Styles>
+        <Style Selector="TextBlock.icon">
+            <Setter Property="Foreground" Value="#71717A" />
+        </Style>
+        <Style Selector="TextBlock.icon.fk">
+            <Setter Property="Foreground" Value="#7DD3FC" />
+        </Style>
+        <Style Selector="TextBlock.icon.pk">
+            <Setter Property="Foreground" Value="#FBBF24" />
+        </Style>
+    </UserControl.Styles>
+    <Border Background="#181824" BorderBrush="#3A3A55" BorderThickness="1" CornerRadius="10"
+            BoxShadow="0 4 14 0 #80000000">
+        <StackPanel>
+            <Border Background="#23233A" CornerRadius="10,10,0,0" Padding="10,8">
+                <StackPanel>
+                    <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="12.5"
+                               Foreground="#F2F2F7" TextWrapping="Wrap" />
+                    <TextBlock Text="{Binding HeaderSubtitle}" FontSize="10.5" Margin="0,2,0,0"
+                               Foreground="#B9B9CE" />
+                </StackPanel>
+            </Border>
+            <ItemsControl ItemsSource="{Binding VisibleColumns}" Margin="4,4,4,2">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,2">
+                            <TextBlock Grid.Column="0" Text="{Binding Icon}" FontSize="11" Width="20"
+                                       Classes="icon"
+                                       Classes.pk="{Binding IsPrimaryKey}"
+                                       Classes.fk="{Binding IsForeignKey}" />
+                            <TextBlock Grid.Column="1" Text="{Binding Name}" FontSize="11.5"
+                                       Foreground="#E4E4EF" TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="2" Text="{Binding DisplayType}" FontSize="10"
+                                       Foreground="#8E8EA3" Margin="6,0,0,0" />
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding OverflowText}" IsVisible="{Binding HasOverflow}"
+                       FontSize="10" FontStyle="Italic" Foreground="#8E8EA3"
+                       Margin="10,0,10,8" />
+        </StackPanel>
+    </Border>
+</UserControl>
