@@ -1,5 +1,6 @@
 ﻿using System.Collections.ObjectModel;
 using System.Windows.Input;
+using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using SchemaCompare.Models;
@@ -10,6 +11,8 @@ namespace SchemaCompare.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly SchemaCompareService _compareService = new();
+    private readonly DataMoveService _dataMoveService = new();
+    private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
     private bool _applyingProfile;
 
@@ -29,6 +32,18 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _statusMessage = "Enter connection details and click Compare";
     [ObservableProperty] private string _progressText = "";
     [ObservableProperty] private double _progressValue;
+    [ObservableProperty] private bool _isMoveDataPage;
+    [ObservableProperty] private bool _isSidebarOpen = true;
+    [ObservableProperty] private GridLength _sidebarWidth = new(220);
+    [ObservableProperty] private bool _hasDataMovePlan;
+    [ObservableProperty] private string _dataMoveSummary = "Choose the shared Source and Target databases above, then analyze tables.";
+    [ObservableProperty] private string _dataMoveRelationshipSummary = "Foreign-key dependencies will be checked before data is written.";
+    [ObservableProperty] private bool _showDataMoveConfirmation;
+    [ObservableProperty] private string _dataMoveFilterText = "";
+    [ObservableProperty] private bool _backupUsesSource = true;
+    [ObservableProperty] private string _backupDestinationPath = "";
+    [ObservableProperty] private bool _isBackingUp;
+    [ObservableProperty] private string _backupStatus = "Choose a database and a local .bacpac file.";
 
     [ObservableProperty] private bool _hasResults;
     [ObservableProperty] private string _resultSummaryText = "";
@@ -84,6 +99,9 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<SchemaDiffItem> Differences { get; } = [];
     public ObservableCollection<SchemaDiffItem> FilteredDifferences { get; } = [];
+    public ObservableCollection<DataMoveTable> DataMoveTables { get; } = [];
+    public ObservableCollection<DataMoveTable> FilteredDataMoveTables { get; } = [];
+    private DataMovePlan? _dataMovePlan;
 
     [ObservableProperty] private bool _showAdded = true;
     [ObservableProperty] private bool _showChanged = true;
@@ -104,6 +122,21 @@ public partial class MainViewModel : ObservableObject
     public ICommand SaveSourceProfileCommand { get; }
     public ICommand SaveTargetProfileCommand { get; }
     public ICommand DeleteSavedProfileCommand { get; }
+    public ICommand OpenSchemaCompareCommand { get; }
+    public ICommand OpenMoveDataCommand { get; }
+    public ICommand OpenBackupCommand { get; }
+    public ICommand ExportBackupCommand { get; }
+    public ICommand ToggleSidebarCommand { get; }
+    public ICommand CopyErrorCommand { get; }
+    public ICommand AnalyzeDataMoveCommand { get; }
+    public ICommand StartDataMoveCommand { get; }
+    public ICommand ConfirmDataMoveCommand { get; }
+    public ICommand CancelDataMoveCommand { get; }
+    public ICommand SelectAllDataTablesCommand { get; }
+    public ICommand SelectNoDataTablesCommand { get; }
+    /// <summary>Supplied by the main window so navigation can open the separate data-sync window.</summary>
+    public Action? OpenMoveDataWindowAction { get; set; }
+    public Action? OpenBackupWindowAction { get; set; }
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -125,6 +158,18 @@ public partial class MainViewModel : ObservableObject
         SaveSourceProfileCommand = new RelayCommand(() => SaveProfile(isSource: true));
         SaveTargetProfileCommand = new RelayCommand(() => SaveProfile(isSource: false));
         DeleteSavedProfileCommand = new RelayCommand<object?>(DeleteProfile);
+        OpenSchemaCompareCommand = new RelayCommand(() => IsMoveDataPage = false);
+        OpenMoveDataCommand = new RelayCommand(() => OpenMoveDataWindowAction?.Invoke());
+        OpenBackupCommand = new RelayCommand(() => OpenBackupWindowAction?.Invoke());
+        ExportBackupCommand = new AsyncRelayCommand(ExportBackupAsync, () => !IsBackingUp && !string.IsNullOrWhiteSpace(BackupDestinationPath));
+        ToggleSidebarCommand = new RelayCommand(() => IsSidebarOpen = !IsSidebarOpen);
+        CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);
+        AnalyzeDataMoveCommand = new AsyncRelayCommand(AnalyzeDataMoveAsync, CanCompare);
+        StartDataMoveCommand = new RelayCommand(() => ShowDataMoveConfirmation = true, () => HasDataMovePlan && !IsComparing && DataMoveTables.Any(t => t.IsSelected && t.Warning is null));
+        ConfirmDataMoveCommand = new AsyncRelayCommand(ConfirmDataMoveAsync);
+        CancelDataMoveCommand = new RelayCommand(() => ShowDataMoveConfirmation = false);
+        SelectAllDataTablesCommand = new RelayCommand(() => { foreach (var t in DataMoveTables.Where(t => t.Warning is null)) t.IsSelected = true; ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged(); });
+        SelectNoDataTablesCommand = new RelayCommand(() => { foreach (var t in DataMoveTables) t.IsSelected = false; ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged(); });
 
         foreach (var saved in _savedService.Load())
             SavedConnections.Add(saved);
@@ -135,6 +180,8 @@ public partial class MainViewModel : ObservableObject
             ((AsyncRelayCommand)CompareCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)GenerateScriptCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)ApplyCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)AnalyzeDataMoveCommand).NotifyCanExecuteChanged();
+            ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged();
         };
         _hasResultsChanged = () =>
         {
@@ -166,6 +213,12 @@ public partial class MainViewModel : ObservableObject
     partial void OnTargetUsernameChanged(string value) => ClearTargetSelectionOnManualEdit();
     partial void OnTargetPasswordChanged(string value) => ClearTargetSelectionOnManualEdit();
 
+    partial void OnHasDataMovePlanChanged(bool value) => ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged();
+    partial void OnDataMoveFilterTextChanged(string value) => ApplyDataMoveFilter();
+    partial void OnIsSidebarOpenChanged(bool value) => SidebarWidth = new GridLength(value ? 220 : 0);
+    partial void OnBackupDestinationPathChanged(string value) => ((AsyncRelayCommand)ExportBackupCommand).NotifyCanExecuteChanged();
+    partial void OnIsBackingUpChanged(bool value) => ((AsyncRelayCommand)ExportBackupCommand).NotifyCanExecuteChanged();
+
     partial void OnSelectedSavedSourceChanged(SavedConnection? value)
     {
         if (value != null && !_applyingProfile)
@@ -181,6 +234,7 @@ public partial class MainViewModel : ObservableObject
     private void ClearSourceSelectionOnManualEdit()
     {
         if (_applyingProfile) return;
+        InvalidateDataMovePlan();
         if (SelectedSavedSource != null)
             SelectedSavedSource = null;
     }
@@ -188,6 +242,7 @@ public partial class MainViewModel : ObservableObject
     private void ClearTargetSelectionOnManualEdit()
     {
         if (_applyingProfile) return;
+        InvalidateDataMovePlan();
         if (SelectedSavedTarget != null)
             SelectedSavedTarget = null;
     }
@@ -217,6 +272,7 @@ public partial class MainViewModel : ObservableObject
             }
         }
         finally { _applyingProfile = false; }
+        InvalidateDataMovePlan();
         ShowError = false;
         var side = isSource ? "Source" : "Target";
         StatusMessage = $"Loaded saved profile '{profile.DisplayName}' into {side}.";
@@ -356,6 +412,12 @@ public partial class MainViewModel : ObservableObject
             await CopyToClipboardAsync(LogText);
     }
 
+    private async Task CopyErrorAsync()
+    {
+        if (CopyToClipboardAsync != null && !string.IsNullOrEmpty(ErrorMessage))
+            await CopyToClipboardAsync(ErrorMessage);
+    }
+
     private void ApplyFilter()
     {
         FilteredDifferences.Clear();
@@ -492,6 +554,154 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex) { StatusMessage = $"Error applying changes: {ex.Message}"; AppendLog($"Apply ERROR: {ex.Message}"); }
         finally { IsComparing = false; }
+    }
+
+    private void InvalidateDataMovePlan()
+    {
+        if (!HasDataMovePlan) return;
+        _dataMovePlan = null;
+        DataMoveTables.Clear();
+        FilteredDataMoveTables.Clear();
+        HasDataMovePlan = false;
+        ShowDataMoveConfirmation = false;
+        DataMoveSummary = "Connections changed. Analyze tables and relations again before data sync.";
+    }
+
+    private async Task AnalyzeDataMoveAsync()
+    {
+        var source = GetSourceInfo();
+        var target = GetTargetInfo();
+        if (string.IsNullOrWhiteSpace(source.Server) || string.IsNullOrWhiteSpace(source.Database) ||
+            string.IsNullOrWhiteSpace(target.Server) || string.IsNullOrWhiteSpace(target.Database))
+        {
+            ErrorMessage = "Enter both Source and Target server/database values before analyzing data move.";
+            ShowError = true; StatusMessage = ErrorMessage; return;
+        }
+
+        IsComparing = true; ShowError = false; HasDataMovePlan = false; DataMoveTables.Clear();
+        AppendLog($"--- Data move analysis: {source.Server}/{source.Database} -> {target.Server}/{target.Database} ---");
+        try
+        {
+            var p = new Progress<string>(m => { StatusMessage = m; ProgressText = m; AppendLog("Data move: " + m); });
+            _dataMovePlan = await _dataMoveService.AnalyzeAsync(source, target, p);
+            foreach (var table in _dataMovePlan.Tables) DataMoveTables.Add(table);
+            ApplyDataMoveFilter();
+            var usable = DataMoveTables.Count(t => t.Warning is null);
+            var blocked = DataMoveTables.Count - usable;
+            var relationCount = _dataMovePlan.ParentTables.Sum(x => x.Value.Count);
+            DataMoveSummary = $"{usable} compatible table(s) ready; {blocked} blocked. Select exactly what to synchronize.";
+            DataMoveRelationshipSummary = $"Found {relationCount} foreign-key relationship(s). Selected parent tables will be inserted/updated before their children.";
+            HasDataMovePlan = true; StatusMessage = "Data move analysis complete.";
+            AppendLog($"--- Data move analysis complete: {usable} usable, {blocked} blocked, {relationCount} FK links ---");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message; ShowError = true; StatusMessage = "Data move analysis failed.";
+            AppendLog($"Data move analysis ERROR: {ex.Message}");
+        }
+        finally { IsComparing = false; }
+    }
+
+    private async Task ConfirmDataMoveAsync()
+    {
+        ShowDataMoveConfirmation = false;
+        if (_dataMovePlan is null) return;
+        List<DataMoveTable> selected;
+        try
+        {
+            selected = IncludeRequiredParentTables();
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message; ShowError = true; StatusMessage = "Data synchronization cannot start.";
+            AppendLog($"Data synchronization preflight ERROR: {ex.Message}");
+            return;
+        }
+        if (selected.Count == 0) { ErrorMessage = "Select at least one compatible table."; ShowError = true; return; }
+
+        IsComparing = true; ShowError = false;
+        AppendLog($"--- Data synchronization started: {selected.Count} selected table(s); target rows are never deleted ---");
+        try
+        {
+            var p = new Progress<string>(m => { StatusMessage = m; ProgressText = m; AppendLog("Data move: " + m); });
+            var result = await _dataMoveService.SyncAsync(GetSourceInfo(), GetTargetInfo(), selected, _dataMovePlan, p);
+            DataMoveSummary = $"Completed {result.TablesCompleted} table(s): {result.InsertedRows:N0} inserted, {result.UpdatedRows:N0} updated. No target rows were deleted.";
+            StatusMessage = "Data synchronization completed.";
+            AppendLog($"--- Data synchronization completed: {result.TablesCompleted} tables, {result.InsertedRows} inserted, {result.UpdatedRows} updated ---");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message; ShowError = true; StatusMessage = "Data synchronization stopped.";
+            AppendLog($"Data synchronization ERROR: {ex.Message}");
+        }
+        finally { IsComparing = false; }
+    }
+
+    /// <summary>
+    /// A child row cannot be inserted before its referenced parent exists on the target.
+    /// Expand the user's selection transitively, so choosing Orders also brings in Users,
+    /// then any parents of Users. A non-copyable parent blocks the operation before writes.
+    /// </summary>
+    private List<DataMoveTable> IncludeRequiredParentTables()
+    {
+        if (_dataMovePlan is null) return [];
+        var all = DataMoveTables.ToDictionary(t => $"{t.Schema}.{t.Name}", StringComparer.OrdinalIgnoreCase);
+        var selected = new HashSet<string>(DataMoveTables.Where(t => t.IsSelected).Select(t => $"{t.Schema}.{t.Name}"), StringComparer.OrdinalIgnoreCase);
+        var pending = new Queue<string>(selected);
+        var added = new List<string>();
+
+        while (pending.TryDequeue(out var child))
+        {
+            if (!_dataMovePlan.ParentTables.TryGetValue(child, out var parentKeys)) continue;
+            foreach (var parent in parentKeys.Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                if (!all.TryGetValue(parent, out var table))
+                    throw new InvalidOperationException($"'{child}' references '{parent}', but that parent table is unavailable for copying.");
+                if (table.Warning is not null)
+                    throw new InvalidOperationException($"'{child}' requires parent '{parent}', but it is blocked: {table.Warning}.");
+                if (selected.Add(parent))
+                {
+                    table.IsSelected = true;
+                    added.Add(parent);
+                    pending.Enqueue(parent);
+                }
+            }
+        }
+
+        if (added.Count > 0)
+            AppendLog("Data move: automatically included required parent table(s): " + string.Join(", ", added));
+        return selected.Select(key => all[key]).ToList();
+    }
+
+    private void ApplyDataMoveFilter()
+    {
+        FilteredDataMoveTables.Clear();
+        var filter = DataMoveFilterText?.Trim() ?? string.Empty;
+        foreach (var table in DataMoveTables)
+            if (string.IsNullOrEmpty(filter) || table.FullName.Contains(filter, StringComparison.OrdinalIgnoreCase) || table.StatusText.Contains(filter, StringComparison.OrdinalIgnoreCase))
+                FilteredDataMoveTables.Add(table);
+    }
+
+    public string BackupSuggestedFileName => $"{(BackupUsesSource ? SourceDatabase : TargetDatabase)}_{DateTime.Now:yyyyMMdd_HHmmss}.bacpac";
+
+    private async Task ExportBackupAsync()
+    {
+        var database = BackupUsesSource ? GetSourceInfo() : GetTargetInfo();
+        if (string.IsNullOrWhiteSpace(database.Server) || string.IsNullOrWhiteSpace(database.Database))
+        { ErrorMessage = "Choose a valid database connection before exporting a backup."; ShowError = true; return; }
+        var path = BackupDestinationPath.Trim();
+        if (!path.EndsWith(".bacpac", StringComparison.OrdinalIgnoreCase)) path += ".bacpac";
+        IsBackingUp = true; ShowError = false; BackupStatus = "Starting local BACPAC export...";
+        AppendLog($"--- BACPAC export started: {database.Server}/{database.Database} -> {path} ---");
+        try
+        {
+            var progress = new Progress<string>(m => { BackupStatus = m; AppendLog("Backup: " + m); });
+            var result = await _backupService.ExportBacpacAsync(database, path, progress);
+            BackupDestinationPath = path; BackupStatus = result;
+            AppendLog($"--- BACPAC export completed: {result} ---");
+        }
+        catch (Exception ex) { ErrorMessage = ex.Message; ShowError = true; BackupStatus = "Backup failed."; AppendLog($"BACPAC export ERROR: {ex.Message}"); }
+        finally { IsBackingUp = false; }
     }
 
     private ConnectionInfo GetSourceInfo() => new()

@@ -16,3 +16,6 @@ publish/
 ## OS
 .DS_Store
 Thumbs.db
+
+## Local build verify output
+.buildverify/

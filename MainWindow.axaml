@@ -7,21 +7,25 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
         x:Class="SchemaCompare.MainWindow"
         Title="Schema Compare - Database Diff Tool"
-        Width="1200" Height="800" MinWidth="900" MinHeight="600"
+        Width="1200" Height="800" MinWidth="720" MinHeight="480"
+        CanResize="True" SizeToContent="Manual"
         Background="{StaticResource PageBackground}" WindowStartupLocation="CenterScreen">
     <Design.DataContext><vm:MainViewModel /></Design.DataContext>
 
-    <Grid RowDefinitions="Auto,Auto,*,Auto">
+    <Grid RowDefinitions="Auto,*">
         <Border Background="{StaticResource HeaderGradient}" Padding="24,16">
-            <Grid ColumnDefinitions="*,Auto,Auto">
-                <StackPanel>
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                <Button Classes="secondary" Command="{Binding ToggleSidebarCommand}" Padding="10,6" Margin="0,0,12,0" ToolTip.Tip="Open or close navigation menu">
+                    <TextBlock Text="☰" FontSize="20" />
+                </Button>
+                <StackPanel Grid.Column="1">
                     <TextBlock Text="Schema Compare" FontSize="24" FontWeight="Bold" Foreground="White" />
                     <TextBlock Text="Compare SQL Server database schemas side by side" FontSize="13" Foreground="#E0D4FF" Margin="0,4,0,0" />
                 </StackPanel>
-                <Border Grid.Column="1" Background="#40FFFFFF" CornerRadius="8" Padding="14,8" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="13" />
+                <Border Grid.Column="2" Background="#40FFFFFF" CornerRadius="8" Padding="14,8" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="13" TextWrapping="Wrap" MaxWidth="360" />
                 </Border>
-                <Button Grid.Column="2" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="14,8"
+                <Button Grid.Column="3" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="14,8"
                         VerticalAlignment="Center" Margin="8,0,0,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                         Command="{Binding OpenLogsCommand}" ToolTip.Tip="Open operation logs">
                     <TextBlock Text="{Binding LogsButtonText}" />
@@ -29,281 +33,314 @@
             </Grid>
         </Border>
 
-        <Border Grid.Row="1" Padding="20,16" Background="{StaticResource PageBackground}">
-            <Grid ColumnDefinitions="*,Auto,*">
-                <Border Classes="card" Padding="20">
-                    <StackPanel>
-                        <TextBlock Text="SOURCE DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
-                        <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,6,0,12" />
-                        <TextBlock Text="Saved profile" Classes="sectionTitle" />
-                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                            <ComboBox ItemsSource="{Binding SavedConnections}"
-                                      SelectedItem="{Binding SelectedSavedSource}"
-                                      PlaceholderText="Select saved…"
-                                      HorizontalAlignment="Stretch">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate DataType="models:SavedConnection">
-                                        <TextBlock Text="{Binding DisplayName}" />
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                            <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveSourceProfileCommand}"
-                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
-                            <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
-                                    CommandParameter="{Binding SelectedSavedSource}"
-                                    Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
-                        </Grid>
-                        <TextBlock Text="Server" Classes="sectionTitle" />
-                        <TextBox Text="{Binding SourceServer}" PlaceholderText="localhost, (local), or IP" />
-                        <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
-                        <TextBox Text="{Binding SourceDatabase}" PlaceholderText="Database name" />
-                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                            <RadioButton IsChecked="{Binding SourceUseWindowsAuth}" Content="Windows Auth" GroupName="srcAuth" />
-                            <RadioButton IsChecked="{Binding !SourceUseWindowsAuth}" Content="SQL Auth" GroupName="srcAuth" Margin="16,0,0,0" />
-                        </StackPanel>
-                        <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding !SourceUseWindowsAuth}">
-                            <TextBox Text="{Binding SourceUsername}" PlaceholderText="Username" />
-                            <TextBox Grid.Column="1" Text="{Binding SourcePassword}" PlaceholderText="Password" PasswordChar="*" Margin="8,0,0,0" />
-                        </Grid>
-                        <Button Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
-                        <StackPanel Margin="0,8,0,0" IsVisible="{Binding SourceHasConnectionResult}">
-                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding SourceConnectionOk}"
-                                    Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
-                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" />
-                            </Border>
-                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !SourceConnectionOk}"
-                                    Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
-                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ErrorPanelText}" />
-                            </Border>
-                        </StackPanel>
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="{Binding SidebarWidth}" MinWidth="0" />
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" MinWidth="400" />
+            </Grid.ColumnDefinitions>
+
+            <Border Classes="card" Padding="10" Margin="12,12,0,12" IsVisible="{Binding IsSidebarOpen}">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="WORKSPACE" Classes="sectionTitle" Margin="6,4,0,8" />
+                        <Button Classes="secondary" Command="{Binding OpenSchemaCompareCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Schema Compare" /></Button>
+                        <Button Classes="secondary" Command="{Binding OpenMoveDataCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Move Data" /></Button>
+                        <Button Classes="secondary" Command="{Binding OpenBackupCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Local Backup" /></Button>
+                        <Rectangle Height="1" Fill="{StaticResource CardBorder}" Margin="4,10" />
+                        <TextBlock Text="Move Data and Local Backup open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
                     </StackPanel>
-                </Border>
+                </ScrollViewer>
+            </Border>
 
-                <Button Grid.Column="1" Classes="primary" Command="{Binding CompareCommand}" IsEnabled="{Binding !IsComparing}" VerticalAlignment="Center" Margin="16,0" Padding="16,28" FontSize="13">
-                    <StackPanel HorizontalAlignment="Center">
-                        <TextBlock Text="&#x21C4;" FontSize="24" HorizontalAlignment="Center" />
-                        <TextBlock Text="Compare" HorizontalAlignment="Center" Margin="0,4,0,0" />
-                    </StackPanel>
-                </Button>
+            <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" IsVisible="{Binding IsSidebarOpen}" Margin="0,12" />
 
-                <Border Grid.Column="2" Classes="card" Padding="20">
-                    <StackPanel>
-                        <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
-                        <Rectangle Height="2" Fill="{StaticResource WarningBrush}" Margin="0,6,0,12" />
-                        <TextBlock Text="Saved profile" Classes="sectionTitle" />
-                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                            <ComboBox ItemsSource="{Binding SavedConnections}"
-                                      SelectedItem="{Binding SelectedSavedTarget}"
-                                      PlaceholderText="Select saved…"
-                                      HorizontalAlignment="Stretch">
-                                <ComboBox.ItemTemplate>
-                                    <DataTemplate DataType="models:SavedConnection">
-                                        <TextBlock Text="{Binding DisplayName}" />
-                                    </DataTemplate>
-                                </ComboBox.ItemTemplate>
-                            </ComboBox>
-                            <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveTargetProfileCommand}"
-                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
-                            <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
-                                    CommandParameter="{Binding SelectedSavedTarget}"
-                                    Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+            <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="12">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="420">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnDefinitions="*,Auto,*">
+                            <Border Classes="card" Padding="20">
+                                <StackPanel>
+                                    <TextBlock Text="SOURCE DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
+                                    <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,6,0,12" />
+                                    <TextBlock Text="Saved profile" Classes="sectionTitle" />
+                                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                                        <ComboBox ItemsSource="{Binding SavedConnections}"
+                                                  SelectedItem="{Binding SelectedSavedSource}"
+                                                  PlaceholderText="Select saved…"
+                                                  HorizontalAlignment="Stretch">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate DataType="models:SavedConnection">
+                                                    <TextBlock Text="{Binding DisplayName}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveSourceProfileCommand}"
+                                                Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
+                                        <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
+                                                CommandParameter="{Binding SelectedSavedSource}"
+                                                Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                                    </Grid>
+                                    <TextBlock Text="Server" Classes="sectionTitle" />
+                                    <TextBox Text="{Binding SourceServer}" PlaceholderText="localhost, (local), or IP" />
+                                    <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
+                                    <TextBox Text="{Binding SourceDatabase}" PlaceholderText="Database name" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <RadioButton IsChecked="{Binding SourceUseWindowsAuth}" Content="Windows Auth" GroupName="srcAuth" />
+                                        <RadioButton IsChecked="{Binding !SourceUseWindowsAuth}" Content="SQL Auth" GroupName="srcAuth" Margin="16,0,0,0" />
+                                    </StackPanel>
+                                    <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding !SourceUseWindowsAuth}">
+                                        <TextBox Text="{Binding SourceUsername}" PlaceholderText="Username" />
+                                        <TextBox Grid.Column="1" Text="{Binding SourcePassword}" PlaceholderText="Password" PasswordChar="*" Margin="8,0,0,0" />
+                                    </Grid>
+                                    <Button Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
+                                    <StackPanel Margin="0,8,0,0" IsVisible="{Binding SourceHasConnectionResult}">
+                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding SourceConnectionOk}"
+                                                Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
+                                            <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
+                                        </Border>
+                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !SourceConnectionOk}"
+                                                Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
+                                            <TextBox Text="{Binding SourceConnectionStatus}" Classes="errorText" />
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+
+                            <Button Grid.Column="1" Classes="primary" Command="{Binding CompareCommand}" IsEnabled="{Binding !IsComparing}" VerticalAlignment="Center" Margin="16,0" Padding="16,28" FontSize="13">
+                                <StackPanel HorizontalAlignment="Center">
+                                    <TextBlock Text="&#x21C4;" FontSize="24" HorizontalAlignment="Center" />
+                                    <TextBlock Text="Compare" HorizontalAlignment="Center" Margin="0,4,0,0" />
+                                </StackPanel>
+                            </Button>
+
+                            <Border Grid.Column="2" Classes="card" Padding="20">
+                                <StackPanel>
+                                    <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
+                                    <Rectangle Height="2" Fill="{StaticResource WarningBrush}" Margin="0,6,0,12" />
+                                    <TextBlock Text="Saved profile" Classes="sectionTitle" />
+                                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                                        <ComboBox ItemsSource="{Binding SavedConnections}"
+                                                  SelectedItem="{Binding SelectedSavedTarget}"
+                                                  PlaceholderText="Select saved…"
+                                                  HorizontalAlignment="Stretch">
+                                            <ComboBox.ItemTemplate>
+                                                <DataTemplate DataType="models:SavedConnection">
+                                                    <TextBlock Text="{Binding DisplayName}" />
+                                                </DataTemplate>
+                                            </ComboBox.ItemTemplate>
+                                        </ComboBox>
+                                        <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveTargetProfileCommand}"
+                                                Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
+                                        <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
+                                                CommandParameter="{Binding SelectedSavedTarget}"
+                                                Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                                    </Grid>
+                                    <TextBlock Text="Server" Classes="sectionTitle" />
+                                    <TextBox Text="{Binding TargetServer}" PlaceholderText="localhost, (local), or IP" />
+                                    <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
+                                    <TextBox Text="{Binding TargetDatabase}" PlaceholderText="Database name" />
+                                    <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                        <RadioButton IsChecked="{Binding TargetUseWindowsAuth}" Content="Windows Auth" GroupName="tgtAuth" />
+                                        <RadioButton IsChecked="{Binding !TargetUseWindowsAuth}" Content="SQL Auth" GroupName="tgtAuth" Margin="16,0,0,0" />
+                                    </StackPanel>
+                                    <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding !TargetUseWindowsAuth}">
+                                        <TextBox Text="{Binding TargetUsername}" PlaceholderText="Username" />
+                                        <TextBox Grid.Column="1" Text="{Binding TargetPassword}" PlaceholderText="Password" PasswordChar="*" Margin="8,0,0,0" />
+                                    </Grid>
+                                    <Button Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
+                                    <StackPanel Margin="0,8,0,0" IsVisible="{Binding TargetHasConnectionResult}">
+                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding TargetConnectionOk}"
+                                                Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
+                                            <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
+                                        </Border>
+                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !TargetConnectionOk}"
+                                                Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
+                                            <TextBox Text="{Binding TargetConnectionStatus}" Classes="errorText" />
+                                        </Border>
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
                         </Grid>
-                        <TextBlock Text="Server" Classes="sectionTitle" />
-                        <TextBox Text="{Binding TargetServer}" PlaceholderText="localhost, (local), or IP" />
-                        <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
-                        <TextBox Text="{Binding TargetDatabase}" PlaceholderText="Database name" />
-                        <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
-                            <RadioButton IsChecked="{Binding TargetUseWindowsAuth}" Content="Windows Auth" GroupName="tgtAuth" />
-                            <RadioButton IsChecked="{Binding !TargetUseWindowsAuth}" Content="SQL Auth" GroupName="tgtAuth" Margin="16,0,0,0" />
-                        </StackPanel>
-                        <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding !TargetUseWindowsAuth}">
-                            <TextBox Text="{Binding TargetUsername}" PlaceholderText="Username" />
-                            <TextBox Grid.Column="1" Text="{Binding TargetPassword}" PlaceholderText="Password" PasswordChar="*" Margin="8,0,0,0" />
-                        </Grid>
-                        <Button Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
-                        <StackPanel Margin="0,8,0,0" IsVisible="{Binding TargetHasConnectionResult}">
-                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding TargetConnectionOk}"
-                                    Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
-                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" />
-                            </Border>
-                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !TargetConnectionOk}"
-                                    Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
-                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource ErrorPanelText}" />
-                            </Border>
-                        </StackPanel>
+
+                        <Border IsVisible="{Binding ShowError}" Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1" CornerRadius="8" Padding="12">
+                            <Grid ColumnDefinitions="*,Auto">
+                                <TextBox Text="{Binding ErrorMessage}" Classes="errorText" />
+                                <Button Grid.Column="1" Classes="secondary" Command="{Binding CopyErrorCommand}" Padding="10,4" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Top" ToolTip.Tip="Copy error to clipboard"><TextBlock Text="Copy" /></Button>
+                            </Grid>
+                        </Border>
                     </StackPanel>
-                </Border>
-            </Grid>
-        </Border>
+                </ScrollViewer>
 
-        <ProgressBar Grid.Row="2" Value="{Binding ProgressValue}" IsIndeterminate="{Binding IsComparing}" IsVisible="{Binding IsComparing}" Foreground="{StaticResource HeaderGradient}" Background="{StaticResource CardBorder}" Height="6" />
+                <GridSplitter Grid.Row="1" Height="6" ResizeDirection="Rows" />
 
-        <Grid Grid.Row="3" Margin="20,8,20,8">
-            <Grid RowDefinitions="Auto,*,Auto" IsVisible="{Binding HasResults}">
-                <!-- Toolbar row -->
-                <Border Classes="card" Padding="14,10">
-                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
-                        <TextBlock Text="{Binding ResultSummaryText}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="20,0,0,0">
-                            <Border Background="{StaticResource SuccessPanelBg}" CornerRadius="6" Padding="8,4">
-                                <CheckBox IsChecked="{Binding ShowAdded}" Content="{Binding AddedFilterText}" Foreground="{StaticResource Success}" />
-                            </Border>
-                            <Border Background="{StaticResource WarningPanelBg}" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
-                                <CheckBox IsChecked="{Binding ShowChanged}" Content="{Binding ChangedFilterText}" Foreground="{StaticResource Amber}" />
-                            </Border>
-                            <Border Background="{StaticResource ErrorPanelBg}" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
-                                <CheckBox IsChecked="{Binding ShowDeleted}" Content="{Binding DeletedFilterText}" Foreground="{StaticResource Error}" />
-                            </Border>
-                        </StackPanel>
-                        <!-- Select All / Deselect All -->
-                        <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
-                            <Button Classes="secondary" Command="{Binding SelectAllCommand}" Padding="10,4" FontSize="11"><TextBlock Text="✓ All" /></Button>
-                            <Button Classes="secondary" Command="{Binding DeselectAllCommand}" Padding="10,4" FontSize="11" Margin="4,0,0,0"><TextBlock Text="✗ None" /></Button>
-                        </StackPanel>
-                        <Button Grid.Column="4" Classes="secondary" Command="{Binding GenerateScriptCommand}" Margin="12,0,0,0" Padding="16,6"><TextBlock Text="Generate Script" /></Button>
-                        <Button Grid.Column="5" Classes="primary" Click="ApplyButton_Click" IsEnabled="{Binding !IsComparing}" Margin="8,0,0,0" Padding="16,6"><TextBlock Text="Apply to Target" /></Button>
-                    </Grid>
-                </Border>
+                <Grid Grid.Row="2" MinHeight="180">
+                    <Grid IsVisible="{Binding HasResults}" RowDefinitions="Auto,*,Auto,*">
+                        <Border Classes="card" Padding="14,10">
+                            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                                    <TextBlock Text="{Binding ResultSummaryText}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="20,0,0,0">
+                                        <Border Background="{StaticResource SuccessPanelBg}" CornerRadius="6" Padding="8,4">
+                                            <CheckBox IsChecked="{Binding ShowAdded}" Content="{Binding AddedFilterText}" Foreground="{StaticResource Success}" />
+                                        </Border>
+                                        <Border Background="{StaticResource WarningPanelBg}" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
+                                            <CheckBox IsChecked="{Binding ShowChanged}" Content="{Binding ChangedFilterText}" Foreground="{StaticResource Amber}" />
+                                        </Border>
+                                        <Border Background="{StaticResource ErrorPanelBg}" CornerRadius="6" Padding="8,4" Margin="8,0,0,0">
+                                            <CheckBox IsChecked="{Binding ShowDeleted}" Content="{Binding DeletedFilterText}" Foreground="{StaticResource Error}" />
+                                        </Border>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                                        <Button Classes="secondary" Command="{Binding SelectAllCommand}" Padding="10,4" FontSize="11"><TextBlock Text="✓ All" /></Button>
+                                        <Button Classes="secondary" Command="{Binding DeselectAllCommand}" Padding="10,4" FontSize="11" Margin="4,0,0,0"><TextBlock Text="✗ None" /></Button>
+                                    </StackPanel>
+                                    <Button Grid.Column="4" Classes="secondary" Command="{Binding GenerateScriptCommand}" Margin="12,0,0,0" Padding="16,6"><TextBlock Text="Generate Script" /></Button>
+                                    <Button Grid.Column="5" Classes="primary" Click="ApplyButton_Click" IsEnabled="{Binding !IsComparing}" Margin="8,0,0,0" Padding="16,6"><TextBlock Text="Apply to Target" /></Button>
+                                </Grid>
+                            </ScrollViewer>
+                        </Border>
 
-                <!-- Diff list + detail pane -->
-                <Grid Grid.Row="1" ColumnDefinitions="*,4,*" Margin="0,8,0,0" MaxHeight="340">
-                    <Border Classes="card" Padding="0">
-                        <Grid RowDefinitions="Auto,*">
-                            <Border Background="{StaticResource SubtleHeader}" Padding="14,10"><TextBlock Text="Differences" FontWeight="Bold" FontSize="13" /></Border>
-                            <ScrollViewer Grid.Row="1">
-                                <ItemsControl ItemsSource="{Binding FilteredDifferences}">
-                                    <ItemsControl.ItemTemplate>
-                                        <DataTemplate DataType="models:SchemaDiffItem">
-                                            <Border Padding="12,8" Margin="4,2" CornerRadius="8" Background="{Binding RowBackground}" PointerPressed="DiffItem_PointerPressed">
-                                                <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                                                    <!-- Selection checkbox -->
-                                                    <CheckBox IsChecked="{Binding IsIncluded}" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                                    <Border Grid.Column="1" Background="{Binding StatusColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
-                                                        <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Bold" Foreground="White" />
+                        <Grid Grid.Row="1" ColumnDefinitions="*,6,*" Margin="0,8,0,0" MinHeight="160">
+                            <Border Classes="card" Padding="0">
+                                <Grid RowDefinitions="Auto,*">
+                                    <Border Background="{StaticResource SubtleHeader}" Padding="14,10"><TextBlock Text="Differences" FontWeight="Bold" FontSize="13" /></Border>
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding FilteredDifferences}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="models:SchemaDiffItem">
+                                                    <Border Padding="12,8" Margin="4,2" CornerRadius="8" Background="{Binding RowBackground}" PointerPressed="DiffItem_PointerPressed">
+                                                        <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                            <CheckBox IsChecked="{Binding IsIncluded}" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                                            <Border Grid.Column="1" Background="{Binding StatusColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
+                                                                <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Bold" Foreground="White" />
+                                                            </Border>
+                                                            <StackPanel Grid.Column="2" Margin="10,0,0,0">
+                                                                <TextBlock Text="{Binding ObjectName}" FontWeight="SemiBold" FontSize="13" />
+                                                                <TextBlock Text="{Binding ObjectType}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                                                            </StackPanel>
+                                                        </Grid>
                                                     </Border>
-                                                    <StackPanel Grid.Column="2" Margin="10,0,0,0">
-                                                        <TextBlock Text="{Binding ObjectName}" FontWeight="SemiBold" FontSize="13" />
-                                                        <TextBlock Text="{Binding ObjectType}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
-                                                    </StackPanel>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                </Grid>
+                            </Border>
+                            <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" />
+                            <Border Grid.Column="2" Classes="card" Padding="0">
+                                <Grid RowDefinitions="Auto,*">
+                                    <Border Background="{StaticResource SubtleHeader}" Padding="14,10">
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <StackPanel>
+                                                <TextBlock Text="Detail" FontWeight="Bold" FontSize="13" />
+                                                <TextBlock Text="{Binding SelectedObjectName}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding HasSelection}" />
+                                            </StackPanel>
+                                            <Border Grid.Column="1" Padding="6,2" CornerRadius="4" VerticalAlignment="Center"
+                                                    BorderBrush="{StaticResource Primary500}" BorderThickness="1"
+                                                    IsVisible="{Binding HasSelection}">
+                                                <TextBlock Text="{Binding SelectedObjectType}" FontSize="11" Foreground="{StaticResource Primary500}" />
+                                            </Border>
+                                        </Grid>
+                                    </Border>
+                                    <Grid Grid.Row="1" IsVisible="{Binding HasSelection}">
+                                        <Grid ColumnDefinitions="*,6,*">
+                                            <Border Padding="8" IsVisible="{Binding HasTargetScript}">
+                                                <Grid RowDefinitions="Auto,*">
+                                                    <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                                        <TextBlock Text="Target (Current)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource WarningPanelText}" />
+                                                    </Border>
+                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                                        <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True" />
+                                                    </ScrollViewer>
                                                 </Grid>
                                             </Border>
-                                        </DataTemplate>
-                                    </ItemsControl.ItemTemplate>
-                                </ItemsControl>
-                            </ScrollViewer>
-                        </Grid>
-                    </Border>
-                    <GridSplitter Grid.Column="1" Width="4" Background="{StaticResource CardBorder}" />
-                    <Border Grid.Column="2" Classes="card" Padding="0">
-                    <Grid RowDefinitions="Auto,*">
-                        <Border Background="{StaticResource SubtleHeader}" Padding="14,10">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <StackPanel>
-                                    <TextBlock Text="Detail" FontWeight="Bold" FontSize="13" />
-                                    <TextBlock Text="{Binding SelectedObjectName}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding HasSelection}" />
-                                </StackPanel>
-                                <Border Grid.Column="1" Padding="6,2" CornerRadius="4" VerticalAlignment="Center"
-                                        BorderBrush="{StaticResource Primary500}" BorderThickness="1"
-                                        IsVisible="{Binding HasSelection}">
-                                    <TextBlock Text="{Binding SelectedObjectType}" FontSize="11" Foreground="{StaticResource Primary500}" />
-                                </Border>
-                            </Grid>
-                        </Border>
-                        <Grid Grid.Row="1" IsVisible="{Binding HasSelection}">
-                            <Grid ColumnDefinitions="*,2,*">
-                                <Border Padding="8" IsVisible="{Binding HasTargetScript}">
-                                    <Grid RowDefinitions="Auto,*">
-                                        <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
-                                            <TextBlock Text="Target (Current)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource WarningPanelText}" />
+                                            <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" />
+                                            <Border Grid.Column="2" Padding="8" IsVisible="{Binding HasSourceScript}">
+                                                <Grid RowDefinitions="Auto,*">
+                                                    <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                                        <TextBlock Text="Source (New)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource SuccessPanelText}" />
+                                                    </Border>
+                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                                        <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True" />
+                                                    </ScrollViewer>
+                                                </Grid>
+                                            </Border>
+                                        </Grid>
+                                        <Border Padding="16" IsVisible="{Binding !HasTargetScript}">
+                                            <TextBlock Text="Only source script available" FontStyle="Italic" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" />
                                         </Border>
-                                        <ScrollViewer Grid.Row="1">
-                                            <!-- IsReadOnly TextBox: cut/copy handled safely at window level -->
-                                            <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True" />
-                                        </ScrollViewer>
                                     </Grid>
-                                </Border>
-                                <GridSplitter Grid.Column="1" Width="2" Background="{StaticResource CardBorder}" />
-                                <Border Grid.Column="2" Padding="8" IsVisible="{Binding HasSourceScript}">
-                                    <Grid RowDefinitions="Auto,*">
-                                        <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
-                                            <TextBlock Text="Source (New)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource SuccessPanelText}" />
-                                        </Border>
-                                        <ScrollViewer Grid.Row="1">
-                                            <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True" />
-                                        </ScrollViewer>
-                                    </Grid>
-                                </Border>
-                            </Grid>
-                            <Border Padding="16" IsVisible="{Binding !HasTargetScript}">
-                                <TextBlock Text="Only source script available" FontStyle="Italic" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" />
+                                    <Border Grid.Row="1" Padding="16" IsVisible="{Binding !HasSelection}">
+                                        <TextBlock Text="Select a difference to view details" Foreground="{StaticResource OnSurfaceVariant}" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Border>
+                                </Grid>
                             </Border>
                         </Grid>
-                        <Border Grid.Row="1" Padding="16" IsVisible="{Binding !HasSelection}">
-                            <TextBlock Text="Select a difference to view details" Foreground="{StaticResource OnSurfaceVariant}" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" />
+
+                        <Border Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Top" ZIndex="50"
+                                Background="{StaticResource WarningPanelBg}" BorderBrush="{StaticResource WarningPanelBorder}" BorderThickness="1" CornerRadius="8" Padding="20,12"
+                                IsVisible="{Binding ShowApplyConfirmation}">
+                            <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
+                                <StackPanel>
+                                    <TextBlock Text="Apply changes to target database?" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource WarningPanelText}" />
+                                    <TextBlock Text="{Binding ResultSummaryText}" Margin="0,4,0,4" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" />
+                                    <TextBlock Text="Only checked items in the list will be applied." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,12" />
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                        <Button Classes="primary" Command="{Binding ConfirmApplyCommand}" Padding="20,8" Margin="0,0,12,0"><TextBlock Text="Yes, Apply" /></Button>
+                                        <Button Classes="secondary" Command="{Binding CancelApplyCommand}" Padding="20,8"><TextBlock Text="Cancel" /></Button>
+                                    </StackPanel>
+                                </StackPanel>
+                            </ScrollViewer>
                         </Border>
-                    </Grid>
-                </Border>
-                </Grid>
 
-                <!-- Apply confirmation banner -->
-                <Border Grid.Row="1" HorizontalAlignment="Center" VerticalAlignment="Top" ZIndex="50"
-                        Background="{StaticResource WarningPanelBg}" BorderBrush="{StaticResource WarningPanelBorder}" BorderThickness="1" CornerRadius="8" Padding="20,12"
-                        IsVisible="{Binding ShowApplyConfirmation}">
-                    <ScrollViewer MaxHeight="300">
-                        <StackPanel>
-                            <TextBlock Text="Apply changes to target database?" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource WarningPanelText}" />
-                            <TextBlock Text="{Binding ResultSummaryText}" Margin="0,4,0,4" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" />
-                            <TextBlock Text="Only checked items in the list will be applied." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,12" />
-                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
-                                <Button Classes="primary" Command="{Binding ConfirmApplyCommand}" Padding="20,8" Margin="0,0,12,0"><TextBlock Text="Yes, Apply" /></Button>
-                                <Button Classes="secondary" Command="{Binding CancelApplyCommand}" Padding="20,8"><TextBlock Text="Cancel" /></Button>
-                            </StackPanel>
-                        </StackPanel>
-                    </ScrollViewer>
-                </Border>
+                        <GridSplitter Grid.Row="2" Height="6" ResizeDirection="Rows" IsVisible="{Binding HasFullScript}" />
 
-                <!-- Deployment script panel -->
-                <Border Grid.Row="2" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasFullScript}" MinHeight="150">
-                    <Grid RowDefinitions="Auto,*">
-                        <Border Background="{StaticResource CodeBg}" Padding="14,10">
-                            <Grid ColumnDefinitions="*,Auto">
-                                <TextBlock Text="Deployment Script" FontWeight="Bold" FontSize="13" Foreground="#CDD6F4" />
-                                <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Click="CopyScript_Click"><TextBlock Text="Copy" /></Button>
+                        <Border Grid.Row="3" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasFullScript}" MinHeight="120">
+                            <Grid RowDefinitions="Auto,*">
+                                <Border Background="{StaticResource CodeBg}" Padding="14,10">
+                                    <Grid ColumnDefinitions="*,Auto">
+                                        <TextBlock Text="Deployment Script" FontWeight="Bold" FontSize="13" Foreground="#CDD6F4" />
+                                        <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Click="CopyScript_Click"><TextBlock Text="Copy" /></Button>
+                                    </Grid>
+                                </Border>
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                    <TextBox Text="{Binding FullDeployScript}" Classes="codeBox" IsReadOnly="True" MinHeight="120" />
+                                </ScrollViewer>
                             </Grid>
                         </Border>
-                        <ScrollViewer Grid.Row="1">
-                            <TextBox Text="{Binding FullDeployScript}" Classes="codeBox" IsReadOnly="True" MinHeight="120" />
-                        </ScrollViewer>
                     </Grid>
-                </Border>
 
+                    <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !HasResults}">
+                        <TextBlock Text="&#x1F50D;" FontSize="64" HorizontalAlignment="Center" />
+                        <TextBlock Text="Enter connection details and click Compare" FontSize="16" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" />
+                        <TextBlock Text="Discover schema differences between two databases" FontSize="13" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                    </StackPanel>
+                </Grid>
+
+                <ProgressBar Grid.Row="3" Value="{Binding ProgressValue}" IsIndeterminate="{Binding IsComparing}" IsVisible="{Binding IsComparing}" Foreground="{StaticResource HeaderGradient}" Background="{StaticResource CardBorder}" Height="6" Margin="0,8,0,0" />
             </Grid>
-
-            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !HasResults}">
-                <TextBlock Text="&#x1F50D;" FontSize="64" HorizontalAlignment="Center" />
-                <TextBlock Text="Enter connection details and click Compare" FontSize="16" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" />
-                <TextBlock Text="Discover schema differences between two databases" FontSize="13" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" />
-            </StackPanel>
         </Grid>
-        <Border Grid.Row="1" Grid.RowSpan="3" IsVisible="{Binding IsComparing}" Background="#CC0B0B10" ZIndex="100">
+
+        <Border Grid.Row="1" IsVisible="{Binding IsComparing}" Background="#CC0B0B10" ZIndex="100">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <Border Width="60" Height="60" CornerRadius="30" Background="{StaticResource HeaderGradient}">
                     <TextBlock Text="&#x21BB;" FontSize="32" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
-                <TextBlock Text="{Binding StatusMessage}" Margin="0,16,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Primary500}" HorizontalAlignment="Center" />
+                <TextBlock Text="{Binding StatusMessage}" Margin="0,16,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Primary500}" HorizontalAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
         </Border>
-        <!-- Operation logs dialog -->
-        <Border Grid.Row="0" Grid.RowSpan="4" IsVisible="{Binding ShowLogsDialog}" Background="#B30B0B10" ZIndex="200">
-            <Border Classes="card" Width="720" MaxHeight="540" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="20">
+
+        <Border Grid.Row="0" Grid.RowSpan="2" IsVisible="{Binding ShowLogsDialog}" Background="#B30B0B10" ZIndex="200">
+            <Border Classes="card" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="40" Padding="20" MinWidth="420" MinHeight="280">
                 <Grid RowDefinitions="Auto,Auto,*,Auto">
                     <Grid ColumnDefinitions="*,Auto">
                         <TextBlock Text="{Binding LogsDialogTitle}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryText}" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Classes="secondary" Command="{Binding CloseLogsCommand}" Padding="12,4" FontSize="12"><TextBlock Text="✕ Close" /></Button>
                     </Grid>
                     <Rectangle Grid.Row="1" Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,10,0,12" />
-                    <Border Grid.Row="2" Background="{StaticResource CodeBg}" CornerRadius="8" Padding="4" MinHeight="200">
-                        <ScrollViewer MaxHeight="360">
+                    <Border Grid.Row="2" Background="{StaticResource CodeBg}" CornerRadius="8" Padding="4" MinHeight="160">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
                             <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True" FontSize="12"
                                      AcceptsReturn="True" TextWrapping="Wrap"
                                      PlaceholderText="No log entries yet." />
