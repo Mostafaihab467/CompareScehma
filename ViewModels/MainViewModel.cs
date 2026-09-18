@@ -14,6 +14,7 @@ public partial class MainViewModel : ObservableObject
     private readonly DataMoveService _dataMoveService = new();
     private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
+    private readonly UiSettingsService _uiSettings = new();
     private bool _applyingProfile;
 
     [ObservableProperty] private string _sourceServer = "localhost";
@@ -109,6 +110,36 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _showDeleted = true;
     [ObservableProperty] private bool _showTargetPane = true;
     [ObservableProperty] private bool _showSourcePane = true;
+    [ObservableProperty] private double _fontScale = UiSettingsService.DefaultFontScale;
+
+    public bool BothPanesVisible => ShowTargetPane && ShowSourcePane;
+    public bool NoPanesVisible => !ShowTargetPane && !ShowSourcePane;
+    public string FontScaleText => $"{FontScale * 100:0}%";
+
+    partial void OnShowTargetPaneChanged(bool value)
+    {
+        OnPropertyChanged(nameof(BothPanesVisible));
+        OnPropertyChanged(nameof(NoPanesVisible));
+    }
+
+    partial void OnShowSourcePaneChanged(bool value)
+    {
+        OnPropertyChanged(nameof(BothPanesVisible));
+        OnPropertyChanged(nameof(NoPanesVisible));
+    }
+
+    partial void OnFontScaleChanged(double value)
+    {
+        var clamped = Math.Clamp(value, UiSettingsService.MinFontScale, UiSettingsService.MaxFontScale);
+        if (Math.Abs(clamped - value) > 0.0001)
+        {
+            FontScale = clamped;
+            return;
+        }
+        OnPropertyChanged(nameof(FontScaleText));
+        UiFontSizes.Apply(clamped);
+        _uiSettings.SaveFontScale(clamped);
+    }
 
     public ICommand CompareCommand { get; }
     public ICommand GenerateScriptCommand { get; }
@@ -124,6 +155,9 @@ public partial class MainViewModel : ObservableObject
     public ICommand ToggleDiffGroupCommand { get; }
     public ICommand ToggleTargetPaneCommand { get; }
     public ICommand ToggleSourcePaneCommand { get; }
+    public ICommand DecreaseFontCommand { get; }
+    public ICommand IncreaseFontCommand { get; }
+    public ICommand ResetFontCommand { get; }
     public ICommand ClearLogsCommand { get; }
     public ICommand OpenLogsCommand { get; }
     public ICommand CloseLogsCommand { get; }
@@ -167,6 +201,9 @@ public partial class MainViewModel : ObservableObject
         ToggleDiffGroupCommand = new RelayCommand<object?>(param => { if (param is DiffGroup g) g.IsExpanded = !g.IsExpanded; });
         ToggleTargetPaneCommand = new RelayCommand(() => ShowTargetPane = !ShowTargetPane);
         ToggleSourcePaneCommand = new RelayCommand(() => ShowSourcePane = !ShowSourcePane);
+        DecreaseFontCommand = new RelayCommand(() => FontScale = Math.Round(FontScale - 0.05, 2));
+        IncreaseFontCommand = new RelayCommand(() => FontScale = Math.Round(FontScale + 0.05, 2));
+        ResetFontCommand = new RelayCommand(() => FontScale = UiSettingsService.DefaultFontScale);
         ClearLogsCommand = new RelayCommand(ClearLogs);
         OpenLogsCommand = new RelayCommand(() => ShowLogsDialog = true);
         CloseLogsCommand = new RelayCommand(() => ShowLogsDialog = false);
@@ -189,6 +226,12 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var saved in _savedService.Load())
             SavedConnections.Add(saved);
+
+        // Restore the user's text size and apply it app-wide before first render.
+        _fontScale = _uiSettings.LoadFontScale();
+        OnPropertyChanged(nameof(FontScale));
+        OnPropertyChanged(nameof(FontScaleText));
+        UiFontSizes.Apply(_fontScale);
 
         _isComparingChanged = () =>
         {

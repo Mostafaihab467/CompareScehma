@@ -36,6 +36,12 @@ public partial class MainWindow : Window
         });
 
         DataContext = vm;
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName is nameof(MainViewModel.ShowTargetPane) or nameof(MainViewModel.ShowSourcePane))
+                ApplyDetailPaneRows(vm);
+        };
+        ApplyDetailPaneRows(vm);
         vm.OpenMoveDataWindowAction = () =>
         {
             if (_moveDataWindow is { IsVisible: true })
@@ -79,6 +85,23 @@ public partial class MainWindow : Window
     private MoveDataWindow? _moveDataWindow;
     private BackupWindow? _backupWindow;
     private DiagramWindow? _diagramWindow;
+
+    /// <summary>
+    /// A hidden detail pane must not keep its half of the split: collapse its
+    /// grid row to zero so the visible pane takes the full space. Called on
+    /// toggle and once at startup (FindControl needs the loaded visual tree).
+    /// </summary>
+    private void ApplyDetailPaneRows(MainViewModel vm)
+    {
+        var grid = this.FindControl<Grid>("DetailSplitGrid");
+        if (grid is null || grid.RowDefinitions.Count < 3) return;
+        grid.RowDefinitions[0].Height = vm.ShowTargetPane
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(0);
+        grid.RowDefinitions[2].Height = vm.ShowSourcePane
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(0);
+    }
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)
     {

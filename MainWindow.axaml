@@ -1,4 +1,4 @@
-<Window xmlns="https://github.com/avaloniaui"
+﻿<Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -16,17 +16,17 @@
         <Border Background="{StaticResource HeaderGradient}" Padding="24,16">
             <Grid ColumnDefinitions="Auto,*,Auto,Auto">
                 <Button Classes="secondary" Command="{Binding ToggleSidebarCommand}" Padding="10,6" Margin="0,0,12,0" ToolTip.Tip="Open or close navigation menu">
-                    <TextBlock Text="☰" FontSize="20" />
+                    <TextBlock Text="☰" FontSize="{DynamicResource F20}" />
                 </Button>
                 <StackPanel Grid.Column="1">
-                    <TextBlock Text="Schema Compare" FontSize="24" FontWeight="Bold" Foreground="White" />
-                    <TextBlock Text="Compare SQL Server database schemas side by side" FontSize="13" Foreground="#E0D4FF" Margin="0,4,0,0" />
+                    <TextBlock Text="Schema Compare" FontSize="{DynamicResource F24}" FontWeight="Bold" Foreground="White" />
+                    <TextBlock Text="Compare SQL Server database schemas side by side" FontSize="{DynamicResource F13}" Foreground="#E0D4FF" Margin="0,4,0,0" />
                 </StackPanel>
                 <Border Grid.Column="2" Background="#40FFFFFF" CornerRadius="8" Padding="14,8" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="13" TextWrapping="Wrap" MaxWidth="360" />
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="{DynamicResource F13}" TextWrapping="Wrap" MaxWidth="360" />
                 </Border>
                 <Button Grid.Column="3" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="14,8"
-                        VerticalAlignment="Center" Margin="8,0,0,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        VerticalAlignment="Center" Margin="8,0,0,0" FontSize="{DynamicResource F13}" FontWeight="SemiBold" Cursor="Hand"
                         Command="{Binding OpenLogsCommand}" ToolTip.Tip="Open operation logs">
                     <TextBlock Text="{Binding LogsButtonText}" />
                 </Button>
@@ -49,7 +49,17 @@
                         <Button Classes="secondary" Command="{Binding OpenBackupCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Local Backup" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenDiagramCommand}" HorizontalAlignment="Stretch"><TextBlock Text="DB Diagram" /></Button>
                         <Rectangle Height="1" Fill="{StaticResource CardBorder}" Margin="4,10" />
-                        <TextBlock Text="Move Data, Local Backup and DB Diagram open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
+                        <TextBlock Text="DISPLAY" Classes="sectionTitle" Margin="6,4,0,8" />
+                        <Grid ColumnDefinitions="Auto,*,Auto" Margin="6,0">
+                            <Button Classes="link" Command="{Binding DecreaseFontCommand}" Padding="8,2" ToolTip.Tip="Smaller text"><TextBlock Text="A−" /></Button>
+                            <TextBlock Grid.Column="1" Text="{Binding FontScaleText}" HorizontalAlignment="Center" VerticalAlignment="Center" ToolTip.Tip="Current text size" />
+                            <Button Grid.Column="2" Classes="link" Command="{Binding IncreaseFontCommand}" Padding="8,2" ToolTip.Tip="Larger text"><TextBlock Text="A+" /></Button>
+                        </Grid>
+                        <Slider Minimum="0.75" Maximum="1.3" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                Value="{Binding FontScale}" Margin="8,2,8,0" ToolTip.Tip="Drag to change text size (saved automatically)" />
+                        <Button Classes="link" Command="{Binding ResetFontCommand}" HorizontalAlignment="Center" Padding="8,2" ToolTip.Tip="Back to default text size"><TextBlock Text="Reset text size" /></Button>
+                        <Rectangle Height="1" Fill="{StaticResource CardBorder}" Margin="4,10" />
+                        <TextBlock Text="Move Data, Local Backup and DB Diagram open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -62,7 +72,7 @@
                         <Grid ColumnDefinitions="*,Auto,*">
                             <Border Classes="card" Padding="20">
                                 <StackPanel>
-                                    <TextBlock Text="SOURCE DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
+                                    <TextBlock Text="SOURCE DATABASE" FontSize="{DynamicResource F12}" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
                                     <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,6,0,12" />
                                     <TextBlock Text="Saved profile" Classes="sectionTitle" />
                                     <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
@@ -77,10 +87,10 @@
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
                                         <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveSourceProfileCommand}"
-                                                Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
+                                                Padding="10,4" FontSize="{DynamicResource F11}" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
                                         <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
                                                 CommandParameter="{Binding SelectedSavedSource}"
-                                                Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                                                Padding="10,4" FontSize="{DynamicResource F11}" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
                                     </Grid>
                                     <TextBlock Text="Server" Classes="sectionTitle" />
                                     <TextBox Text="{Binding SourceServer}" PlaceholderText="localhost, (local), or IP" />
@@ -94,11 +104,11 @@
                                         <TextBox Text="{Binding SourceUsername}" PlaceholderText="Username" />
                                         <TextBox Grid.Column="1" Text="{Binding SourcePassword}" PlaceholderText="Password" PasswordChar="*" Margin="8,0,0,0" />
                                     </Grid>
-                                    <Button Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
+                                    <Button Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="{DynamicResource F11}"><TextBlock Text="Test Connection" /></Button>
                                     <StackPanel Margin="0,8,0,0" IsVisible="{Binding SourceHasConnectionResult}">
                                         <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding SourceConnectionOk}"
                                                 Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
-                                            <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="{DynamicResource F12}" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
                                         </Border>
                                         <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !SourceConnectionOk}"
                                                 Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
@@ -108,16 +118,16 @@
                                 </StackPanel>
                             </Border>
 
-                            <Button Grid.Column="1" Classes="primary" Command="{Binding CompareCommand}" IsEnabled="{Binding !IsComparing}" VerticalAlignment="Center" Margin="16,0" Padding="16,28" FontSize="13">
+                            <Button Grid.Column="1" Classes="primary" Command="{Binding CompareCommand}" IsEnabled="{Binding !IsComparing}" VerticalAlignment="Center" Margin="16,0" Padding="16,28" FontSize="{DynamicResource F13}">
                                 <StackPanel HorizontalAlignment="Center">
-                                    <TextBlock Text="&#x21C4;" FontSize="24" HorizontalAlignment="Center" />
+                                    <TextBlock Text="&#x21C4;" FontSize="{DynamicResource F24}" HorizontalAlignment="Center" />
                                     <TextBlock Text="Compare" HorizontalAlignment="Center" Margin="0,4,0,0" />
                                 </StackPanel>
                             </Button>
 
                             <Border Grid.Column="2" Classes="card" Padding="20">
                                 <StackPanel>
-                                    <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
+                                    <TextBlock Text="TARGET DATABASE" FontSize="{DynamicResource F12}" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
                                     <Rectangle Height="2" Fill="{StaticResource WarningBrush}" Margin="0,6,0,12" />
                                     <TextBlock Text="Saved profile" Classes="sectionTitle" />
                                     <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
@@ -132,10 +142,10 @@
                                             </ComboBox.ItemTemplate>
                                         </ComboBox>
                                         <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveTargetProfileCommand}"
-                                                Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
+                                                Padding="10,4" FontSize="{DynamicResource F11}" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
                                         <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
                                                 CommandParameter="{Binding SelectedSavedTarget}"
-                                                Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                                                Padding="10,4" FontSize="{DynamicResource F11}" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
                                     </Grid>
                                     <TextBlock Text="Server" Classes="sectionTitle" />
                                     <TextBox Text="{Binding TargetServer}" PlaceholderText="localhost, (local), or IP" />
@@ -149,11 +159,11 @@
                                         <TextBox Text="{Binding TargetUsername}" PlaceholderText="Username" />
                                         <TextBox Grid.Column="1" Text="{Binding TargetPassword}" PlaceholderText="Password" PasswordChar="*" Margin="8,0,0,0" />
                                     </Grid>
-                                    <Button Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
+                                    <Button Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="{DynamicResource F11}"><TextBlock Text="Test Connection" /></Button>
                                     <StackPanel Margin="0,8,0,0" IsVisible="{Binding TargetHasConnectionResult}">
                                         <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding TargetConnectionOk}"
                                                 Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
-                                            <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
+                                            <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="{DynamicResource F12}" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
                                         </Border>
                                         <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !TargetConnectionOk}"
                                                 Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
@@ -167,7 +177,7 @@
                         <Border IsVisible="{Binding ShowError}" Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1" CornerRadius="8" Padding="12">
                             <Grid ColumnDefinitions="*,Auto">
                                 <TextBox Text="{Binding ErrorMessage}" Classes="errorText" />
-                                <Button Grid.Column="1" Classes="secondary" Command="{Binding CopyErrorCommand}" Padding="10,4" FontSize="11" Margin="10,0,0,0" VerticalAlignment="Top" ToolTip.Tip="Copy error to clipboard"><TextBlock Text="Copy" /></Button>
+                                <Button Grid.Column="1" Classes="secondary" Command="{Binding CopyErrorCommand}" Padding="10,4" FontSize="{DynamicResource F11}" Margin="10,0,0,0" VerticalAlignment="Top" ToolTip.Tip="Copy error to clipboard"><TextBlock Text="Copy" /></Button>
                             </Grid>
                         </Border>
                     </StackPanel>
@@ -180,7 +190,7 @@
                         <Border Classes="card" Padding="14,10">
                             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
-                                    <TextBlock Text="{Binding ResultSummaryText}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding ResultSummaryText}" FontSize="{DynamicResource F14}" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="20,0,0,0">
                                         <Border Background="{StaticResource SuccessPanelBg}" CornerRadius="6" Padding="8,4">
                                             <CheckBox IsChecked="{Binding ShowAdded}" Content="{Binding AddedFilterText}" Foreground="{StaticResource Success}" />
@@ -193,8 +203,8 @@
                                         </Border>
                                     </StackPanel>
                                     <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
-                                        <Button Classes="secondary" Command="{Binding SelectAllCommand}" Padding="10,4" FontSize="11"><TextBlock Text="✓ All" /></Button>
-                                        <Button Classes="secondary" Command="{Binding DeselectAllCommand}" Padding="10,4" FontSize="11" Margin="4,0,0,0"><TextBlock Text="✗ None" /></Button>
+                                        <Button Classes="secondary" Command="{Binding SelectAllCommand}" Padding="10,4" FontSize="{DynamicResource F11}"><TextBlock Text="✓ All" /></Button>
+                                        <Button Classes="secondary" Command="{Binding DeselectAllCommand}" Padding="10,4" FontSize="{DynamicResource F11}" Margin="4,0,0,0"><TextBlock Text="✗ None" /></Button>
                                     </StackPanel>
                                     <Button Grid.Column="4" Classes="secondary" Command="{Binding GenerateScriptCommand}" Margin="12,0,0,0" Padding="16,6"><TextBlock Text="Generate Script" /></Button>
                                     <Button Grid.Column="5" Classes="primary" Click="ApplyButton_Click" IsEnabled="{Binding !IsComparing}" Margin="8,0,0,0" Padding="16,6"><TextBlock Text="Apply to Target" /></Button>
@@ -202,15 +212,20 @@
                             </ScrollViewer>
                         </Border>
 
-                        <Grid Grid.Row="1" ColumnDefinitions="*,6,*" Margin="0,8,0,0" MinHeight="160">
+                        <Grid Grid.Row="1" Margin="0,8,0,0" MinHeight="160">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" MinWidth="200" />
+                                <ColumnDefinition Width="6" />
+                                <ColumnDefinition Width="*" MinWidth="220" />
+                            </Grid.ColumnDefinitions>
                             <Border Classes="card" Padding="0">
                                 <Grid RowDefinitions="Auto,*">
                                     <Border Background="{StaticResource SubtleHeader}" Padding="14,10" CornerRadius="12,12,0,0">
                                         <Grid ColumnDefinitions="*,Auto">
-                                            <TextBlock Text="Differences" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" />
+                                            <TextBlock Text="Differences" FontWeight="Bold" FontSize="{DynamicResource F13}" VerticalAlignment="Center" />
                                             <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                                <Button Classes="link" Command="{Binding ExpandAllDiffGroupsCommand}" Padding="6,2" FontSize="11" ToolTip.Tip="Expand all groups"><TextBlock Text="Expand" /></Button>
-                                                <Button Classes="link" Command="{Binding CollapseAllDiffGroupsCommand}" Padding="6,2" FontSize="11" ToolTip.Tip="Collapse all groups"><TextBlock Text="Collapse" /></Button>
+                                                <Button Classes="link" Command="{Binding ExpandAllDiffGroupsCommand}" Padding="6,2" FontSize="{DynamicResource F11}" ToolTip.Tip="Expand all groups"><TextBlock Text="Expand" /></Button>
+                                                <Button Classes="link" Command="{Binding CollapseAllDiffGroupsCommand}" Padding="6,2" FontSize="{DynamicResource F11}" ToolTip.Tip="Collapse all groups"><TextBlock Text="Collapse" /></Button>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
@@ -222,8 +237,8 @@
                                                               HorizontalAlignment="Stretch" Margin="2">
                                                         <Expander.Header>
                                                             <Grid ColumnDefinitions="*,Auto" Margin="0,0,8,0">
-                                                                <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" />
-                                                                <TextBlock Grid.Column="1" Text="{Binding Summary}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" Margin="12,0,0,0" />
+                                                                <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="{DynamicResource F13}" VerticalAlignment="Center" />
+                                                                <TextBlock Grid.Column="1" Text="{Binding Summary}" FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" Margin="12,0,0,0" />
                                                             </Grid>
                                                         </Expander.Header>
                                                         <ItemsControl ItemsSource="{Binding Items}">
@@ -233,11 +248,11 @@
                                                                         <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                                                                             <CheckBox IsChecked="{Binding IsIncluded}" VerticalAlignment="Center" Margin="0,0,6,0" />
                                                                             <Border Grid.Column="1" Background="{Binding StatusColor}" CornerRadius="4" Padding="6,2" VerticalAlignment="Center">
-                                                                                <TextBlock Text="{Binding Status}" FontSize="11" FontWeight="Bold" Foreground="White" />
+                                                                                <TextBlock Text="{Binding Status}" FontSize="{DynamicResource F11}" FontWeight="Bold" Foreground="White" />
                                                                             </Border>
                                                                             <StackPanel Grid.Column="2" Margin="10,0,0,0">
-                                                                                <TextBlock Text="{Binding ObjectName}" FontWeight="SemiBold" FontSize="13" />
-                                                                                <TextBlock Text="{Binding ObjectType}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                                                                                <TextBlock Text="{Binding ObjectName}" FontWeight="SemiBold" FontSize="{DynamicResource F13}" />
+                                                                                <TextBlock Text="{Binding ObjectType}" FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" />
                                                                             </StackPanel>
                                                                         </Grid>
                                                                     </Border>
@@ -257,60 +272,67 @@
                                     <Border Background="{StaticResource SubtleHeader}" Padding="14,10" CornerRadius="12,12,0,0">
                                         <Grid ColumnDefinitions="*,Auto">
                                             <StackPanel>
-                                                <TextBlock Text="Detail" FontWeight="Bold" FontSize="13" />
-                                                <TextBlock Text="{Binding SelectedObjectName}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding HasSelection}" />
+                                                <TextBlock Text="Detail" FontWeight="Bold" FontSize="{DynamicResource F13}" />
+                                                <TextBlock Text="{Binding SelectedObjectName}" FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding HasSelection}" />
                                             </StackPanel>
                                             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                                                 <Border Padding="6,2" CornerRadius="4" VerticalAlignment="Center"
                                                         BorderBrush="{StaticResource Primary500}" BorderThickness="1"
                                                         IsVisible="{Binding HasSelection}" Margin="0,0,8,0">
-                                                    <TextBlock Text="{Binding SelectedObjectType}" FontSize="11" Foreground="{StaticResource Primary500}" />
+                                                    <TextBlock Text="{Binding SelectedObjectType}" FontSize="{DynamicResource F11}" Foreground="{StaticResource Primary500}" />
                                                 </Border>
-                                                <Button Classes="link" Command="{Binding ToggleTargetPaneCommand}" Padding="6,2" FontSize="11"
+                                                <Button Classes="link" Command="{Binding ToggleTargetPaneCommand}" Padding="6,2" FontSize="{DynamicResource F11}"
                                                         ToolTip.Tip="Show/hide the Target (current) pane"><TextBlock Text="◀ Target" /></Button>
-                                                <Button Classes="link" Command="{Binding ToggleSourcePaneCommand}" Padding="6,2" FontSize="11"
+                                                <Button Classes="link" Command="{Binding ToggleSourcePaneCommand}" Padding="6,2" FontSize="{DynamicResource F11}"
                                                         ToolTip.Tip="Show/hide the Source (new) pane"><TextBlock Text="Source ▶" /></Button>
                                             </StackPanel>
                                         </Grid>
                                     </Border>
-                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" IsVisible="{Binding HasSelection}">
-                                        <StackPanel Spacing="0">
-                                            <Border Padding="8" IsVisible="{Binding ShowTargetPane}">
-                                                <Grid RowDefinitions="Auto,*">
-                                                    <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
-                                                        <Grid ColumnDefinitions="*,Auto">
-                                                            <TextBlock Text="▼ Target (Current) — click ◀ Target above to hide" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource WarningPanelText}" VerticalAlignment="Center" />
-                                                            <Button Grid.Column="1" Classes="link" Command="{Binding ToggleTargetPaneCommand}" Padding="6,2" FontSize="11"><TextBlock Text="Hide" /></Button>
-                                                        </Grid>
-                                                    </Border>
-                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" MaxHeight="320">
-                                                        <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True" IsVisible="{Binding HasTargetScript}" />
-                                                    </ScrollViewer>
-                                                    <TextBlock Grid.Row="1" Text="(no target script — object is new in source)" FontStyle="Italic" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="4,6,0,0" IsVisible="{Binding !HasTargetScript}" />
-                                                </Grid>
-                                            </Border>
-                                            <Border Padding="8" IsVisible="{Binding ShowSourcePane}">
-                                                <Grid RowDefinitions="Auto,*">
-                                                    <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
-                                                        <Grid ColumnDefinitions="*,Auto">
-                                                            <TextBlock Text="▼ Source (New) — click Source ▶ above to hide" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource SuccessPanelText}" VerticalAlignment="Center" />
-                                                            <Button Grid.Column="1" Classes="link" Command="{Binding ToggleSourcePaneCommand}" Padding="6,2" FontSize="11"><TextBlock Text="Hide" /></Button>
-                                                        </Grid>
-                                                    </Border>
-                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" MaxHeight="320">
-                                                        <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True" IsVisible="{Binding HasSourceScript}" />
-                                                    </ScrollViewer>
-                                                    <TextBlock Grid.Row="1" Text="(no source script — object was deleted)" FontStyle="Italic" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="4,6,0,0" IsVisible="{Binding !HasSourceScript}" />
-                                                </Grid>
-                                            </Border>
-                                            <Border Padding="16" IsVisible="{Binding !ShowTargetPane}">
-                                                <Button Classes="secondary" Command="{Binding ToggleTargetPaneCommand}" Padding="10,4" FontSize="11"><TextBlock Text="▶ Show Target pane" /></Button>
-                                            </Border>
-                                            <Border Padding="16,0,16,16" IsVisible="{Binding !ShowSourcePane}">
-                                                <Button Classes="secondary" Command="{Binding ToggleSourcePaneCommand}" Padding="10,4" FontSize="11"><TextBlock Text="▶ Show Source pane" /></Button>
-                                            </Border>
-                                        </StackPanel>
-                                    </ScrollViewer>
+                                    <Grid Grid.Row="1" x:Name="DetailSplitGrid" IsVisible="{Binding HasSelection}" MinHeight="120">
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="*" MinHeight="60" />
+                                            <RowDefinition Height="6" />
+                                            <RowDefinition Height="*" MinHeight="60" />
+                                        </Grid.RowDefinitions>
+                                        <Border Grid.Row="0" Padding="8" IsVisible="{Binding ShowTargetPane}">
+                                            <Grid RowDefinitions="Auto,*">
+                                                <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="▼ Target (Current) — drag the bar below to resize, ◀ Target above to hide" FontWeight="SemiBold" FontSize="{DynamicResource F12}" Foreground="{StaticResource WarningPanelText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                        <Button Grid.Column="1" Classes="link" Command="{Binding ToggleTargetPaneCommand}" Padding="6,2" FontSize="{DynamicResource F11}"><TextBlock Text="Hide" /></Button>
+                                                    </Grid>
+                                                </Border>
+                                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                                    <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True" IsVisible="{Binding HasTargetScript}" />
+                                                </ScrollViewer>
+                                                <TextBlock Grid.Row="1" Text="(no target script — object is new in source)" FontStyle="Italic" FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" Margin="4,6,0,0" IsVisible="{Binding !HasTargetScript}" />
+                                            </Grid>
+                                        </Border>
+                                        <GridSplitter Grid.Row="1" Height="6" ResizeDirection="Rows" IsVisible="{Binding BothPanesVisible}" />
+                                        <Border Grid.Row="2" Padding="8" IsVisible="{Binding ShowSourcePane}">
+                                            <Grid RowDefinitions="Auto,*">
+                                                <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                                    <Grid ColumnDefinitions="*,Auto">
+                                                        <TextBlock Text="▼ Source (New) — drag the bar above to resize, Source ▶ above to hide" FontWeight="SemiBold" FontSize="{DynamicResource F12}" Foreground="{StaticResource SuccessPanelText}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                                        <Button Grid.Column="1" Classes="link" Command="{Binding ToggleSourcePaneCommand}" Padding="6,2" FontSize="{DynamicResource F11}"><TextBlock Text="Hide" /></Button>
+                                                    </Grid>
+                                                </Border>
+                                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                                                    <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True" IsVisible="{Binding HasSourceScript}" />
+                                                </ScrollViewer>
+                                                <TextBlock Grid.Row="1" Text="(no source script — object was deleted)" FontStyle="Italic" FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" Margin="4,6,0,0" IsVisible="{Binding !HasSourceScript}" />
+                                            </Grid>
+                                        </Border>
+                                        <Border Grid.Row="0" Grid.RowSpan="3" Padding="16" IsVisible="{Binding NoPanesVisible}">
+                                            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+                                                <TextBlock Text="Both panes are hidden" Foreground="{StaticResource OnSurfaceVariant}" FontStyle="Italic" HorizontalAlignment="Center" />
+                                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                                    <Button Classes="secondary" Command="{Binding ToggleTargetPaneCommand}" Padding="10,4" FontSize="{DynamicResource F11}"><TextBlock Text="▶ Show Target" /></Button>
+                                                    <Button Classes="secondary" Command="{Binding ToggleSourcePaneCommand}" Padding="10,4" FontSize="{DynamicResource F11}" Margin="8,0,0,0"><TextBlock Text="▶ Show Source" /></Button>
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Border>
+                                    </Grid>
                                     <Border Grid.Row="1" Padding="16" IsVisible="{Binding !HasSelection}">
                                         <TextBlock Text="Select a difference to view details" Foreground="{StaticResource OnSurfaceVariant}" FontStyle="Italic" HorizontalAlignment="Center" VerticalAlignment="Center" />
                                     </Border>
@@ -323,9 +345,9 @@
                                 IsVisible="{Binding ShowApplyConfirmation}">
                             <ScrollViewer MaxHeight="300" VerticalScrollBarVisibility="Auto">
                                 <StackPanel>
-                                    <TextBlock Text="Apply changes to target database?" FontWeight="SemiBold" FontSize="14" Foreground="{StaticResource WarningPanelText}" />
-                                    <TextBlock Text="{Binding ResultSummaryText}" Margin="0,4,0,4" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" />
-                                    <TextBlock Text="Only checked items in the list will be applied." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,12" />
+                                    <TextBlock Text="Apply changes to target database?" FontWeight="SemiBold" FontSize="{DynamicResource F14}" Foreground="{StaticResource WarningPanelText}" />
+                                    <TextBlock Text="{Binding ResultSummaryText}" Margin="0,4,0,4" FontSize="{DynamicResource F12}" Foreground="{StaticResource OnSurfaceVariant}" />
+                                    <TextBlock Text="Only checked items in the list will be applied." FontSize="{DynamicResource F11}" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,12" />
                                     <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                         <Button Classes="primary" Command="{Binding ConfirmApplyCommand}" Padding="20,8" Margin="0,0,12,0"><TextBlock Text="Yes, Apply" /></Button>
                                         <Button Classes="secondary" Command="{Binding CancelApplyCommand}" Padding="20,8"><TextBlock Text="Cancel" /></Button>
@@ -340,8 +362,8 @@
                             <Grid RowDefinitions="Auto,*">
                                 <Border Background="{StaticResource CodeBg}" Padding="14,10">
                                     <Grid ColumnDefinitions="*,Auto">
-                                        <TextBlock Text="Deployment Script" FontWeight="Bold" FontSize="13" Foreground="#CDD6F4" />
-                                        <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Click="CopyScript_Click"><TextBlock Text="Copy" /></Button>
+                                        <TextBlock Text="Deployment Script" FontWeight="Bold" FontSize="{DynamicResource F13}" Foreground="#CDD6F4" />
+                                        <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="{DynamicResource F11}" Click="CopyScript_Click"><TextBlock Text="Copy" /></Button>
                                     </Grid>
                                 </Border>
                                 <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
@@ -352,9 +374,9 @@
                     </Grid>
 
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !HasResults}">
-                        <TextBlock Text="&#x1F50D;" FontSize="64" HorizontalAlignment="Center" />
-                        <TextBlock Text="Enter connection details and click Compare" FontSize="16" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" />
-                        <TextBlock Text="Discover schema differences between two databases" FontSize="13" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                        <TextBlock Text="&#x1F50D;" FontSize="{DynamicResource F64}" HorizontalAlignment="Center" />
+                        <TextBlock Text="Enter connection details and click Compare" FontSize="{DynamicResource F16}" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" />
+                        <TextBlock Text="Discover schema differences between two databases" FontSize="{DynamicResource F13}" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" />
                     </StackPanel>
                 </Grid>
 
@@ -365,9 +387,9 @@
         <Border Grid.Row="1" IsVisible="{Binding IsComparing}" Background="#CC0B0B10" ZIndex="100">
             <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
                 <Border Width="60" Height="60" CornerRadius="30" Background="{StaticResource HeaderGradient}">
-                    <TextBlock Text="&#x21BB;" FontSize="32" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    <TextBlock Text="&#x21BB;" FontSize="{DynamicResource F32}" Foreground="White" HorizontalAlignment="Center" VerticalAlignment="Center" />
                 </Border>
-                <TextBlock Text="{Binding StatusMessage}" Margin="0,16,0,0" FontSize="15" FontWeight="SemiBold" Foreground="{StaticResource Primary500}" HorizontalAlignment="Center" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding StatusMessage}" Margin="0,16,0,0" FontSize="{DynamicResource F15}" FontWeight="SemiBold" Foreground="{StaticResource Primary500}" HorizontalAlignment="Center" TextWrapping="Wrap" />
             </StackPanel>
         </Border>
 
@@ -375,20 +397,20 @@
             <Border Classes="card" HorizontalAlignment="Stretch" VerticalAlignment="Stretch" Margin="40" Padding="20" MinWidth="420" MinHeight="280">
                 <Grid RowDefinitions="Auto,Auto,*,Auto">
                     <Grid ColumnDefinitions="*,Auto">
-                        <TextBlock Text="{Binding LogsDialogTitle}" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryText}" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Classes="secondary" Command="{Binding CloseLogsCommand}" Padding="12,4" FontSize="12"><TextBlock Text="✕ Close" /></Button>
+                        <TextBlock Text="{Binding LogsDialogTitle}" FontSize="{DynamicResource F16}" FontWeight="Bold" Foreground="{StaticResource PrimaryText}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="secondary" Command="{Binding CloseLogsCommand}" Padding="12,4" FontSize="{DynamicResource F12}"><TextBlock Text="✕ Close" /></Button>
                     </Grid>
                     <Rectangle Grid.Row="1" Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,10,0,12" />
                     <Border Grid.Row="2" Background="{StaticResource CodeBg}" CornerRadius="8" Padding="4" MinHeight="160">
                         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                            <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True" FontSize="12"
+                            <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True" FontSize="{DynamicResource F12}"
                                      AcceptsReturn="True" TextWrapping="Wrap"
                                      PlaceholderText="No log entries yet." />
                         </ScrollViewer>
                     </Border>
                     <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,12,0,0">
-                        <Button Classes="secondary" Click="CopyLogs_Click" Padding="16,6" FontSize="12"><TextBlock Text="Copy Log" /></Button>
-                        <Button Classes="danger" Command="{Binding ClearLogsCommand}" Padding="16,6" FontSize="12" Margin="8,0,0,0"><TextBlock Text="Clear" /></Button>
+                        <Button Classes="secondary" Click="CopyLogs_Click" Padding="16,6" FontSize="{DynamicResource F12}"><TextBlock Text="Copy Log" /></Button>
+                        <Button Classes="danger" Command="{Binding ClearLogsCommand}" Padding="16,6" FontSize="{DynamicResource F12}" Margin="8,0,0,0"><TextBlock Text="Clear" /></Button>
                     </StackPanel>
                 </Grid>
             </Border>

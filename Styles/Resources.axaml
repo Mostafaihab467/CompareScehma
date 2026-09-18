@@ -39,4 +39,25 @@
     <Color x:Key="ErrorPanelBg">#2C1215</Color>
     <Color x:Key="ErrorPanelBorder">#F87171</Color>
     <Color x:Key="ErrorPanelText">#FCA5A5</Color>
+
+    <!-- Scalable font sizes. Referenced via {DynamicResource Fxx} so the
+         Settings text-size slider can resize all text live (see UiFontSizes). -->
+    <x:Double x:Key="F10">10</x:Double>
+    <x:Double x:Key="F10p5">10.5</x:Double>
+    <x:Double x:Key="F11">11</x:Double>
+    <x:Double x:Key="F11p5">11.5</x:Double>
+    <x:Double x:Key="F12">12</x:Double>
+    <x:Double x:Key="F12p5">12.5</x:Double>
+    <x:Double x:Key="F13">13</x:Double>
+    <x:Double x:Key="F14">14</x:Double>
+    <x:Double x:Key="F15">15</x:Double>
+    <x:Double x:Key="F16">16</x:Double>
+    <x:Double x:Key="F18">18</x:Double>
+    <x:Double x:Key="F20">20</x:Double>
+    <x:Double x:Key="F21">21</x:Double>
+    <x:Double x:Key="F22">22</x:Double>
+    <x:Double x:Key="F24">24</x:Double>
+    <x:Double x:Key="F32">32</x:Double>
+    <x:Double x:Key="F56">56</x:Double>
+    <x:Double x:Key="F64">64</x:Double>
 </ResourceDictionary>
