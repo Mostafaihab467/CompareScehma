@@ -60,10 +60,25 @@ public partial class MainWindow : Window
             _backupWindow.Closed += (_, _) => _backupWindow = null;
             _backupWindow.Show(this);
         };
+        vm.OpenDiagramWindowAction = () =>
+        {
+            if (_diagramWindow is { IsVisible: true })
+            {
+                _diagramWindow.Activate();
+                _diagramWindow.WindowState = WindowState.Normal;
+                return;
+            }
+            var diagramVm = new DiagramViewModel();
+            diagramVm.InitializeFrom(vm.SourceServer, vm.SourceDatabase, vm.SourceUseWindowsAuth, vm.SourceUsername, vm.SourcePassword);
+            _diagramWindow = new DiagramWindow { DataContext = diagramVm };
+            _diagramWindow.Closed += (_, _) => _diagramWindow = null;
+            _diagramWindow.Show(this);
+        };
     }
 
     private MoveDataWindow? _moveDataWindow;
     private BackupWindow? _backupWindow;
+    private DiagramWindow? _diagramWindow;
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)
     {

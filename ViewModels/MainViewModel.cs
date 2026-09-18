@@ -99,6 +99,7 @@ public partial class MainViewModel : ObservableObject
 
     public ObservableCollection<SchemaDiffItem> Differences { get; } = [];
     public ObservableCollection<SchemaDiffItem> FilteredDifferences { get; } = [];
+    public ObservableCollection<DiffGroup> GroupedDifferences { get; } = [];
     public ObservableCollection<DataMoveTable> DataMoveTables { get; } = [];
     public ObservableCollection<DataMoveTable> FilteredDataMoveTables { get; } = [];
     private DataMovePlan? _dataMovePlan;
@@ -106,6 +107,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _showAdded = true;
     [ObservableProperty] private bool _showChanged = true;
     [ObservableProperty] private bool _showDeleted = true;
+    [ObservableProperty] private bool _showTargetPane = true;
+    [ObservableProperty] private bool _showSourcePane = true;
 
     public ICommand CompareCommand { get; }
     public ICommand GenerateScriptCommand { get; }
@@ -116,6 +119,11 @@ public partial class MainViewModel : ObservableObject
     public ICommand TestTargetConnectionCommand { get; }
     public ICommand SelectAllCommand { get; }
     public ICommand DeselectAllCommand { get; }
+    public ICommand ExpandAllDiffGroupsCommand { get; }
+    public ICommand CollapseAllDiffGroupsCommand { get; }
+    public ICommand ToggleDiffGroupCommand { get; }
+    public ICommand ToggleTargetPaneCommand { get; }
+    public ICommand ToggleSourcePaneCommand { get; }
     public ICommand ClearLogsCommand { get; }
     public ICommand OpenLogsCommand { get; }
     public ICommand CloseLogsCommand { get; }
@@ -125,6 +133,7 @@ public partial class MainViewModel : ObservableObject
     public ICommand OpenSchemaCompareCommand { get; }
     public ICommand OpenMoveDataCommand { get; }
     public ICommand OpenBackupCommand { get; }
+    public ICommand OpenDiagramCommand { get; }
     public ICommand ExportBackupCommand { get; }
     public ICommand ToggleSidebarCommand { get; }
     public ICommand CopyErrorCommand { get; }
@@ -137,6 +146,7 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Supplied by the main window so navigation can open the separate data-sync window.</summary>
     public Action? OpenMoveDataWindowAction { get; set; }
     public Action? OpenBackupWindowAction { get; set; }
+    public Action? OpenDiagramWindowAction { get; set; }
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -152,6 +162,11 @@ public partial class MainViewModel : ObservableObject
         TestTargetConnectionCommand = new AsyncRelayCommand(() => TestConnectionAsync(GetTargetInfo(), isSource: false));
         SelectAllCommand = new RelayCommand(SelectAll);
         DeselectAllCommand = new RelayCommand(DeselectAll);
+        ExpandAllDiffGroupsCommand = new RelayCommand(() => { foreach (var g in GroupedDifferences) g.IsExpanded = true; });
+        CollapseAllDiffGroupsCommand = new RelayCommand(() => { foreach (var g in GroupedDifferences) g.IsExpanded = false; });
+        ToggleDiffGroupCommand = new RelayCommand<object?>(param => { if (param is DiffGroup g) g.IsExpanded = !g.IsExpanded; });
+        ToggleTargetPaneCommand = new RelayCommand(() => ShowTargetPane = !ShowTargetPane);
+        ToggleSourcePaneCommand = new RelayCommand(() => ShowSourcePane = !ShowSourcePane);
         ClearLogsCommand = new RelayCommand(ClearLogs);
         OpenLogsCommand = new RelayCommand(() => ShowLogsDialog = true);
         CloseLogsCommand = new RelayCommand(() => ShowLogsDialog = false);
@@ -161,6 +176,7 @@ public partial class MainViewModel : ObservableObject
         OpenSchemaCompareCommand = new RelayCommand(() => IsMoveDataPage = false);
         OpenMoveDataCommand = new RelayCommand(() => OpenMoveDataWindowAction?.Invoke());
         OpenBackupCommand = new RelayCommand(() => OpenBackupWindowAction?.Invoke());
+        OpenDiagramCommand = new RelayCommand(() => OpenDiagramWindowAction?.Invoke());
         ExportBackupCommand = new AsyncRelayCommand(ExportBackupAsync, () => !IsBackingUp && !string.IsNullOrWhiteSpace(BackupDestinationPath));
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarOpen = !IsSidebarOpen);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);
@@ -427,6 +443,29 @@ public partial class MainViewModel : ObservableObject
             if (item.Status == DiffStatus.Changed && !ShowChanged) continue;
             if (item.Status == DiffStatus.Deleted && !ShowDeleted) continue;
             FilteredDifferences.Add(item);
+        }
+        RebuildDiffGroups();
+    }
+
+    private void RebuildDiffGroups()
+    {
+        // Preserve expand/collapse state across re-filters.
+        var expanded = GroupedDifferences.ToDictionary(g => g.ObjectType, g => g.IsExpanded);
+        GroupedDifferences.Clear();
+        foreach (var grp in FilteredDifferences
+                     .GroupBy(i => DiffGroup.NormalizeType(i.ObjectType))
+                     .OrderBy(g => g.Key))
+        {
+            var group = new DiffGroup
+            {
+                ObjectType = grp.Key,
+                Icon = DiffGroup.IconFor(grp.Key),
+                IsExpanded = expanded.TryGetValue(grp.Key, out var wasOpen) ? wasOpen : true,
+            };
+            foreach (var item in grp.OrderBy(i => i.ObjectName))
+                group.Items.Add(item);
+            group.RefreshCounts();
+            GroupedDifferences.Add(group);
         }
     }
 
