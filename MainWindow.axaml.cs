@@ -40,8 +40,11 @@ public partial class MainWindow : Window
         {
             if (e.PropertyName is nameof(MainViewModel.ShowTargetPane) or nameof(MainViewModel.ShowSourcePane))
                 ApplyDetailPaneRows(vm);
+            if (e.PropertyName is nameof(MainViewModel.HasFullScript))
+                ApplyResultsRows(vm);
         };
         ApplyDetailPaneRows(vm);
+        ApplyResultsRows(vm);
         vm.OpenMoveDataWindowAction = () =>
         {
             if (_moveDataWindow is { IsVisible: true })
@@ -87,6 +90,20 @@ public partial class MainWindow : Window
     private DiagramWindow? _diagramWindow;
 
     /// <summary>
+    /// The deployment-script row is star-sized so it shares space once generated,
+    /// but while hidden it must collapse to zero — otherwise it silently eats half
+    /// of the results height and Differences/Detail can never fill the window.
+    /// </summary>
+    private void ApplyResultsRows(MainViewModel vm)
+    {
+        var grid = this.FindControl<Grid>("ResultsGrid");
+        if (grid is null || grid.RowDefinitions.Count < 4) return;
+        grid.RowDefinitions[3].Height = vm.HasFullScript
+            ? new GridLength(1, GridUnitType.Star)
+            : new GridLength(0);
+    }
+
+    /// <summary>
     /// A hidden detail pane must not keep its half of the split: collapse its
     /// grid row to zero so the visible pane takes the full space. Called on
     /// toggle and once at startup (FindControl needs the loaded visual tree).
@@ -95,12 +112,15 @@ public partial class MainWindow : Window
     {
         var grid = this.FindControl<Grid>("DetailSplitGrid");
         if (grid is null || grid.RowDefinitions.Count < 3) return;
+        // NOTE: MinHeight must go to 0 as well — a 60px minimum would override the collapse.
         grid.RowDefinitions[0].Height = vm.ShowTargetPane
             ? new GridLength(1, GridUnitType.Star)
             : new GridLength(0);
+        grid.RowDefinitions[0].MinHeight = vm.ShowTargetPane ? 60 : 0;
         grid.RowDefinitions[2].Height = vm.ShowSourcePane
             ? new GridLength(1, GridUnitType.Star)
             : new GridLength(0);
+        grid.RowDefinitions[2].MinHeight = vm.ShowSourcePane ? 60 : 0;
     }
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)

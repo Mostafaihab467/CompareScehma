@@ -186,7 +186,7 @@
                 <GridSplitter Grid.Row="1" Height="6" ResizeDirection="Rows" />
 
                 <Grid Grid.Row="2" MinHeight="180">
-                    <Grid IsVisible="{Binding HasResults}" RowDefinitions="Auto,*,Auto,*">
+                    <Grid x:Name="ResultsGrid" IsVisible="{Binding HasResults}" RowDefinitions="Auto,*,Auto,*">
                         <Border Classes="card" Padding="14,10">
                             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
