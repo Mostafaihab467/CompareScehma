@@ -90,4 +90,84 @@ public static class DiagramAutoLayoutService
             y += row.Max(n => n.NodeHeight) + RowGap;
         }
     }
+
+    /// <summary>
+    /// Organizes the active table and its directly-connected tables into a clean,
+    /// symmetrical flow:
+    /// - Referenced parent tables on the left (arranged vertically)
+    /// - Active table in the center
+    /// - Referencing child tables on the right (arranged vertically)
+    /// This ensures zero crisscrossing and immediate visual clarity.
+    /// </summary>
+    public static void OrganizeCluster(
+        DiagramTableNode activeNode,
+        IReadOnlyList<DiagramTableNode> relatedNodes,
+        IReadOnlyList<DiagramRelation> relations)
+    {
+        if (relatedNodes.Count == 0) return;
+
+        var relatedMap = relatedNodes.ToDictionary(n => n.FullName, StringComparer.OrdinalIgnoreCase);
+        var parentKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var childKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var r in relations)
+        {
+            if (r.ChildTable.Equals(activeNode.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (relatedMap.ContainsKey(r.ParentTable))
+                    parentKeys.Add(r.ParentTable);
+            }
+            else if (r.ParentTable.Equals(activeNode.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                if (relatedMap.ContainsKey(r.ChildTable))
+                    childKeys.Add(r.ChildTable);
+            }
+        }
+
+        var parents = parentKeys.Select(k => relatedMap[k]).OrderBy(n => n.FullName, StringComparer.OrdinalIgnoreCase).ToList();
+        var children = childKeys.Select(k => relatedMap[k]).OrderBy(n => n.FullName, StringComparer.OrdinalIgnoreCase).ToList();
+
+        var others = relatedNodes.Where(n => !parentKeys.Contains(n.FullName) && !childKeys.Contains(n.FullName)).ToList();
+        if (others.Count > 0)
+            children.AddRange(others);
+
+        const double HorizGap = 120;
+        const double VertGap = 35;
+
+        var anchorCenterX = Math.Max(DiagramTableNode.CardWidth + HorizGap + 50, activeNode.X);
+        var anchorCenterY = Math.Max(160, activeNode.Y);
+
+        activeNode.X = anchorCenterX;
+        activeNode.Y = anchorCenterY;
+
+        if (parents.Count > 0)
+        {
+            var totalParentHeight = parents.Sum(p => p.NodeHeight) + (parents.Count - 1) * VertGap;
+            var startY = anchorCenterY + activeNode.NodeHeight / 2 - totalParentHeight / 2;
+            var parentX = Math.Max(40, anchorCenterX - DiagramTableNode.CardWidth - HorizGap);
+
+            var currY = Math.Max(40, startY);
+            foreach (var p in parents)
+            {
+                p.X = parentX;
+                p.Y = currY;
+                currY += p.NodeHeight + VertGap;
+            }
+        }
+
+        if (children.Count > 0)
+        {
+            var totalChildHeight = children.Sum(c => c.NodeHeight) + (children.Count - 1) * VertGap;
+            var startY = anchorCenterY + activeNode.NodeHeight / 2 - totalChildHeight / 2;
+            var childX = anchorCenterX + activeNode.NodeWidth + HorizGap;
+
+            var currY = Math.Max(40, startY);
+            foreach (var c in children)
+            {
+                c.X = childX;
+                c.Y = currY;
+                currY += c.NodeHeight + VertGap;
+            }
+        }
+    }
 }

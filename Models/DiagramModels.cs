@@ -31,6 +31,21 @@ public sealed partial class DiagramTableNode : ObservableObject
     [ObservableProperty] private double _y;
     [ObservableProperty] private bool _isVisible = true;
     [ObservableProperty] private bool _isDimmed;
+    [ObservableProperty] private bool _isIsolatedTarget;
+    [ObservableProperty] private int _relationCount;
+    [ObservableProperty] private string _relationsTooltipText = string.Empty;
+    /// <summary>Set by relation isolation: hides unrelated tables from the canvas
+    /// without touching <see cref="IsVisible"/> (checkboxes) or saved layouts.</summary>
+    [ObservableProperty] private bool _isHiddenByIsolation;
+
+    public bool HasRelations => RelationCount > 0;
+    public string RelationBadge => $"🔗 {RelationCount}";
+
+    partial void OnRelationCountChanged(int value)
+    {
+        OnPropertyChanged(nameof(HasRelations));
+        OnPropertyChanged(nameof(RelationBadge));
+    }
 
     public string FullName => $"{Schema}.{Name}";
     public string DisplayName => $"[{Schema}].[{Name}]";
@@ -54,6 +69,25 @@ public sealed class DiagramRelation
     public required List<string> ParentColumns { get; init; }
 
     public string Label => $"{ChildTable} → {ParentTable} ({ConstraintName}: {string.Join(", ", ChildColumns)})";
+}
+
+/// <summary>Display model for a single foreign-key relation of an active table.</summary>
+public sealed class DiagramRelationDisplayItem
+{
+    public required string ConstraintName { get; init; }
+    public required string ChildTable { get; init; }
+    public required string ParentTable { get; init; }
+    public required List<string> ChildColumns { get; init; }
+    public required List<string> ParentColumns { get; init; }
+    public required bool IsOutgoing { get; init; }
+    public required string OtherTable { get; init; }
+
+    public string DirectionBadge => IsOutgoing ? "↗ References" : "↙ Referenced by";
+    public string DirectionColor => IsOutgoing ? "#38BDF8" : "#A78BFA";
+    public string MappingText => $"{string.Join(", ", ChildColumns)} → {string.Join(", ", ParentColumns)}";
+    public string FullSummary => IsOutgoing
+        ? $"↗ References {OtherTable}\nConstraint: {ConstraintName}\nMapping: {MappingText}"
+        : $"↙ Referenced by {OtherTable}\nConstraint: {ConstraintName}\nMapping: {MappingText}";
 }
 
 /// <summary>Persisted diagram layout: node positions, visibility and zoom.</summary>

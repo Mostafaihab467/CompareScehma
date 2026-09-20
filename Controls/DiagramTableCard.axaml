@@ -1,6 +1,8 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="clr-namespace:SchemaCompare.Models"
              x:Class="SchemaCompare.Controls.DiagramTableCard"
+             x:DataType="models:DiagramTableNode"
              Width="240">
     <UserControl.Styles>
         <Style Selector="TextBlock.icon">
@@ -12,17 +14,42 @@
         <Style Selector="TextBlock.icon.pk">
             <Setter Property="Foreground" Value="#FBBF24" />
         </Style>
+        <Style Selector="Border.cardBorder">
+            <Setter Property="BorderBrush" Value="#3A3A55" />
+            <Setter Property="BorderThickness" Value="1" />
+        </Style>
+        <Style Selector="Border.cardBorder.targetActive">
+            <Setter Property="BorderBrush" Value="#38BDF8" />
+            <Setter Property="BorderThickness" Value="2" />
+            <Setter Property="BoxShadow" Value="0 0 20 2 #6638BDF8" />
+        </Style>
+        <Style Selector="Border.cardHeader">
+            <Setter Property="Background" Value="#23233A" />
+        </Style>
+        <Style Selector="Border.cardHeader.headerActive">
+            <Setter Property="Background" Value="#1E293B" />
+        </Style>
     </UserControl.Styles>
-    <Border Background="#181824" BorderBrush="#3A3A55" BorderThickness="1" CornerRadius="10"
-            BoxShadow="0 4 14 0 #80000000">
+    <Border Classes="cardBorder" Classes.targetActive="{Binding IsIsolatedTarget}"
+            Background="#181824" CornerRadius="10"
+            BoxShadow="0 4 14 0 #80000000"
+            ToolTip.Tip="{Binding RelationsTooltipText}">
         <StackPanel>
-            <Border Background="#23233A" CornerRadius="10,10,0,0" Padding="10,8">
-                <StackPanel>
-                    <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="12.5"
-                               Foreground="#F2F2F7" TextWrapping="Wrap" />
-                    <TextBlock Text="{Binding HeaderSubtitle}" FontSize="10.5" Margin="0,2,0,0"
-                               Foreground="#B9B9CE" />
-                </StackPanel>
+            <Border Classes="cardHeader" Classes.headerActive="{Binding IsIsolatedTarget}"
+                    CornerRadius="10,10,0,0" Padding="10,8">
+                <Grid ColumnDefinitions="*,Auto">
+                    <StackPanel>
+                        <TextBlock Text="{Binding FullName}" FontWeight="Bold" FontSize="12.5"
+                                   Foreground="#F2F2F7" TextWrapping="Wrap" />
+                        <TextBlock Text="{Binding HeaderSubtitle}" FontSize="10.5" Margin="0,2,0,0"
+                                   Foreground="#B9B9CE" />
+                    </StackPanel>
+                    <Button Grid.Column="1" x:Name="RelationsButton" Classes="link" Padding="6,2"
+                            VerticalAlignment="Center" IsEnabled="{Binding HasRelations}"
+                            ToolTip.Tip="Show relations &amp; dim other tables (click again to restore)">
+                        <TextBlock Text="{Binding RelationBadge}" FontSize="12" />
+                    </Button>
+                </Grid>
             </Border>
             <ItemsControl ItemsSource="{Binding VisibleColumns}" Margin="4,4,4,2">
                 <ItemsControl.ItemTemplate>
