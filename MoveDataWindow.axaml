@@ -5,6 +5,10 @@
         Title="Move Data" Width="1100" Height="760" MinWidth="640" MinHeight="420"
         CanResize="True" SizeToContent="Manual"
         Background="{StaticResource PageBackground}" WindowStartupLocation="CenterOwner">
+    <LayoutTransformControl HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <LayoutTransformControl.LayoutTransform>
+            <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+        </LayoutTransformControl.LayoutTransform>
     <Grid RowDefinitions="Auto,*">
         <Border Background="{StaticResource HeaderGradient}" Padding="22,14">
             <Grid ColumnDefinitions="*,Auto">
@@ -145,4 +149,5 @@
             </Border>
         </Grid>
     </Grid>
+    </LayoutTransformControl>
 </Window>

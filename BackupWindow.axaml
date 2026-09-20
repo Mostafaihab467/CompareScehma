@@ -5,6 +5,10 @@
         Width="760" Height="520" MinWidth="520" MinHeight="360"
         CanResize="True" SizeToContent="Manual"
         Background="{StaticResource PageBackground}" WindowStartupLocation="CenterOwner">
+    <LayoutTransformControl HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <LayoutTransformControl.LayoutTransform>
+            <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+        </LayoutTransformControl.LayoutTransform>
     <Grid RowDefinitions="Auto,*,Auto">
         <Border Background="{StaticResource HeaderGradient}" Padding="20,14">
             <Grid ColumnDefinitions="*,Auto">
@@ -52,4 +56,5 @@
             </Button>
         </Border>
     </Grid>
+    </LayoutTransformControl>
 </Window>

@@ -41,6 +41,7 @@ public partial class DiagramViewModel : ObservableObject
     [ObservableProperty] private string _errorMessage = string.Empty;
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private double _zoomLevel = 1.0;
+    [ObservableProperty] private double _uiScale = AppSettings.DefaultUiScale;
     [ObservableProperty] private double _canvasWidth = 2400;
     [ObservableProperty] private double _canvasHeight = 1600;
     [ObservableProperty] private string _countsText = string.Empty;
@@ -66,6 +67,8 @@ public partial class DiagramViewModel : ObservableObject
     {
         foreach (var saved in _savedService.Load())
             SavedConnections.Add(saved);
+        try { UiScale = new AppSettingsService().Load().UiScale; }
+        catch { /* default scale applies */ }
     }
 
     /// <summary>Prefills the picker from the main window's Source connection.</summary>

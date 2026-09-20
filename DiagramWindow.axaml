@@ -4,11 +4,15 @@
         xmlns:models="clr-namespace:SchemaCompare.Models"
         x:Class="SchemaCompare.DiagramWindow"
         x:Name="DiagramRoot"
-        Title="DB Diagram" Width="1280" Height="820" MinWidth="900" MinHeight="560"
+        Title="DB Diagram" Width="1280" Height="820" MinWidth="700" MinHeight="480"
         CanResize="True" SizeToContent="Manual"
         Background="{StaticResource PageBackground}" WindowStartupLocation="CenterOwner">
     <Design.DataContext><vm:DiagramViewModel /></Design.DataContext>
 
+    <LayoutTransformControl HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <LayoutTransformControl.LayoutTransform>
+            <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+        </LayoutTransformControl.LayoutTransform>
     <Grid RowDefinitions="Auto,Auto,*,Auto">
         <Border Background="{StaticResource HeaderGradient}" Padding="22,14">
             <Grid ColumnDefinitions="*,Auto">
@@ -144,4 +148,5 @@
             </Grid>
         </Border>
     </Grid>
+    </LayoutTransformControl>
 </Window>

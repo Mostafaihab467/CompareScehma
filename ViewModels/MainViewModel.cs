@@ -14,7 +14,9 @@ public partial class MainViewModel : ObservableObject
     private readonly DataMoveService _dataMoveService = new();
     private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
+    private readonly AppSettingsService _settingsService = new();
     private bool _applyingProfile;
+    private bool _applyingSettings;
 
     [ObservableProperty] private string _sourceServer = "localhost";
     [ObservableProperty] private string _sourceDatabase = "EgyptMart";
@@ -44,6 +46,24 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _backupDestinationPath = "";
     [ObservableProperty] private bool _isBackingUp;
     [ObservableProperty] private string _backupStatus = "Choose a database and a local .bacpac file.";
+
+    // Display / text settings (persisted, applied to Application.Resources)
+    [ObservableProperty] private double _uiScale = AppSettings.DefaultUiScale;
+    [ObservableProperty] private double _codeFontSize = AppSettings.DefaultCodeFontSize;
+    [ObservableProperty] private bool _showSettingsDialog;
+
+    /// <summary>True when both Target and Source scripts exist — side-by-side layout.</summary>
+    public bool HasBothScripts => HasSourceScript && HasTargetScript;
+
+    /// <summary>True when exactly one script exists — single panel fills full width/height.</summary>
+    public bool HasSingleScript => HasSelection && (HasSourceScript ^ HasTargetScript);
+
+    public bool HasOnlySource => HasSelection && HasSourceScript && !HasTargetScript;
+    public bool HasOnlyTarget => HasSelection && !HasSourceScript && HasTargetScript;
+
+    public string SingleScriptContent => HasSourceScript ? SourceScriptContent : TargetScriptContent;
+    public string SingleScriptHeader => HasSourceScript ? "Source (New)" : "Target (Current)";
+    public string DisplaySettingsSummary => $"Text {UiScale:P0} • Code {CodeFontSize:0.#}pt";
 
     [ObservableProperty] private bool _hasResults;
     [ObservableProperty] private string _resultSummaryText = "";
@@ -119,6 +139,9 @@ public partial class MainViewModel : ObservableObject
     public ICommand ClearLogsCommand { get; }
     public ICommand OpenLogsCommand { get; }
     public ICommand CloseLogsCommand { get; }
+    public ICommand OpenSettingsCommand { get; }
+    public ICommand CloseSettingsCommand { get; }
+    public ICommand ResetTextSettingsCommand { get; }
     public ICommand SaveSourceProfileCommand { get; }
     public ICommand SaveTargetProfileCommand { get; }
     public ICommand DeleteSavedProfileCommand { get; }
@@ -157,6 +180,9 @@ public partial class MainViewModel : ObservableObject
         ClearLogsCommand = new RelayCommand(ClearLogs);
         OpenLogsCommand = new RelayCommand(() => ShowLogsDialog = true);
         CloseLogsCommand = new RelayCommand(() => ShowLogsDialog = false);
+        OpenSettingsCommand = new RelayCommand(() => ShowSettingsDialog = true);
+        CloseSettingsCommand = new RelayCommand(() => ShowSettingsDialog = false);
+        ResetTextSettingsCommand = new RelayCommand(ResetTextSettings);
         SaveSourceProfileCommand = new RelayCommand(() => SaveProfile(isSource: true));
         SaveTargetProfileCommand = new RelayCommand(() => SaveProfile(isSource: false));
         DeleteSavedProfileCommand = new RelayCommand<object?>(DeleteProfile);
@@ -176,6 +202,8 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var saved in _savedService.Load())
             SavedConnections.Add(saved);
+
+        LoadDisplaySettings();
 
         _isComparingChanged = () =>
         {
@@ -219,6 +247,73 @@ public partial class MainViewModel : ObservableObject
     partial void OnHasDataMovePlanChanged(bool value) => ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged();
     partial void OnDataMoveFilterTextChanged(string value) => ApplyDataMoveFilter();
     partial void OnIsSidebarOpenChanged(bool value) => SidebarWidth = new GridLength(value ? 220 : 0);
+    partial void OnUiScaleChanged(double value) => OnDisplaySettingChanged();
+    partial void OnCodeFontSizeChanged(double value) => OnDisplaySettingChanged();
+    partial void OnHasSelectionChanged(bool value) => RefreshScriptLayoutProps();
+    partial void OnHasSourceScriptChanged(bool value) => RefreshScriptLayoutProps();
+    partial void OnHasTargetScriptChanged(bool value) => RefreshScriptLayoutProps();
+    partial void OnSourceScriptContentChanged(string value)
+    {
+        OnPropertyChanged(nameof(SingleScriptContent));
+        OnPropertyChanged(nameof(SingleScriptHeader));
+    }
+    partial void OnTargetScriptContentChanged(string value)
+    {
+        OnPropertyChanged(nameof(SingleScriptContent));
+        OnPropertyChanged(nameof(SingleScriptHeader));
+    }
+
+    private void RefreshScriptLayoutProps()
+    {
+        OnPropertyChanged(nameof(HasBothScripts));
+        OnPropertyChanged(nameof(HasSingleScript));
+        OnPropertyChanged(nameof(HasOnlySource));
+        OnPropertyChanged(nameof(HasOnlyTarget));
+        OnPropertyChanged(nameof(SingleScriptContent));
+        OnPropertyChanged(nameof(SingleScriptHeader));
+    }
+
+    private void LoadDisplaySettings()
+    {
+        _applyingSettings = true;
+        try
+        {
+            var s = _settingsService.Load();
+            UiScale = s.UiScale;
+            CodeFontSize = s.CodeFontSize;
+            AppSettingsService.ApplyToResources(s);
+            OnPropertyChanged(nameof(DisplaySettingsSummary));
+        }
+        finally { _applyingSettings = false; }
+    }
+
+    private void OnDisplaySettingChanged()
+    {
+        OnPropertyChanged(nameof(DisplaySettingsSummary));
+        if (_applyingSettings)
+            return;
+        var ui = Math.Clamp(UiScale, AppSettings.MinUiScale, AppSettings.MaxUiScale);
+        var code = Math.Clamp(CodeFontSize, AppSettings.MinCodeFontSize, AppSettings.MaxCodeFontSize);
+        if (ui != UiScale || code != CodeFontSize)
+        {
+            _applyingSettings = true;
+            try
+            {
+                UiScale = ui;
+                CodeFontSize = code;
+            }
+            finally { _applyingSettings = false; }
+        }
+        AppSettingsService.ApplyToResources(UiScale, CodeFontSize);
+        try { _settingsService.Save(new AppSettings { UiScale = UiScale, CodeFontSize = CodeFontSize }); }
+        catch { /* settings must never crash the app */ }
+    }
+
+    private void ResetTextSettings()
+    {
+        UiScale = AppSettings.DefaultUiScale;
+        CodeFontSize = AppSettings.DefaultCodeFontSize;
+    }
     partial void OnBackupDestinationPathChanged(string value) => ((AsyncRelayCommand)ExportBackupCommand).NotifyCanExecuteChanged();
     partial void OnIsBackingUpChanged(bool value) => ((AsyncRelayCommand)ExportBackupCommand).NotifyCanExecuteChanged();
 

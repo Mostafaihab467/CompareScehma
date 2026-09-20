@@ -29,6 +29,10 @@
     <Color x:Key="PrimaryText">#F2F2F7</Color>
     <Color x:Key="SecondaryButton">#23232F</Color>
 
+    <!-- Display settings: UiScale zooms text via LayoutTransform, CodeFontSize sizes code boxes. -->
+    <x:Double x:Key="UiScale">1.0</x:Double>
+    <x:Double x:Key="CodeFontSize">12.0</x:Double>
+
     <!-- Status panels -->
     <Color x:Key="SuccessPanelBg">#0C2A1D</Color>
     <Color x:Key="SuccessPanelBorder">#34D399</Color>

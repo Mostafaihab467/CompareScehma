@@ -7,25 +7,35 @@
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="800"
         x:Class="SchemaCompare.MainWindow"
         Title="Schema Compare - Database Diff Tool"
-        Width="1200" Height="800" MinWidth="720" MinHeight="480"
+        Width="1200" Height="800" MinWidth="620" MinHeight="480"
         CanResize="True" SizeToContent="Manual"
         Background="{StaticResource PageBackground}" WindowStartupLocation="CenterScreen">
     <Design.DataContext><vm:MainViewModel /></Design.DataContext>
 
+    <!-- UiScale zooms all text via layout transform. Code boxes scale separately via CodeFontSize. -->
+    <LayoutTransformControl HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <LayoutTransformControl.LayoutTransform>
+            <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+        </LayoutTransformControl.LayoutTransform>
     <Grid RowDefinitions="Auto,*">
         <Border Background="{StaticResource HeaderGradient}" Padding="24,16">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                 <Button Classes="secondary" Command="{Binding ToggleSidebarCommand}" Padding="10,6" Margin="0,0,12,0" ToolTip.Tip="Open or close navigation menu">
                     <TextBlock Text="☰" FontSize="20" />
                 </Button>
-                <StackPanel Grid.Column="1">
-                    <TextBlock Text="Schema Compare" FontSize="24" FontWeight="Bold" Foreground="White" />
-                    <TextBlock Text="Compare SQL Server database schemas side by side" FontSize="13" Foreground="#E0D4FF" Margin="0,4,0,0" />
+                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                    <TextBlock Text="Schema Compare" FontSize="24" FontWeight="Bold" Foreground="White" TextWrapping="Wrap" />
+                    <TextBlock Text="Compare SQL Server database schemas side by side" FontSize="13" Foreground="#E0D4FF" Margin="0,4,0,0" TextWrapping="Wrap" />
                 </StackPanel>
                 <Border Grid.Column="2" Background="#40FFFFFF" CornerRadius="8" Padding="14,8" VerticalAlignment="Center">
-                    <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="13" TextWrapping="Wrap" MaxWidth="360" />
+                    <TextBlock Text="{Binding StatusMessage}" Foreground="White" FontSize="13" TextWrapping="Wrap" MaxWidth="280" />
                 </Border>
                 <Button Grid.Column="3" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="14,8"
+                        VerticalAlignment="Center" Margin="8,0,0,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
+                        Command="{Binding OpenSettingsCommand}" ToolTip.Tip="{Binding DisplaySettingsSummary}">
+                    <TextBlock Text="⚙ Settings" />
+                </Button>
+                <Button Grid.Column="4" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="14,8"
                         VerticalAlignment="Center" Margin="8,0,0,0" FontSize="13" FontWeight="SemiBold" Cursor="Hand"
                         Command="{Binding OpenLogsCommand}" ToolTip.Tip="Open operation logs">
                     <TextBlock Text="{Binding LogsButtonText}" />
@@ -37,10 +47,11 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="{Binding SidebarWidth}" MinWidth="0" />
                 <ColumnDefinition Width="Auto" />
-                <ColumnDefinition Width="*" MinWidth="400" />
+                <ColumnDefinition Width="*" MinWidth="0" />
             </Grid.ColumnDefinitions>
 
-            <Border Classes="card" Padding="10" Margin="12,12,0,12" IsVisible="{Binding IsSidebarOpen}">
+            <Border Classes="card" Padding="10" Margin="12,12,0,12" IsVisible="{Binding IsSidebarOpen}"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Spacing="6">
                         <TextBlock Text="WORKSPACE" Classes="sectionTitle" Margin="6,4,0,8" />
@@ -56,11 +67,13 @@
 
             <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" IsVisible="{Binding IsSidebarOpen}" Margin="0,12" />
 
-            <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="12">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="420">
+            <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="12"
+                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="420"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Top">
                     <StackPanel Spacing="10">
                         <Grid ColumnDefinitions="*,Auto,*">
-                            <Border Classes="card" Padding="20">
+                            <Border Classes="card" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Top" MinWidth="0">
                                 <StackPanel>
                                     <TextBlock Text="SOURCE DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
                                     <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,6,0,12" />
@@ -115,7 +128,7 @@
                                 </StackPanel>
                             </Button>
 
-                            <Border Grid.Column="2" Classes="card" Padding="20">
+                            <Border Grid.Column="2" Classes="card" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Top" MinWidth="0">
                                 <StackPanel>
                                     <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
                                     <Rectangle Height="2" Fill="{StaticResource WarningBrush}" Margin="0,6,0,12" />
@@ -175,8 +188,9 @@
 
                 <GridSplitter Grid.Row="1" Height="6" ResizeDirection="Rows" />
 
-                <Grid Grid.Row="2" MinHeight="180">
-                    <Grid IsVisible="{Binding HasResults}" RowDefinitions="Auto,*,Auto,*">
+                <Grid Grid.Row="2" MinHeight="120" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                    <Grid IsVisible="{Binding HasResults}" RowDefinitions="Auto,*,Auto,Auto"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                         <Border Classes="card" Padding="14,10">
                             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
                                 <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
@@ -202,12 +216,15 @@
                             </ScrollViewer>
                         </Border>
 
-                        <Grid Grid.Row="1" ColumnDefinitions="*,6,*" Margin="0,8,0,0" MinHeight="160">
-                            <Border Classes="card" Padding="0">
+                        <Grid Grid.Row="1" ColumnDefinitions="*,6,*" Margin="0,8,0,0" MinHeight="120"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <Border Classes="card" Padding="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                 <Grid RowDefinitions="Auto,*">
                                     <Border Background="{StaticResource SubtleHeader}" Padding="14,10"><TextBlock Text="Differences" FontWeight="Bold" FontSize="13" /></Border>
-                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                                        <ItemsControl ItemsSource="{Binding FilteredDifferences}">
+                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                        <ItemsControl ItemsSource="{Binding FilteredDifferences}"
+                                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate DataType="models:SchemaDiffItem">
                                                     <Border Padding="12,8" Margin="4,2" CornerRadius="8" Background="{Binding RowBackground}" PointerPressed="DiffItem_PointerPressed">
@@ -229,7 +246,7 @@
                                 </Grid>
                             </Border>
                             <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" />
-                            <Border Grid.Column="2" Classes="card" Padding="0">
+                            <Border Grid.Column="2" Classes="card" Padding="0" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                 <Grid RowDefinitions="Auto,*">
                                     <Border Background="{StaticResource SubtleHeader}" Padding="14,10">
                                         <Grid ColumnDefinitions="*,Auto">
@@ -244,32 +261,61 @@
                                             </Border>
                                         </Grid>
                                     </Border>
-                                    <Grid Grid.Row="1" IsVisible="{Binding HasSelection}">
-                                        <Grid ColumnDefinitions="*,6,*">
-                                            <Border Padding="8" IsVisible="{Binding HasTargetScript}">
+                                    <Grid Grid.Row="1" IsVisible="{Binding HasSelection}"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                        <Grid ColumnDefinitions="*,6,*" IsVisible="{Binding HasBothScripts}"
+                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                            <Border Padding="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                                 <Grid RowDefinitions="Auto,*">
                                                     <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
                                                         <TextBlock Text="Target (Current)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource WarningPanelText}" />
                                                     </Border>
-                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                                                        <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True" />
+                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                        <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True"
+                                                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                                     </ScrollViewer>
                                                 </Grid>
                                             </Border>
                                             <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" />
-                                            <Border Grid.Column="2" Padding="8" IsVisible="{Binding HasSourceScript}">
+                                            <Border Grid.Column="2" Padding="8" HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                                                 <Grid RowDefinitions="Auto,*">
                                                     <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
                                                         <TextBlock Text="Source (New)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource SuccessPanelText}" />
                                                     </Border>
-                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                                                        <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True" />
+                                                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                                  HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                        <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True"
+                                                                 HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                                     </ScrollViewer>
                                                 </Grid>
                                             </Border>
                                         </Grid>
-                                        <Border Padding="16" IsVisible="{Binding !HasTargetScript}">
-                                            <TextBlock Text="Only source script available" FontStyle="Italic" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" />
+                                        <Border Padding="8" IsVisible="{Binding HasOnlyTarget}"
+                                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                            <Grid RowDefinitions="Auto,*">
+                                                <Border Background="{StaticResource WarningPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                                    <TextBlock Text="Target (Current)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource WarningPanelText}" />
+                                                </Border>
+                                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                    <TextBox Text="{Binding TargetScriptContent}" Classes="codeBox" IsReadOnly="True"
+                                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                                </ScrollViewer>
+                                            </Grid>
+                                        </Border>
+                                        <Border Padding="8" IsVisible="{Binding HasOnlySource}"
+                                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                            <Grid RowDefinitions="Auto,*">
+                                                <Border Background="{StaticResource SuccessPanelBg}" Padding="8,4" CornerRadius="4,4,0,0">
+                                                    <TextBlock Text="Source (New)" FontWeight="SemiBold" FontSize="12" Foreground="{StaticResource SuccessPanelText}" />
+                                                </Border>
+                                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                                    <TextBox Text="{Binding SourceScriptContent}" Classes="codeBox" IsReadOnly="True"
+                                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
+                                                </ScrollViewer>
+                                            </Grid>
                                         </Border>
                                     </Grid>
                                     <Border Grid.Row="1" Padding="16" IsVisible="{Binding !HasSelection}">
@@ -297,7 +343,9 @@
 
                         <GridSplitter Grid.Row="2" Height="6" ResizeDirection="Rows" IsVisible="{Binding HasFullScript}" />
 
-                        <Border Grid.Row="3" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasFullScript}" MinHeight="120">
+                        <Border Grid.Row="3" Classes="card" Padding="0" Margin="0,8,0,0" IsVisible="{Binding HasFullScript}"
+                                Height="220" MinHeight="120" MaxHeight="380"
+                                HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                             <Grid RowDefinitions="Auto,*">
                                 <Border Background="{StaticResource CodeBg}" Padding="14,10">
                                     <Grid ColumnDefinitions="*,Auto">
@@ -305,8 +353,10 @@
                                         <Button Grid.Column="1" Background="#3A3A4A" Foreground="#CDD6F4" CornerRadius="6" Padding="10,4" FontSize="11" Click="CopyScript_Click"><TextBlock Text="Copy" /></Button>
                                     </Grid>
                                 </Border>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                                    <TextBox Text="{Binding FullDeployScript}" Classes="codeBox" IsReadOnly="True" MinHeight="120" />
+                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                              HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                    <TextBox Text="{Binding FullDeployScript}" Classes="codeBox" IsReadOnly="True"
+                                             HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                                 </ScrollViewer>
                             </Grid>
                         </Border>
@@ -314,8 +364,8 @@
 
                     <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" IsVisible="{Binding !HasResults}">
                         <TextBlock Text="&#x1F50D;" FontSize="64" HorizontalAlignment="Center" />
-                        <TextBlock Text="Enter connection details and click Compare" FontSize="16" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" />
-                        <TextBlock Text="Discover schema differences between two databases" FontSize="13" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" />
+                        <TextBlock Text="Enter connection details and click Compare" FontSize="16" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,12,0,0" TextWrapping="Wrap" />
+                        <TextBlock Text="Discover schema differences between two databases" FontSize="13" Foreground="{StaticResource OnSurfaceVariant}" HorizontalAlignment="Center" Margin="0,6,0,0" TextWrapping="Wrap" />
                     </StackPanel>
                 </Grid>
 
@@ -340,9 +390,12 @@
                         <Button Grid.Column="1" Classes="secondary" Command="{Binding CloseLogsCommand}" Padding="12,4" FontSize="12"><TextBlock Text="✕ Close" /></Button>
                     </Grid>
                     <Rectangle Grid.Row="1" Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,10,0,12" />
-                    <Border Grid.Row="2" Background="{StaticResource CodeBg}" CornerRadius="8" Padding="4" MinHeight="160">
-                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
-                            <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True" FontSize="12"
+                    <Border Grid.Row="2" Background="{StaticResource CodeBg}" CornerRadius="8" Padding="4" MinHeight="160"
+                            HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto"
+                                      HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                            <TextBox Text="{Binding LogText}" Classes="codeBox" IsReadOnly="True"
+                                     HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
                                      AcceptsReturn="True" TextWrapping="Wrap"
                                      PlaceholderText="No log entries yet." />
                         </ScrollViewer>
@@ -354,5 +407,36 @@
                 </Grid>
             </Border>
         </Border>
+
+        <Border Grid.Row="0" Grid.RowSpan="2" IsVisible="{Binding ShowSettingsDialog}" Background="#B30B0B10" ZIndex="210">
+            <Border Classes="card" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="24" MinWidth="420" MaxWidth="560">
+                <StackPanel Spacing="12">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <TextBlock Text="Display Settings" FontSize="16" FontWeight="Bold" Foreground="{StaticResource PrimaryText}" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Classes="secondary" Command="{Binding CloseSettingsCommand}" Padding="12,4" FontSize="12"><TextBlock Text="✕ Close" /></Button>
+                    </Grid>
+                    <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" />
+                    <TextBlock Text="Interface text size (whole app zoom)" FontWeight="SemiBold" />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Slider Grid.Column="0" Minimum="0.8" Maximum="1.5" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                                Value="{Binding UiScale, Mode=TwoWay}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding UiScale, StringFormat='{}{0:P0}'}" Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="48" />
+                    </Grid>
+                    <TextBlock Text="Code &amp; details text size" FontWeight="SemiBold" />
+                    <Grid ColumnDefinitions="*,Auto">
+                        <Slider Grid.Column="0" Minimum="10" Maximum="20" TickFrequency="0.5" IsSnapToTickEnabled="True"
+                                Value="{Binding CodeFontSize, Mode=TwoWay}" VerticalAlignment="Center" />
+                        <TextBlock Grid.Column="1" Text="{Binding CodeFontSize, StringFormat='{}{0:0.#} pt'}" Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="48" />
+                    </Grid>
+                    <TextBlock Text="{Binding DisplaySettingsSummary}" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" TextWrapping="Wrap" />
+                    <TextBlock Text="Settings are saved automatically and apply to Differences, Detail, Deployment Script and Logs." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" TextWrapping="Wrap" />
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                        <Button Classes="secondary" Command="{Binding ResetTextSettingsCommand}" Padding="16,6" FontSize="12"><TextBlock Text="Reset defaults" /></Button>
+                        <Button Classes="primary" Command="{Binding CloseSettingsCommand}" Padding="16,6" FontSize="12" Margin="8,0,0,0"><TextBlock Text="Done" /></Button>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+        </Border>
     </Grid>
+    </LayoutTransformControl>
 </Window>
