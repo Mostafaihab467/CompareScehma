@@ -56,11 +56,12 @@
                     <StackPanel Spacing="6">
                         <TextBlock Text="WORKSPACE" Classes="sectionTitle" Margin="6,4,0,8" />
                         <Button Classes="secondary" Command="{Binding OpenSchemaCompareCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Schema Compare" /></Button>
+                        <Button Classes="secondary" Command="{Binding OpenDbManagerCommand}" HorizontalAlignment="Stretch"><TextBlock Text="DB Manager" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenMoveDataCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Move Data" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenBackupCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Local Backup" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenDiagramCommand}" HorizontalAlignment="Stretch"><TextBlock Text="DB Diagram" /></Button>
                         <Rectangle Height="1" Fill="{StaticResource CardBorder}" Margin="4,10" />
-                        <TextBlock Text="Move Data, Local Backup and DB Diagram open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
+                        <TextBlock Text="DB Manager, Move Data, Local Backup and DB Diagram open in their own windows. Schema Compare stays here." TextWrapping="Wrap" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0" />
                     </StackPanel>
                 </ScrollViewer>
             </Border>
@@ -418,7 +419,7 @@
                     <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" />
                     <TextBlock Text="Interface text size (whole app zoom)" FontWeight="SemiBold" />
                     <Grid ColumnDefinitions="*,Auto">
-                        <Slider Grid.Column="0" Minimum="0.8" Maximum="1.5" TickFrequency="0.05" IsSnapToTickEnabled="True"
+                        <Slider Grid.Column="0" Minimum="0.7" Maximum="1.4" TickFrequency="0.05" IsSnapToTickEnabled="True"
                                 Value="{Binding UiScale, Mode=TwoWay}" VerticalAlignment="Center" />
                         <TextBlock Grid.Column="1" Text="{Binding UiScale, StringFormat='{}{0:P0}'}" Margin="12,0,0,0" VerticalAlignment="Center" MinWidth="48" />
                     </Grid>

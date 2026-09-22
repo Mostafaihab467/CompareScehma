@@ -1,0 +1,543 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:vm="clr-namespace:SchemaCompare.ViewModels"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        mc:Ignorable="d"
+        x:Class="SchemaCompare.DbManagerWindow"
+        Title="DB Manager"
+        Width="1300" Height="820" MinWidth="800" MinHeight="540"
+        CanResize="True" WindowStartupLocation="CenterScreen"
+        Background="{StaticResource PageBackground}">
+
+    <Design.DataContext><vm:DbManagerViewModel /></Design.DataContext>
+
+    <!-- UiScale zooms text via layout transform according to user display settings -->
+    <LayoutTransformControl HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+        <LayoutTransformControl.LayoutTransform>
+            <ScaleTransform ScaleX="{DynamicResource UiScale}" ScaleY="{DynamicResource UiScale}" />
+        </LayoutTransformControl.LayoutTransform>
+
+    <!-- Root layout: header + body -->
+    <Grid RowDefinitions="Auto,*,Auto">
+
+        <!-- ═══════════════════════ HEADER ═══════════════════════ -->
+        <Border Background="{StaticResource HeaderGradient}" Padding="20,12">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                <!-- Title -->
+                <StackPanel VerticalAlignment="Center">
+                    <TextBlock Text="DB Manager" FontSize="20" FontWeight="Bold" Foreground="White" />
+                    <TextBlock Text="{Binding ConnectedDatabaseLabel}" FontSize="11" Foreground="#E0D4FF" />
+                </StackPanel>
+
+                <!-- Connection selector -->
+                <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+                    <TextBlock Text="Connection:" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="13" />
+                    <ComboBox ItemsSource="{Binding SavedConnections}"
+                              SelectedItem="{Binding SelectedConnection}"
+                              PlaceholderText="Select connection…"
+                              MinWidth="220">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate DataType="models:SavedConnection">
+                                <TextBlock Text="{Binding DisplayName}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </ComboBox>
+                </StackPanel>
+
+                <!-- Connect button -->
+                <Button Grid.Column="3" Classes="primary" Command="{Binding ConnectCommand}"
+                        Padding="14,8" Margin="0,0,8,0" FontSize="13">
+                    <TextBlock Text="⚡ Connect" />
+                </Button>
+
+                <!-- Refresh button -->
+                <Button Grid.Column="4" Classes="secondary" Command="{Binding RefreshCommand}"
+                        Padding="14,8" Margin="0,0,8,0" FontSize="13"
+                        IsEnabled="{Binding IsConnected}">
+                    <TextBlock Text="↺ Refresh" />
+                </Button>
+
+                <!-- Search -->
+                <StackPanel Grid.Column="5" Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBox Text="{Binding SearchText}" PlaceholderText="Search objects…"
+                             Width="180" VerticalAlignment="Center"
+                             Background="#40FFFFFF" Foreground="White"
+                             CaretBrush="White"
+                             BorderBrush="#60FFFFFF">
+                        <TextBox.KeyBindings>
+                            <KeyBinding Gesture="Return" Command="{Binding SearchCommand}" />
+                        </TextBox.KeyBindings>
+                    </TextBox>
+                    <Button Classes="secondary" Command="{Binding SearchCommand}"
+                            Padding="10,8" Margin="4,0,0,0" FontSize="13">
+                        <TextBlock Text="🔍" />
+                    </Button>
+                    <Button Classes="secondary" Command="{Binding ClearSearchCommand}"
+                            Padding="10,8" Margin="4,0,0,0" FontSize="13" ToolTip.Tip="Clear search">
+                        <TextBlock Text="✕" />
+                    </Button>
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- ═══════════════════════ BODY ═══════════════════════ -->
+        <Grid Grid.Row="1" ColumnDefinitions="260,6,*">
+
+            <!-- ─── LEFT PANEL: Object tree ─── -->
+            <Border Classes="card" Margin="8,8,0,8" Padding="0"
+                    HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                <Grid RowDefinitions="Auto,*">
+
+                    <!-- Tree header -->
+                    <Border Background="{StaticResource SubtleHeader}" Padding="12,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="Objects" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" />
+                            <Border IsVisible="{Binding IsLoadingTree}" Margin="8,0,0,0"
+                                    Background="{StaticResource Primary500}" CornerRadius="8" Padding="6,2">
+                                <TextBlock Text="Loading…" FontSize="10" Foreground="White" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Object groups list -->
+                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled">
+                        <ItemsControl ItemsSource="{Binding ObjectGroups}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="models:DbObjectGroup">
+                                    <StackPanel Margin="0,4,0,0">
+                                        <!-- Group header with toggle button -->
+                                        <Button Command="{Binding ToggleExpandCommand}"
+                                                Background="{StaticResource SubtleHeader}"
+                                                BorderThickness="0"
+                                                Padding="10,6"
+                                                HorizontalAlignment="Stretch"
+                                                HorizontalContentAlignment="Stretch"
+                                                Cursor="Hand">
+                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                                                <TextBlock Text="{Binding ExpandIcon}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource Primary500}" />
+                                                <TextBlock Grid.Column="1" Text="{Binding Icon}" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" />
+                                                <TextBlock Grid.Column="2" Text="{Binding Header}" FontWeight="SemiBold"
+                                                           FontSize="12" VerticalAlignment="Center" />
+                                            </Grid>
+                                        </Button>
+
+                                        <!-- Category specific search filter (shown when expanded) -->
+                                        <TextBox Text="{Binding FilterText}"
+                                                 PlaceholderText="Filter here…"
+                                                 FontSize="11" Margin="6,4,6,2"
+                                                 Padding="6,3"
+                                                 IsVisible="{Binding IsExpanded}" />
+
+                                        <!-- Object items (filtered) -->
+                                        <ItemsControl ItemsSource="{Binding FilteredItems}" IsVisible="{Binding IsExpanded}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate DataType="models:DbObjectInfo">
+                                                    <Button Command="{Binding $parent[Window].DataContext.SelectObjectCommand}"
+                                                            CommandParameter="{Binding}"
+                                                            Background="Transparent"
+                                                            BorderThickness="0"
+                                                            Padding="10,4"
+                                                            HorizontalAlignment="Stretch"
+                                                            HorizontalContentAlignment="Left"
+                                                            CornerRadius="4"
+                                                            Cursor="Hand">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding TypeIcon}" FontSize="11"
+                                                                       Margin="0,0,6,0" VerticalAlignment="Center" />
+                                                            <TextBlock Text="{Binding DisplayName}" FontSize="12"
+                                                                       TextTrimming="CharacterEllipsis"
+                                                                       MaxWidth="190" VerticalAlignment="Center" />
+                                                        </StackPanel>
+                                                    </Button>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </ScrollViewer>
+                </Grid>
+            </Border>
+
+            <GridSplitter Grid.Column="1" Width="6" ResizeDirection="Columns" Margin="0,8" />
+
+            <!-- ─── RIGHT PANEL: Tab content ─── -->
+            <Grid Grid.Column="2" RowDefinitions="Auto,Auto,*,Auto" Margin="0,8,8,8">
+
+                <!-- Object info bar -->
+                <Border Classes="card" Padding="12,8" IsVisible="{Binding IsConnected}">
+                    <Grid ColumnDefinitions="Auto,*,Auto">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding SelectedObject.TypeIcon}" FontSize="18"
+                                       Margin="0,0,8,0" VerticalAlignment="Center"
+                                       IsVisible="{Binding SelectedObject, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                            <StackPanel>
+                                <TextBlock Text="{Binding SelectedObject.DisplayName, FallbackValue='No object selected'}"
+                                           FontWeight="Bold" FontSize="14" />
+                                <TextBlock Text="{Binding SelectedObject.TypeLabel, FallbackValue=''}"
+                                           FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                            </StackPanel>
+                        </StackPanel>
+
+                        <!-- Tab buttons -->
+                        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4"
+                                    IsVisible="{Binding SelectedObject, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <Button Command="{Binding SwitchToDataTabCommand}"
+                                    Padding="12,6" FontSize="12"
+                                    Classes.primary="{Binding IsTabData}"
+                                    Classes.secondary="{Binding !IsTabData}">
+                                <TextBlock Text="📊 Data" />
+                            </Button>
+                            <Button Command="{Binding SwitchToStructureTabCommand}"
+                                    Padding="12,6" FontSize="12"
+                                    Classes.primary="{Binding IsTabStructure}"
+                                    Classes.secondary="{Binding !IsTabStructure}">
+                                <TextBlock Text="🏗 Structure" />
+                            </Button>
+                            <Button Command="{Binding SwitchToDefinitionTabCommand}"
+                                    Padding="12,6" FontSize="12"
+                                    Classes.primary="{Binding IsTabDefinition}"
+                                    Classes.secondary="{Binding !IsTabDefinition}">
+                                <TextBlock Text="📄 Definition" />
+                            </Button>
+                            <Button Command="{Binding SwitchToExecuteTabCommand}"
+                                    Padding="12,6" FontSize="12"
+                                    IsVisible="{Binding ShowExecuteTab}"
+                                    Classes.primary="{Binding IsTabExecute}"
+                                    Classes.secondary="{Binding !IsTabExecute}">
+                                <TextBlock Text="▶ Execute" />
+                            </Button>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <!-- Error banner -->
+                <Border Grid.Row="1" Background="{StaticResource ErrorPanelBg}"
+                        BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1"
+                        CornerRadius="6" Padding="12,8" Margin="0,4,0,0"
+                        IsVisible="{Binding ShowError}">
+                    <TextBox Text="{Binding ErrorMessage}" Classes="errorText" IsReadOnly="True"
+                             MaxHeight="80" TextWrapping="Wrap" />
+                </Border>
+
+                <!-- ─ TAB CONTENT AREA ─ -->
+                <Grid Grid.Row="2" Margin="0,4,0,0">
+
+                    <!-- ══════════ DATA TAB ══════════ -->
+                    <Grid IsVisible="{Binding IsTabData}" RowDefinitions="Auto,*">
+
+                        <!-- Filter bar -->
+                        <Border Classes="card" Padding="10,8">
+                            <Grid RowDefinitions="Auto,Auto">
+                                <!-- Filter rows -->
+                                <ItemsControl ItemsSource="{Binding TableFilters}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate DataType="models:TableFilter">
+                                            <Grid ColumnDefinitions="Auto,*,120,*,Auto"
+                                                  Margin="0,2">
+                                                <!-- Logical op (AND/OR) -->
+                                                <ComboBox Grid.Column="0"
+                                                          ItemsSource="{x:Static models:TableFilter.LogicalOps}"
+                                                          SelectedItem="{Binding LogicalOp, Mode=TwoWay}"
+                                                          Width="65" FontSize="11" Margin="0,0,4,0" />
+                                                <!-- Column name -->
+                                                <ComboBox Grid.Column="1"
+                                                          ItemsSource="{Binding $parent[Window].DataContext.TableColumnNames}"
+                                                          SelectedItem="{Binding ColumnName, Mode=TwoWay}"
+                                                          PlaceholderText="Select Column" FontSize="11"
+                                                          Margin="0,0,4,0" HorizontalAlignment="Stretch" />
+                                                <!-- Operator -->
+                                                <ComboBox Grid.Column="2"
+                                                          ItemsSource="{x:Static models:TableFilter.Operators}"
+                                                          SelectedItem="{Binding Operator, Mode=TwoWay}"
+                                                          FontSize="11" Margin="0,0,4,0" />
+                                                <!-- Value -->
+                                                <TextBox Grid.Column="3"
+                                                         Text="{Binding Value}"
+                                                         PlaceholderText="Value (comma-separated for IN/BETWEEN)"
+                                                         FontSize="11" Margin="0,0,4,0"
+                                                         IsEnabled="{Binding !NeedsNoValue}" />
+                                                <!-- Remove button -->
+                                                <Button Grid.Column="4"
+                                                        Command="{Binding $parent[Window].DataContext.RemoveFilterCommand}"
+                                                        CommandParameter="{Binding}"
+                                                        Classes="danger" Padding="8,4" FontSize="11">
+                                                    <TextBlock Text="✕" />
+                                                </Button>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+
+                                <!-- Filter toolbar -->
+                                <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,6,0,0" Spacing="6">
+                                    <Button Classes="secondary" Command="{Binding AddFilterCommand}"
+                                            Padding="10,4" FontSize="11">
+                                        <TextBlock Text="+ Add Condition" />
+                                    </Button>
+                                    <Button Classes="primary" Command="{Binding ApplyFiltersCommand}"
+                                            Padding="14,4" FontSize="11" FontWeight="Bold">
+                                        <TextBlock Text="⚡ Apply Filter (Query DB)" />
+                                    </Button>
+                                    <Button Classes="secondary" Command="{Binding ClearFiltersCommand}"
+                                            Padding="10,4" FontSize="11">
+                                        <TextBlock Text="✕ Clear" />
+                                    </Button>
+                                    <Rectangle Width="1" Fill="{StaticResource CardBorder}" Margin="4,0" />
+                                    <TextBlock Text="Limit:" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                                    <ComboBox ItemsSource="{x:Static vm:DbManagerViewModel.TopNOptions}"
+                                              SelectedItem="{Binding TopNRows}"
+                                              Width="80" FontSize="11">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding, StringFormat='{}{0} rows', FallbackValue='ALL rows'}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+                                    <Border Background="{StaticResource InputBackground}" CornerRadius="4" Padding="8,3"
+                                            Margin="8,0,0,0" VerticalAlignment="Center" IsVisible="{Binding HasRowCountInfo}">
+                                        <TextBlock Text="{Binding DataStatusText}" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource Primary500}" />
+                                    </Border>
+                                </StackPanel>
+                            </Grid>
+                        </Border>
+
+                        <!-- Data grid -->
+                        <Border Grid.Row="1" Classes="card" Padding="0" Margin="0,4,0,0">
+                            <Grid RowDefinitions="*">
+                                <!-- Loading indicator overlay -->
+                                <Border ZIndex="10" Background="#AA000010"
+                                        IsVisible="{Binding IsLoadingData}"
+                                        HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
+                                    <TextBlock Text="⏳ Loading data…" HorizontalAlignment="Center"
+                                               VerticalAlignment="Center" FontSize="16"
+                                               Foreground="{StaticResource Primary500}" />
+                                </Border>
+
+                                <!-- Empty state -->
+                                <StackPanel IsVisible="{Binding !HasTableData}"
+                                            HorizontalAlignment="Center" VerticalAlignment="Center"
+                                            Spacing="8">
+                                    <TextBlock Text="📭" FontSize="48" HorizontalAlignment="Center" />
+                                    <TextBlock Text="No data — select a table or apply filters"
+                                               FontSize="14" Foreground="{StaticResource OnSurfaceVariant}"
+                                               HorizontalAlignment="Center" />
+                                </StackPanel>
+
+                                <!-- Dynamic DataGrid — columns generated in code-behind -->
+                                <ScrollViewer HorizontalScrollBarVisibility="Auto"
+                                              VerticalScrollBarVisibility="Auto"
+                                              IsVisible="{Binding HasTableData}">
+                                    <DataGrid x:Name="DataGrid"
+                                              ItemsSource="{Binding TableRows}"
+                                              AutoGenerateColumns="False"
+                                              CanUserReorderColumns="True"
+                                              CanUserResizeColumns="True"
+                                              CanUserSortColumns="True"
+                                              IsReadOnly="False"
+                                              GridLinesVisibility="All"
+                                              FontSize="12"
+                                              HorizontalAlignment="Stretch"
+                                              VerticalAlignment="Stretch" />
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+                    </Grid>
+
+                    <!-- ══════════ STRUCTURE TAB ══════════ -->
+                    <Border Classes="card" Padding="0"
+                            IsVisible="{Binding IsTabStructure}">
+                        <Grid RowDefinitions="Auto,*">
+                            <Border Background="{StaticResource SubtleHeader}" Padding="12,8">
+                                <TextBlock Text="Column Structure" FontWeight="Bold" FontSize="13" />
+                            </Border>
+                            <DataGrid Grid.Row="1"
+                                      ItemsSource="{Binding StructureColumns}"
+                                      AutoGenerateColumns="False"
+                                      IsReadOnly="True"
+                                      CanUserReorderColumns="True"
+                                      CanUserResizeColumns="True"
+                                      CanUserSortColumns="True"
+                                      GridLinesVisibility="All"
+                                      FontSize="12">
+                                <DataGrid.Columns>
+                                    <DataGridTextColumn Header="#"       Binding="{Binding OrdinalPosition}" Width="40" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="Column"  Binding="{Binding Name}"            Width="160" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="Type"    Binding="{Binding DisplayType}"      Width="120" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="Nullable" Binding="{Binding NullableDisplay}" Width="80" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="PK"      Binding="{Binding PkDisplay}"        Width="40" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="Identity" Binding="{Binding IdentityDisplay}" Width="60" IsReadOnly="True" />
+                                    <DataGridTextColumn Header="Default" Binding="{Binding DefaultValue}"     Width="*"  IsReadOnly="True" />
+                                </DataGrid.Columns>
+                            </DataGrid>
+                        </Grid>
+                    </Border>
+
+                    <!-- ══════════ DEFINITION TAB ══════════ -->
+                    <Grid IsVisible="{Binding IsTabDefinition}" RowDefinitions="Auto,*">
+                        <Border Classes="card" Padding="10,8">
+                            <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                    <TextBlock Text="T-SQL Definition" FontWeight="SemiBold" FontSize="13"
+                                               VerticalAlignment="Center" />
+                                    <TextBlock Text="(Editable — modify and click Save / Execute to update)"
+                                               FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                                               VerticalAlignment="Center" />
+                                </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{Binding DefinitionSaveStatus}"
+                                           Foreground="{StaticResource Success}" FontSize="12"
+                                           VerticalAlignment="Center" Margin="12,0,0,0" />
+                                <Button Grid.Column="2" Classes="secondary" Command="{Binding CopyDefinitionCommand}"
+                                        Padding="10,4" FontSize="11" Margin="0,0,6,0">
+                                    <TextBlock Text="📋 Copy" />
+                                </Button>
+                                <Button Grid.Column="3" Classes="primary" Command="{Binding SaveDefinitionCommand}"
+                                        Padding="14,6" FontSize="12" IsEnabled="{Binding !IsSavingDefinition}">
+                                    <TextBlock Text="💾 Save / Execute SQL" />
+                                </Button>
+                            </Grid>
+                        </Border>
+                        <Border Grid.Row="1" Classes="card" Padding="0" Margin="0,4,0,0">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto"
+                                          HorizontalScrollBarVisibility="Auto"
+                                          HorizontalAlignment="Stretch"
+                                          VerticalAlignment="Stretch">
+                                <TextBox Text="{Binding ObjectDefinition}"
+                                         Classes="codeBox" IsReadOnly="False"
+                                         AcceptsReturn="True"
+                                         HorizontalAlignment="Stretch"
+                                         VerticalAlignment="Stretch"
+                                         PlaceholderText="Select an object to view or modify its T-SQL definition." />
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+
+                    <!-- ══════════ EXECUTE TAB (Stored Procs) ══════════ -->
+                    <Grid IsVisible="{Binding IsTabExecute}" RowDefinitions="Auto,Auto,*,Auto">
+
+                        <!-- Parameters input grid -->
+                        <Border Classes="card" Padding="10,8">
+                            <Grid RowDefinitions="Auto,Auto">
+                                <TextBlock Text="Procedure Parameters" FontWeight="SemiBold" FontSize="13" Margin="0,0,0,6" />
+                                <DataGrid Grid.Row="1"
+                                          ItemsSource="{Binding ProcParams}"
+                                          AutoGenerateColumns="False"
+                                          IsReadOnly="False"
+                                          GridLinesVisibility="All"
+                                          MaxHeight="200"
+                                          FontSize="12">
+                                    <DataGrid.Columns>
+                                        <DataGridTextColumn Header="Parameter" Binding="{Binding Name}"           Width="160" IsReadOnly="True" />
+                                        <DataGridTextColumn Header="Type"      Binding="{Binding DataType}"       Width="100" IsReadOnly="True" />
+                                        <DataGridTextColumn Header="Direction" Binding="{Binding DirectionLabel}" Width="80"  IsReadOnly="True" />
+                                        <DataGridTextColumn Header="Value"     Binding="{Binding InputValue}"     Width="*"   IsReadOnly="False" />
+                                    </DataGrid.Columns>
+                                </DataGrid>
+                            </Grid>
+                        </Border>
+
+                        <!-- Execute toolbar -->
+                        <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,4,0,0">
+                            <Button Classes="primary" Command="{Binding ExecuteProcCommand}"
+                                    Padding="16,8" FontSize="13" IsEnabled="{Binding !IsExecuting}">
+                                <StackPanel Orientation="Horizontal" Spacing="6">
+                                    <TextBlock Text="▶" />
+                                    <TextBlock Text="Execute" />
+                                </StackPanel>
+                            </Button>
+                            <Border Background="{StaticResource WarningPanelBg}" CornerRadius="6" Padding="10,6"
+                                    VerticalAlignment="Center">
+                                <TextBlock Text="⚠ Runs against the live database"
+                                           FontSize="11" Foreground="{StaticResource WarningPanelText}" />
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Result set -->
+                        <Border Grid.Row="2" Classes="card" Padding="0" Margin="0,4,0,0">
+                            <Grid RowDefinitions="Auto,*">
+                                <Border Background="{StaticResource SubtleHeader}" Padding="12,8">
+                                    <TextBlock Text="Results" FontWeight="Bold" FontSize="13" />
+                                </Border>
+                                <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto"
+                                              VerticalScrollBarVisibility="Auto">
+                                    <DataGrid x:Name="ExecDataGrid"
+                                              ItemsSource="{Binding ExecResultRows}"
+                                              AutoGenerateColumns="False"
+                                              IsReadOnly="True"
+                                              GridLinesVisibility="All"
+                                              FontSize="12" />
+                                </ScrollViewer>
+                            </Grid>
+                        </Border>
+
+                        <!-- Output params / messages -->
+                        <Border Grid.Row="3" Classes="card" Padding="0" Margin="0,4,0,0"
+                                MaxHeight="120"
+                                IsVisible="{Binding HasExecResults}">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                                <TextBox Text="{Binding ExecOutputText}" Classes="codeBox"
+                                         IsReadOnly="True" AcceptsReturn="True"
+                                         PlaceholderText="Output parameters and messages appear here." />
+                            </ScrollViewer>
+                        </Border>
+                    </Grid>
+
+                    <!-- ══════════ NOT CONNECTED / NO SELECTION ══════════ -->
+                    <StackPanel IsVisible="{Binding !IsConnected}"
+                                HorizontalAlignment="Center" VerticalAlignment="Center"
+                                Spacing="12">
+                        <TextBlock Text="🔌" FontSize="64" HorizontalAlignment="Center" />
+                        <TextBlock Text="Select a connection profile and click Connect"
+                                   FontSize="16" Foreground="{StaticResource OnSurfaceVariant}"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Status bar with bottom counts -->
+                <Border Grid.Row="3" Background="{StaticResource SubtleHeader}" CornerRadius="4" Padding="12,6" Margin="0,4,0,0">
+                    <Grid ColumnDefinitions="*,Auto">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding StatusMessage}"
+                                       FontSize="11" Foreground="{StaticResource PrimaryText}"
+                                       TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                            <Border Background="{StaticResource CardBackground}" CornerRadius="4" Padding="8,2"
+                                    IsVisible="{Binding HasRowCountInfo}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="Rows Loaded:" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                                    <TextBlock Text="{Binding LoadedRowCount, StringFormat='{}{0:N0}'}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Success}" />
+                                    <TextBlock Text="/" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                                    <TextBlock Text="Total in Table:" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+                                    <TextBlock Text="{Binding TotalTableRowCount, StringFormat='{}{0:N0}'}" FontSize="11" FontWeight="Bold" Foreground="{StaticResource Primary500}" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="{Binding ConnectedDatabaseLabel}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </Grid>
+        </Grid>
+
+        <!-- Busy overlay -->
+        <Border Grid.Row="1" IsVisible="{Binding IsBusy}" Background="#880B0B20" ZIndex="100"
+                IsHitTestVisible="False">
+            <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                <Border Width="52" Height="52" CornerRadius="26"
+                        Background="{StaticResource HeaderGradient}">
+                    <TextBlock Text="⏳" FontSize="28" HorizontalAlignment="Center"
+                               VerticalAlignment="Center" />
+                </Border>
+                <TextBlock Text="{Binding StatusMessage}"
+                           FontSize="14" Foreground="{StaticResource Primary500}"
+                           HorizontalAlignment="Center" />
+            </StackPanel>
+        </Border>
+    </Grid>
+    </LayoutTransformControl>
+</Window>

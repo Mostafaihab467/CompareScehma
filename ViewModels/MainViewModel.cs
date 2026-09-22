@@ -1,4 +1,4 @@
-﻿using System.Collections.ObjectModel;
+using System.Collections.ObjectModel;
 using System.Windows.Input;
 using Avalonia.Controls;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -149,6 +149,7 @@ public partial class MainViewModel : ObservableObject
     public ICommand OpenMoveDataCommand { get; }
     public ICommand OpenBackupCommand { get; }
     public ICommand OpenDiagramCommand { get; }
+    public ICommand OpenDbManagerCommand { get; }
     public ICommand ExportBackupCommand { get; }
     public ICommand ToggleSidebarCommand { get; }
     public ICommand CopyErrorCommand { get; }
@@ -162,6 +163,7 @@ public partial class MainViewModel : ObservableObject
     public Action? OpenMoveDataWindowAction { get; set; }
     public Action? OpenBackupWindowAction { get; set; }
     public Action? OpenDiagramWindowAction { get; set; }
+    public Action? OpenDbManagerWindowAction { get; set; }
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -190,6 +192,7 @@ public partial class MainViewModel : ObservableObject
         OpenMoveDataCommand = new RelayCommand(() => OpenMoveDataWindowAction?.Invoke());
         OpenBackupCommand = new RelayCommand(() => OpenBackupWindowAction?.Invoke());
         OpenDiagramCommand = new RelayCommand(() => OpenDiagramWindowAction?.Invoke());
+        OpenDbManagerCommand = new RelayCommand(() => OpenDbManagerWindowAction?.Invoke());
         ExportBackupCommand = new AsyncRelayCommand(ExportBackupAsync, () => !IsBackingUp && !string.IsNullOrWhiteSpace(BackupDestinationPath));
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarOpen = !IsSidebarOpen);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);

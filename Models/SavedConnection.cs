@@ -42,4 +42,14 @@ public partial class SavedConnection : ObservableObject
         string.Equals(Database?.Trim(), database?.Trim(), StringComparison.OrdinalIgnoreCase) &&
         UseWindowsAuth == useWindowsAuth &&
         (useWindowsAuth || string.Equals(Username?.Trim(), username?.Trim(), StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>Converts this saved profile to a <see cref="ConnectionInfo"/> for live queries.</summary>
+    public ConnectionInfo ToConnectionInfo() => new()
+    {
+        Server         = Server,
+        Database       = Database,
+        UseWindowsAuth = UseWindowsAuth,
+        Username       = Username,
+        Password       = Password
+    };
 }

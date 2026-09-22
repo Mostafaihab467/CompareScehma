@@ -75,13 +75,29 @@ public sealed class DataMoveService
     private static async Task<(long Inserted, long Updated)> SyncTableAsync(string sourceCs, SqlConnection target, DataMoveTable table)
     {
         var quotedTable = table.FullName;
-        var columns = table.WritableColumns.Select(Q).ToList();
-        var pk = table.PrimaryKeyColumns.Select(Q).ToList();
-        var nonPk = table.WritableColumns.Where(c => !table.PrimaryKeyColumns.Contains(c, StringComparer.OrdinalIgnoreCase)).Select(Q).ToList();
+        var validWritable = table.WritableColumns
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        if (validWritable.Count == 0)
+            throw new InvalidOperationException($"Table {table.FullName} has no writable columns to copy.");
+
+        var columns = validWritable.Select(Q).ToList();
+        var validPk = table.PrimaryKeyColumns
+            .Where(c => !string.IsNullOrWhiteSpace(c))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var pk = validPk.Select(Q).ToList();
+        var nonPk = validWritable
+            .Where(c => !validPk.Contains(c, StringComparer.OrdinalIgnoreCase))
+            .Select(Q)
+            .ToList();
+
         await using var tx = await target.BeginTransactionAsync();
         try
         {
             var tempName = "#DataMoveStage";
+            await ExecuteAsync(target, tx, $"IF OBJECT_ID('tempdb..{tempName}') IS NOT NULL DROP TABLE {tempName};");
             await ExecuteAsync(target, tx, $"SELECT TOP (0) {string.Join(", ", columns)} INTO {tempName} FROM {quotedTable};");
             await using (var sourceConnection = new SqlConnection(sourceCs))
             {
@@ -92,21 +108,25 @@ public sealed class DataMoveService
                 // KeepIdentity is essential here: generated staging IDs would otherwise replace
                 // source UserID values and break parent/child FK references on the target.
                 using var bulk = new SqlBulkCopy(target, SqlBulkCopyOptions.KeepIdentity, (SqlTransaction)tx) { DestinationTableName = tempName, BatchSize = 5000, BulkCopyTimeout = 0 };
-                foreach (var col in columns) bulk.ColumnMappings.Add(col.Trim('[', ']'), col.Trim('[', ']'));
+                foreach (var col in validWritable) bulk.ColumnMappings.Add(col, col);
                 await bulk.WriteToServerAsync(reader);
             }
             var join = string.Join(" AND ", pk.Select(c => $"T.{c} = S.{c}"));
             long updated = 0;
-            if (nonPk.Count > 0)
+            if (nonPk.Count > 0 && pk.Count > 0)
                 updated = await ScalarAsync(target, tx, $"UPDATE T SET {string.Join(", ", nonPk.Select(c => $"T.{c} = S.{c}"))} FROM {quotedTable} T JOIN {tempName} S ON {join}; SELECT @@ROWCOUNT;");
             var identity = await ScalarAsync(target, tx, $"SELECT COUNT(*) FROM sys.identity_columns WHERE object_id = OBJECT_ID(N'{table.Schema.Replace("'", "''")}.{table.Name.Replace("'", "''")}');") > 0;
             if (identity) await ExecuteAsync(target, tx, $"SET IDENTITY_INSERT {quotedTable} ON;");
             long inserted;
-            try { inserted = await ScalarAsync(target, tx, $"INSERT INTO {quotedTable} ({string.Join(", ", columns)}) SELECT {string.Join(", ", columns.Select(c => $"S.{c}"))} FROM {tempName} S WHERE NOT EXISTS (SELECT 1 FROM {quotedTable} T WHERE {join}); SELECT @@ROWCOUNT;"); }
+            try
+            {
+                var notExistsClause = pk.Count > 0 ? $" WHERE NOT EXISTS (SELECT 1 FROM {quotedTable} T WHERE {join})" : "";
+                inserted = await ScalarAsync(target, tx, $"INSERT INTO {quotedTable} ({string.Join(", ", columns)}) SELECT {string.Join(", ", columns.Select(c => $"S.{c}"))} FROM {tempName} S{notExistsClause}; SELECT @@ROWCOUNT;");
+            }
             finally { if (identity) await ExecuteAsync(target, tx, $"SET IDENTITY_INSERT {quotedTable} OFF;"); }
             // A local temporary table lives for the whole SQL connection, not merely this
             // transaction. Remove it explicitly so the next selected table gets a clean stage.
-            await ExecuteAsync(target, tx, $"DROP TABLE {tempName};");
+            await ExecuteAsync(target, tx, $"IF OBJECT_ID('tempdb..{tempName}') IS NOT NULL DROP TABLE {tempName};");
             await tx.CommitAsync();
             return (inserted, updated);
         }
@@ -115,7 +135,7 @@ public sealed class DataMoveService
 
     private static async Task ExecuteAsync(SqlConnection c, DbTransaction tx, string sql) { await using var cmd = new SqlCommand(sql, c, (SqlTransaction)tx) { CommandTimeout = 0 }; await cmd.ExecuteNonQueryAsync(); }
     private static async Task<long> ScalarAsync(SqlConnection c, DbTransaction tx, string sql) { await using var cmd = new SqlCommand(sql, c, (SqlTransaction)tx) { CommandTimeout = 0 }; return Convert.ToInt64(await cmd.ExecuteScalarAsync()); }
-    private static string Q(string name) => "[" + name.Replace("]", "]]", StringComparison.Ordinal) + "]";
+    private static string Q(string name) => "[" + name.Trim().TrimStart('[').TrimEnd(']').Replace("]", "]]", StringComparison.Ordinal) + "]";
 
     private static async Task<Dictionary<string, long>> ReadRowCountsAsync(string cs)
     {

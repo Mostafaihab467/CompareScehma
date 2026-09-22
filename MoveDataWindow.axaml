@@ -91,7 +91,19 @@
             <Grid Grid.Row="2" ColumnDefinitions="*,6,*" Margin="20,0,20,8" MinHeight="140">
                 <Border Classes="card" Padding="0" IsVisible="{Binding HasDataMovePlan}">
                     <Grid RowDefinitions="Auto,Auto,*">
-                        <Border Background="{StaticResource SubtleHeader}" Padding="14,10"><TextBlock Text="Tables to synchronize" FontWeight="Bold" /></Border>
+                        <Border Background="{StaticResource SubtleHeader}" Padding="14,10">
+                            <Grid ColumnDefinitions="*,Auto,Auto">
+                                <TextBlock Text="Tables to synchronize" FontWeight="Bold" VerticalAlignment="Center" />
+                                <Button Grid.Column="1" Classes="secondary" Command="{Binding SelectAllDataTablesCommand}"
+                                        Padding="8,3" FontSize="11" Margin="8,0,0,0">
+                                    <TextBlock Text="Select All" />
+                                </Button>
+                                <Button Grid.Column="2" Classes="secondary" Command="{Binding SelectNoDataTablesCommand}"
+                                        Padding="8,3" FontSize="11" Margin="4,0,0,0">
+                                    <TextBlock Text="Select None" />
+                                </Button>
+                            </Grid>
+                        </Border>
                         <TextBox Grid.Row="1" Text="{Binding DataMoveFilterText}" PlaceholderText="Search tables or status to include/exclude…" Margin="10,8" />
                         <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
                             <ItemsControl ItemsSource="{Binding FilteredDataMoveTables}">

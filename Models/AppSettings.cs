@@ -6,9 +6,9 @@ namespace SchemaCompare.Models;
 /// </summary>
 public sealed class AppSettings
 {
-    public const double DefaultUiScale = 1.0;
-    public const double MinUiScale = 0.8;
-    public const double MaxUiScale = 1.5;
+    public const double DefaultUiScale = 0.95;
+    public const double MinUiScale = 0.7;
+    public const double MaxUiScale = 1.4;
 
     public const double DefaultCodeFontSize = 12.0;
     public const double MinCodeFontSize = 10.0;

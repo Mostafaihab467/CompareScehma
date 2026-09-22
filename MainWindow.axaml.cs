@@ -1,4 +1,4 @@
-﻿using Avalonia.Controls;
+using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -74,11 +74,24 @@ public partial class MainWindow : Window
             _diagramWindow.Closed += (_, _) => _diagramWindow = null;
             _diagramWindow.Show(this);
         };
+        vm.OpenDbManagerWindowAction = () =>
+        {
+            if (_dbManagerWindow is { IsVisible: true })
+            {
+                _dbManagerWindow.Activate();
+                _dbManagerWindow.WindowState = WindowState.Normal;
+                return;
+            }
+            _dbManagerWindow = new DbManagerWindow();
+            _dbManagerWindow.Closed += (_, _) => _dbManagerWindow = null;
+            _dbManagerWindow.Show(this);
+        };
     }
 
     private MoveDataWindow? _moveDataWindow;
     private BackupWindow? _backupWindow;
     private DiagramWindow? _diagramWindow;
+    private DbManagerWindow? _dbManagerWindow;
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)
     {
