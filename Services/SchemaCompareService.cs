@@ -36,6 +36,7 @@ public class SchemaCompareService
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
             comparison.Options.DropObjectsNotInSource = false;
+            comparison.Options.BlockOnPossibleDataLoss = false;
 
             ct.ThrowIfCancellationRequested();
             progress?.Report("Running comparison (this may take a moment)...");
@@ -144,6 +145,7 @@ public class SchemaCompareService
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
             comparison.Options.DropObjectsNotInSource = false;
+            comparison.Options.BlockOnPossibleDataLoss = false;
 
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
@@ -170,6 +172,7 @@ public class SchemaCompareService
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
             comparison.Options.DropObjectsNotInSource = false;
+            comparison.Options.BlockOnPossibleDataLoss = false;
 
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
@@ -359,11 +362,23 @@ public class SchemaCompareService
 
             // Skip sqlcmd mode verification guards and USE master/NOEXEC directives
             if (Regex.IsMatch(cleaned, @"IF\s+N'\$\(__IsSqlCmdEnabled\)'\s+NOT\s+LIKE\s+N'True'", RegexOptions.IgnoreCase) ||
-                Regex.IsMatch(cleaned, @"^SET\s+NOEXEC\s+(?:ON|OFF)", RegexOptions.IgnoreCase) ||
+                Regex.IsMatch(cleaned, @"SET\s+NOEXEC\s+ON", RegexOptions.IgnoreCase) ||
+                Regex.IsMatch(cleaned, @"^SET\s+NOEXEC\s+OFF", RegexOptions.IgnoreCase) ||
                 Regex.IsMatch(cleaned, @"^USE\s+\[?master\]?", RegexOptions.IgnoreCase))
             {
                 continue;
             }
+
+            // Skip data-loss abort guards (e.g. IF EXISTS (...) RAISERROR (N'Rows were detected. The schema update is terminating because data loss might occur...'))
+            if (Regex.IsMatch(cleaned, @"The\s+schema\s+update\s+is\s+terminating\s+because\s+data\s+loss\s+might\s+occur", RegexOptions.IgnoreCase) ||
+                Regex.IsMatch(cleaned, @"Rows\s+were\s+detected\.\s*The\s+schema\s+update\s+is\s+terminating", RegexOptions.IgnoreCase))
+            {
+                continue;
+            }
+
+            // Also strip any inline data-loss check statement if mixed with other DDL in the same batch
+            cleaned = Regex.Replace(cleaned, @"IF\s+EXISTS\s*\([^)]*\)\s*RAISERROR\s*\([^;]*\)(?:\s*WITH\s+NOWAIT)?;?", "", RegexOptions.IgnoreCase | RegexOptions.Singleline).Trim();
+            if (string.IsNullOrWhiteSpace(cleaned)) continue;
 
             executableBatches.Add(cleaned);
         }
