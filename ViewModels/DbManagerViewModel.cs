@@ -57,6 +57,16 @@ public partial class DbManagerViewModel : ObservableObject
     [ObservableProperty] private bool _isLoadingData;
     [ObservableProperty] private bool _hasTableData;
 
+    // Row editing / deletion
+    [ObservableProperty] private Dictionary<string, object?>? _selectedRow;
+    [ObservableProperty] private bool _hasSelectedRow;
+    [ObservableProperty] private bool _hasPendingEdits;
+    private readonly Dictionary<Dictionary<string, object?>, Dictionary<string, object?>> _pendingRowEdits = new();
+    private readonly Dictionary<Dictionary<string, object?>, Dictionary<string, object?>> _originalRowValues = new();
+
+    public ICommand SaveTableChangesCommand { get; }
+    public ICommand DeleteRowCommand { get; }
+
     public static int[] TopNOptions => [100, 200, 500, 1000, 5000, 0]; // 0 = ALL
 
     // -------------------------------------------------------------------------
@@ -132,8 +142,21 @@ public partial class DbManagerViewModel : ObservableObject
         SwitchToExecuteTabCommand   = new AsyncRelayCommand(() => SwitchTabAsync(ManagerTab.Execute));
         SearchCommand               = new AsyncRelayCommand(SearchAsync);
         ClearSearchCommand          = new AsyncRelayCommand(ClearSearchAsync);
+        SaveTableChangesCommand     = new AsyncRelayCommand(SaveTableChangesAsync, () => HasPendingEdits);
+        DeleteRowCommand            = new AsyncRelayCommand(DeleteSelectedRowAsync, () => HasSelectedRow);
 
         LoadSavedConnections();
+    }
+
+    partial void OnSelectedRowChanged(Dictionary<string, object?>? value)
+    {
+        HasSelectedRow = value != null;
+        ((AsyncRelayCommand)DeleteRowCommand).NotifyCanExecuteChanged();
+    }
+
+    partial void OnHasPendingEditsChanged(bool value)
+    {
+        ((AsyncRelayCommand)SaveTableChangesCommand).NotifyCanExecuteChanged();
     }
 
     // -------------------------------------------------------------------------
@@ -299,6 +322,12 @@ public partial class DbManagerViewModel : ObservableObject
 
             foreach (var r in rows) TableRows.Add(r);
 
+            // Discard any pending in-memory edits for rows that no longer exist
+            _pendingRowEdits.Clear();
+            _originalRowValues.Clear();
+            HasPendingEdits = false;
+            ((AsyncRelayCommand)SaveTableChangesCommand).NotifyCanExecuteChanged();
+
             LoadedRowCount = TableRows.Count;
             HasTableData   = TableRows.Count > 0;
 
@@ -328,6 +357,161 @@ public partial class DbManagerViewModel : ObservableObject
             IsLoadingData = false;
         });
         IsLoadingData = false;
+    }
+
+    // -------------------------------------------------------------------------
+    // Row editing / save / delete (Data tab)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Called by the view when a cell edit begins, before the new value is
+    /// committed to the row, so Save Changes can build a correct WHERE clause.
+    /// </summary>
+    public void SnapshotRow(Dictionary<string, object?> row)
+    {
+        if (!_originalRowValues.ContainsKey(row))
+            _originalRowValues[row] = new Dictionary<string, object?>(row, StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Returns the pre-edit value captured by <see cref="SnapshotRow"/>.</summary>
+    public object? GetOriginalCellValue(Dictionary<string, object?> row, string columnName)
+    {
+        if (_originalRowValues.TryGetValue(row, out var snap) && snap.TryGetValue(columnName, out var v))
+            return v;
+        return row.TryGetValue(columnName, out var cur) ? cur : null;
+    }
+
+    /// <summary>
+    /// Called by the view (CellEditEnding) after a cell edit is committed so the
+    /// change can be flushed to the database when the user clicks Save Changes.
+    /// </summary>
+    public void CaptureCellEdit(Dictionary<string, object?> row, string columnName, object? newValue)
+    {
+        if (string.IsNullOrWhiteSpace(columnName)) return;
+        if (!_pendingRowEdits.TryGetValue(row, out var changes))
+        {
+            changes = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            _pendingRowEdits[row] = changes;
+        }
+        // Fall back to a snapshot now if BeginningEdit wasn't observed
+        SnapshotRow(row);
+        changes[columnName] = newValue is string s && string.Equals(s.Trim(), "NULL", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : newValue;
+
+        HasPendingEdits = true;
+        ((AsyncRelayCommand)SaveTableChangesCommand).NotifyCanExecuteChanged();
+        StatusMessage = "Pending change — click 💾 Save Changes to write to the database.";
+    }
+
+    private async Task SaveTableChangesAsync()
+    {
+        if (SelectedConnection == null || SelectedObject == null)
+        {
+            StatusMessage = "Connect and select a table first.";
+            return;
+        }
+        if (!_pendingRowEdits.Any())
+        {
+            StatusMessage = "No pending changes.";
+            return;
+        }
+
+        var info = SelectedConnection.ToConnectionInfo();
+        var obj  = SelectedObject;
+
+        await RunSafeAsync(async ct =>
+        {
+            var cols   = await _service.GetTableColumnsAsync(info, obj.Schema, obj.Name, ct);
+            var pkCols = cols.Where(c => c.IsPrimaryKey).Select(c => c.Name).ToList();
+
+            if (pkCols.Count == 0)
+            {
+                StatusMessage = "⚠ Cannot save — table has no primary key.";
+                return;
+            }
+
+            int saved = 0;
+            foreach (var (row, changes) in _pendingRowEdits.ToList())
+            {
+                if (!_originalRowValues.TryGetValue(row, out var original)) continue;
+
+                // Validate: all PK values must be present
+                var pkValues = new Dictionary<string, object?>();
+                var missingPk = false;
+                foreach (var pk in pkCols)
+                {
+                    if (!original.TryGetValue(pk, out var v) || v == null || v is DBNull)
+                    { missingPk = true; break; }
+                    pkValues[pk] = ConvertForDb(cols, pk, v);
+                }
+                if (missingPk)
+                {
+                    StatusMessage = "⚠ Skipped a row — its primary key value is null.";
+                    continue;
+                }
+
+                // Only columns that actually changed and are not PK/identity
+                var setCols = changes
+                    .Where(kv => !pkCols.Contains(kv.Key, StringComparer.OrdinalIgnoreCase))
+                    .Where(kv => !ValuesEqual(
+                        original.TryGetValue(kv.Key, out var ov) ? ov : null,
+                        kv.Value))
+                    .ToDictionary(kv => kv.Key, kv => ConvertForDb(cols, kv.Key, kv.Value), StringComparer.OrdinalIgnoreCase);
+
+                if (setCols.Count == 0) continue;
+
+                await _service.UpdateRowAsync(info, obj.Schema, obj.Name, pkValues, setCols, ct);
+                saved++;
+            }
+
+            _pendingRowEdits.Clear();
+            _originalRowValues.Clear();
+            HasPendingEdits = false;
+            ((AsyncRelayCommand)SaveTableChangesCommand).NotifyCanExecuteChanged();
+
+            StatusMessage = $"✓ {saved} row(s) saved to {obj.DisplayName}. Reloading…";
+            await LoadTableDataAsync(info, obj);
+        });
+    }
+
+    private async Task DeleteSelectedRowAsync()
+    {
+        if (SelectedConnection == null || SelectedObject == null || SelectedRow == null)
+            return;
+        var info = SelectedConnection.ToConnectionInfo();
+        var obj  = SelectedObject;
+        var row  = SelectedRow;
+
+        await RunSafeAsync(async ct =>
+        {
+            var cols   = await _service.GetTableColumnsAsync(info, obj.Schema, obj.Name, ct);
+            var pkCols = cols.Where(c => c.IsPrimaryKey).Select(c => c.Name).ToList();
+
+            if (pkCols.Count == 0)
+            {
+                StatusMessage = "⚠ Cannot delete — table has no primary key.";
+                return;
+            }
+
+            var pkValues = new Dictionary<string, object?>();
+            foreach (var pk in pkCols)
+            {
+                if (!row.TryGetValue(pk, out var v) || v == null || v is DBNull)
+                {
+                    StatusMessage = "⚠ Cannot delete — primary key value is null for the selected row.";
+                    return;
+                }
+                pkValues[pk] = ConvertForDb(cols, pk, v);
+            }
+
+            await _service.DeleteRowAsync(info, obj.Schema, obj.Name, pkValues, ct);
+            _pendingRowEdits.Remove(row);
+            _originalRowValues.Remove(row);
+
+            StatusMessage = $"✓ Row deleted from {obj.DisplayName}. Reloading…";
+            await LoadTableDataAsync(info, obj);
+        });
     }
 
     private async Task ApplyFiltersAsync()
@@ -366,6 +550,65 @@ public partial class DbManagerViewModel : ObservableObject
     {
         TableFilters.Clear();
         _ = ApplyFiltersAsync();
+    }
+
+    /// <summary>
+    /// Compares an original cell value with an edited one (treating null/DBNull
+    /// and the "(NULL)" display placeholder as equal) so unchanged cells are skipped.
+    /// </summary>
+    private static bool ValuesEqual(object? original, object? edited)
+    {
+        if (original is DBNull) original = null;
+        if (edited   is DBNull) edited   = null;
+        var origText = original switch
+        {
+            null   => string.Empty,
+            string => (string)original,
+            _      => original.ToString() ?? string.Empty
+        };
+        var editText = edited switch
+        {
+            null        => string.Empty,
+            string es   => es,
+            _           => edited.ToString() ?? string.Empty
+        };
+        if (string.Equals(editText, "(NULL)", StringComparison.OrdinalIgnoreCase)) editText = string.Empty;
+        if (string.Equals(origText, "(NULL)", StringComparison.OrdinalIgnoreCase)) origText = string.Empty;
+        return string.Equals(origText.Trim(), editText.Trim(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Converts a user-entered cell string to the appropriate CLR type for the
+    /// column so SQL Server receives typed parameters (falls back to the raw string).
+    /// </summary>
+    private static object? ConvertForDb(List<TableColumn> cols, string columnName, object? value)
+    {
+        if (value is null or DBNull) return DBNull.Value;
+        if (value is not string s) return value;
+        if (string.Equals(s.Trim(), "NULL", StringComparison.OrdinalIgnoreCase)) return DBNull.Value;
+
+        var col = cols.FirstOrDefault(c => string.Equals(c.Name, columnName, StringComparison.OrdinalIgnoreCase));
+        var t   = col?.DataType.ToLowerInvariant();
+        try
+        {
+            return t switch
+            {
+                "int" or "smallint"                                    => int.Parse(s),
+                "bigint"                                               => long.Parse(s),
+                "tinyint"                                              => byte.Parse(s),
+                "bit"                                                  => s is "1" or "true" or "TRUE" or "True",
+                "decimal" or "numeric" or "money" or "smallmoney"      => decimal.Parse(s),
+                "float"                                                => double.Parse(s),
+                "real"                                                 => float.Parse(s),
+                "uniqueidentifier"                                     => Guid.Parse(s),
+                "datetime" or "datetime2" or "smalldatetime" or "date" => DateTime.Parse(s),
+                _ => s
+            };
+        }
+        catch
+        {
+            return s; // let SQL Server surface a descriptive conversion error
+        }
     }
 
     // -------------------------------------------------------------------------
