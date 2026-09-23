@@ -787,13 +787,13 @@ public partial class DiagramViewModel : ObservableObject
         {
             try
             {
-                await Task.Delay(900, cts.Token);
+                await Task.Delay(900, cts.Token).ConfigureAwait(false);
                 if (cts.Token.IsCancellationRequested) return;
                 _persistence.Save(BuildState());
             }
             catch (OperationCanceledException) { }
             catch { /* auto-save must never interrupt diagram work */ }
-        });
+        }).ConfigureAwait(false);
     }
 
     private void AutoSaveNow()

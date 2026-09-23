@@ -110,12 +110,12 @@ public class SchemaCompareService
             try
             {
                 using var conn = new SqlConnection(testCs);
-                await conn.OpenAsync();
+                await conn.OpenAsync().ConfigureAwait(false);
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = "SELECT DB_NAME(), @@SERVERNAME";
-                using var rdr = await cmd.ExecuteReaderAsync();
+                using var rdr = await cmd.ExecuteReaderAsync().ConfigureAwait(false);
                 string dbName = "", serverName = "";
-                if (await rdr.ReadAsync())
+                if (await rdr.ReadAsync().ConfigureAwait(false))
                 {
                     dbName = rdr.IsDBNull(0) ? "?" : rdr.GetString(0);
                     serverName = rdr.IsDBNull(1) ? "?" : rdr.GetString(1);
@@ -130,7 +130,7 @@ public class SchemaCompareService
             {
                 throw new InvalidOperationException($"Connection failed: {ex.Message}", ex);
             }
-        });
+        }).ConfigureAwait(false);
     }
 
     public async Task<string> GenerateScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
@@ -176,10 +176,8 @@ public class SchemaCompareService
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
 
-            // If caller specified which items to apply, exclude everything else from the DacFx result
             if (includedItems != null && includedItems.Count > 0)
             {
-                // Build a lookup of selected object names (lower-case for case-insensitive match)
                 var selectedNames = includedItems
                     .Select(i => i.ObjectName.ToLowerInvariant())
                     .ToHashSet();
@@ -205,13 +203,12 @@ public class SchemaCompareService
             progress?.Report($"Applying {batches.Count} changes to target database...");
 
             using var conn = new SqlConnection(targetInfo.ConnectionString);
-            await conn.OpenAsync();
+            await conn.OpenAsync().ConfigureAwait(false);
 
             var deferredBatches = new List<string>();
             var pass1Errors = new List<string>();
             int executedCount = 0;
 
-            // Pass 1: Execute all batches in reordered sequence (Functions before Views, Triggers after Views/Procs)
             for (int i = 0; i < batches.Count; i++)
             {
                 var batch = batches[i];
@@ -220,7 +217,7 @@ public class SchemaCompareService
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = batch;
                     cmd.CommandTimeout = 120;
-                    await cmd.ExecuteNonQueryAsync();
+                    await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
                     executedCount++;
 
                     var summaryMatch = Regex.Match(batch, @"(?:PRINT\s+N'(Creating\s+[^.']+)|CREATE\s+(TABLE|VIEW|FUNCTION|PROCEDURE|INDEX|TRIGGER|USER|ROLE)\s+([^\s\r\n(]+))", RegexOptions.IgnoreCase);
@@ -235,13 +232,11 @@ public class SchemaCompareService
                 }
                 catch (SqlException ex)
                 {
-                    // Defer if this batch may have an unresolved view/proc dependency to be resolved in Pass 2
                     deferredBatches.Add(batch);
                     pass1Errors.Add($"Batch error (will retry): {ex.Message}");
                 }
             }
 
-            // Pass 2: Retry any deferred batches that failed in Pass 1
             if (deferredBatches.Count > 0)
             {
                 progress?.Report($"Retrying {deferredBatches.Count} deferred items in Pass 2...");
@@ -255,7 +250,7 @@ public class SchemaCompareService
                         using var cmd = conn.CreateCommand();
                         cmd.CommandText = batch;
                         cmd.CommandTimeout = 120;
-                        await cmd.ExecuteNonQueryAsync();
+                        await cmd.ExecuteNonQueryAsync().ConfigureAwait(false);
                         progress?.Report("Resolved deferred dependency item successfully.");
                     }
                     catch (SqlException ex)
@@ -274,7 +269,7 @@ public class SchemaCompareService
 
             progress?.Report("Changes applied successfully.");
             return (true, reorderedScript);
-        });
+        }).ConfigureAwait(false);
     }
 
     /// <summary>

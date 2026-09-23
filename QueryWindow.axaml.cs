@@ -211,9 +211,12 @@ public partial class QueryWindow : Window
             .Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
         if (names.Count == 0)
             return;
-        // Avoid rebuilding when the shape is unchanged.
+        // Avoid rebuilding when the shape is unchanged. Compare the header's
+        // text (headers are TextBlocks) — a broken guard here would rebuild on
+        // every layout pass, invalidating layout again: infinite loop + crash.
         if (grid.Columns.Count == names.Count &&
-            grid.Columns.Select(c => c.Header?.ToString()).SequenceEqual(names))
+            grid.Columns.Select(c => (c.Header as TextBlock)?.Text ?? c.Header?.ToString())
+                .SequenceEqual(names))
             return;
 
         grid.Columns.Clear();
