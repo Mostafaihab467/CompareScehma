@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.0" />
+    <PackageReference Include="Avalonia.AvaloniaEdit" Version="12.0.0" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.0" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.0" />
@@ -20,5 +21,10 @@
     </PackageReference>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
     <PackageReference Include="Microsoft.SqlServer.DacFx" Version="170.4.83" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- T-SQL syntax highlighting definition loaded by QueryWindow.LoadTsqlHighlighting -->
+    <EmbeddedResource Include="Resources\TSQL.xshd" />
   </ItemGroup>
 </Project>

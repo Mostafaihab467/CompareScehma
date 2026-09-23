@@ -150,6 +150,7 @@ public partial class MainViewModel : ObservableObject
     public ICommand OpenBackupCommand { get; }
     public ICommand OpenDiagramCommand { get; }
     public ICommand OpenDbManagerCommand { get; }
+    public ICommand OpenQueryCommand { get; }
     public ICommand ExportBackupCommand { get; }
     public ICommand ToggleSidebarCommand { get; }
     public ICommand CopyErrorCommand { get; }
@@ -164,6 +165,7 @@ public partial class MainViewModel : ObservableObject
     public Action? OpenBackupWindowAction { get; set; }
     public Action? OpenDiagramWindowAction { get; set; }
     public Action? OpenDbManagerWindowAction { get; set; }
+    public Action? OpenQueryWindowAction { get; set; }
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -193,6 +195,7 @@ public partial class MainViewModel : ObservableObject
         OpenBackupCommand = new RelayCommand(() => OpenBackupWindowAction?.Invoke());
         OpenDiagramCommand = new RelayCommand(() => OpenDiagramWindowAction?.Invoke());
         OpenDbManagerCommand = new RelayCommand(() => OpenDbManagerWindowAction?.Invoke());
+        OpenQueryCommand = new RelayCommand(() => OpenQueryWindowAction?.Invoke());
         ExportBackupCommand = new AsyncRelayCommand(ExportBackupAsync, () => !IsBackingUp && !string.IsNullOrWhiteSpace(BackupDestinationPath));
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarOpen = !IsSidebarOpen);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);

@@ -86,12 +86,25 @@ public partial class MainWindow : Window
             _dbManagerWindow.Closed += (_, _) => _dbManagerWindow = null;
             _dbManagerWindow.Show(this);
         };
+        vm.OpenQueryWindowAction = () =>
+        {
+            if (_queryWindow is { IsVisible: true })
+            {
+                _queryWindow.Activate();
+                _queryWindow.WindowState = WindowState.Normal;
+                return;
+            }
+            _queryWindow = new QueryWindow();
+            _queryWindow.Closed += (_, _) => _queryWindow = null;
+            _queryWindow.Show(this);
+        };
     }
 
     private MoveDataWindow? _moveDataWindow;
     private BackupWindow? _backupWindow;
     private DiagramWindow? _diagramWindow;
     private DbManagerWindow? _dbManagerWindow;
+    private QueryWindow? _queryWindow;
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)
     {

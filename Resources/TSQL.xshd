@@ -1,0 +1,157 @@
+<?xml version="1.0"?>
+<SyntaxDefinition name="TSQL" extensions=".sql"
+                  xmlns="http://icsharpcode.net/sharpdevelop/syntaxdefinition/2008">
+  <Color name="Comment" foreground="#6A9955" fontStyle="italic" />
+  <Color name="String" foreground="#CE9178" />
+  <Color name="Number" foreground="#B5CEA8" />
+  <Color name="Keyword" foreground="#569CD6" fontWeight="bold" />
+  <Color name="Function" foreground="#DCDCAA" />
+  <Color name="SystemFunc" foreground="#4EC9B0" />
+  <Color name="Type" foreground="#4EC9B0" />
+  <Color name="Operator" foreground="#D4D4D4" />
+
+  <RuleSet ignoreCase="true">
+    <Span color="Comment" multiline="true">
+      <Begin>/\*</Begin>
+      <End>\*/</End>
+    </Span>
+    <Span color="Comment">
+      <Begin>--</Begin>
+    </Span>
+    <Span color="String">
+      <Begin>'</Begin>
+      <End>'</End>
+    </Span>
+
+    <Rule color="Number">\b\d+(\.\d+)?\b</Rule>
+
+    <Keywords color="Keyword">
+      <Word>ADD</Word>
+      <Word>ALL</Word>
+      <Word>ALTER</Word>
+      <Word>AND</Word>
+      <Word>AS</Word>
+      <Word>ASC</Word>
+      <Word>BEGIN</Word>
+      <Word>BETWEEN</Word>
+      <Word>BY</Word>
+      <Word>CASE</Word>
+      <Word>CHECK</Word>
+      <Word>COMMIT</Word>
+      <Word>CONSTRAINT</Word>
+      <Word>CREATE</Word>
+      <Word>CROSS</Word>
+      <Word>DEFAULT</Word>
+      <Word>DELETE</Word>
+      <Word>DESC</Word>
+      <Word>DISTINCT</Word>
+      <Word>DROP</Word>
+      <Word>ELSE</Word>
+      <Word>END</Word>
+      <Word>EXEC</Word>
+      <Word>EXECUTE</Word>
+      <Word>EXISTS</Word>
+      <Word>FOREIGN</Word>
+      <Word>FROM</Word>
+      <Word>FULL</Word>
+      <Word>GO</Word>
+      <Word>GROUP</Word>
+      <Word>HAVING</Word>
+      <Word>IN</Word>
+      <Word>INDEX</Word>
+      <Word>INNER</Word>
+      <Word>INSERT</Word>
+      <Word>INTO</Word>
+      <Word>IS</Word>
+      <Word>JOIN</Word>
+      <Word>KEY</Word>
+      <Word>LEFT</Word>
+      <Word>LIKE</Word>
+      <Word>MERGE</Word>
+      <Word>NOT</Word>
+      <Word>NULL</Word>
+      <Word>ON</Word>
+      <Word>OR</Word>
+      <Word>ORDER</Word>
+      <Word>OUTER</Word>
+      <Word>OVER</Word>
+      <Word>PARTITION</Word>
+      <Word>PRIMARY</Word>
+      <Word>PROCEDURE</Word>
+      <Word>RIGHT</Word>
+      <Word>ROLLBACK</Word>
+      <Word>SELECT</Word>
+      <Word>SET</Word>
+      <Word>TABLE</Word>
+      <Word>THEN</Word>
+      <Word>TOP</Word>
+      <Word>TRANSACTION</Word>
+      <Word>TRUNCATE</Word>
+      <Word>UNION</Word>
+      <Word>UNIQUE</Word>
+      <Word>UPDATE</Word>
+      <Word>VALUES</Word>
+      <Word>VIEW</Word>
+      <Word>WHEN</Word>
+      <Word>WHERE</Word>
+      <Word>WITH</Word>
+    </Keywords>
+
+    <Keywords color="Type">
+      <Word>BIGINT</Word>
+      <Word>BIT</Word>
+      <Word>CHAR</Word>
+      <Word>DATE</Word>
+      <Word>DATETIME</Word>
+      <Word>DATETIME2</Word>
+      <Word>DECIMAL</Word>
+      <Word>FLOAT</Word>
+      <Word>INT</Word>
+      <Word>MONEY</Word>
+      <Word>NCHAR</Word>
+      <Word>NTEXT</Word>
+      <Word>NUMERIC</Word>
+      <Word>NVARCHAR</Word>
+      <Word>REAL</Word>
+      <Word>SMALLDATETIME</Word>
+      <Word>SMALLINT</Word>
+      <Word>TEXT</Word>
+      <Word>TINYINT</Word>
+      <Word>UNIQUEIDENTIFIER</Word>
+      <Word>VARCHAR</Word>
+    </Keywords>
+
+    <Keywords color="SystemFunc">
+      <Word>COUNT</Word>
+      <Word>SUM</Word>
+      <Word>AVG</Word>
+      <Word>MIN</Word>
+      <Word>MAX</Word>
+      <Word>GETDATE</Word>
+      <Word>GETUTCDATE</Word>
+      <Word>ISNULL</Word>
+      <Word>COALESCE</Word>
+      <Word>CAST</Word>
+      <Word>CONVERT</Word>
+      <Word>LEN</Word>
+      <Word>SUBSTRING</Word>
+      <Word>CHARINDEX</Word>
+      <Word>LEFT</Word>
+      <Word>RIGHT</Word>
+      <Word>LTRIM</Word>
+      <Word>RTRIM</Word>
+      <Word>UPPER</Word>
+      <Word>LOWER</Word>
+      <Word>REPLACE</Word>
+      <Word>DATEADD</Word>
+      <Word>DATEDIFF</Word>
+      <Word>YEAR</Word>
+      <Word>MONTH</Word>
+      <Word>DAY</Word>
+      <Word>NEWID</Word>
+      <Word>@@ROWCOUNT</Word>
+      <Word>@@SERVERNAME</Word>
+      <Word>DB_NAME</Word>
+    </Keywords>
+  </RuleSet>
+</SyntaxDefinition>
