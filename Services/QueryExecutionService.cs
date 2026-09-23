@@ -14,27 +14,41 @@ namespace SchemaCompare.Services;
 public sealed class QueryExecutionService
 {
     public const int MaxRowsPerResult = 5_000;
+    /// <summary>Per-cell text cap so LOB columns cannot exhaust memory (SSMS-style).</summary>
+    public const int MaxCellChars = 65_536;
+    /// <summary>Per-cell binary cap.</summary>
+    public const int MaxBinaryCellBytes = 1_048_576;
+    /// <summary>Approximate text budget per result set (~100 MB of UTF-16).</summary>
+    public const long MaxCharsPerResult = 50_000_000;
     public const int DefaultCommandTimeoutSeconds = 120;
 
     /// <summary>Runs the batch and streams result tables in order.</summary>
+    /// <param name="onStatus">
+    /// Optional progress callback ("Connecting...", "Sending batch 1/2...",
+    /// "Receiving rows..."). Invoked on the caller's synchronization context.
+    /// </param>
     public async Task<IReadOnlyList<QueryResultTable>> ExecuteAsync(
         ConnectionInfo info,
         string sql,
         int timeoutSeconds = DefaultCommandTimeoutSeconds,
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        Action<string>? onStatus = null)
     {
         var batches = SplitBatches(sql);
         var results = new List<QueryResultTable>();
         var index = 0;
 
+        onStatus?.Invoke($"Connecting to {info.Server}/{info.Database}...");
         await using var conn = new SqlConnection(info.ConnectionString);
         await conn.OpenAsync(ct);
+        var target = string.IsNullOrWhiteSpace(conn.DataSource) ? info.Server : conn.DataSource;
 
         foreach (var batch in batches)
         {
             ct.ThrowIfCancellationRequested();
             index++;
-            await ExecuteSingleBatchAsync(conn, batch, index, batches.Count, results, timeoutSeconds, ct);
+            onStatus?.Invoke($"Sending batch {index}/{batches.Count} to {target}/{info.Database}...");
+            await ExecuteSingleBatchAsync(conn, batch, index, batches.Count, results, timeoutSeconds, target, ct, onStatus);
         }
 
         return results;
@@ -47,13 +61,16 @@ public sealed class QueryExecutionService
         int batchCount,
         List<QueryResultTable> results,
         int timeoutSeconds,
-        CancellationToken ct)
+        string target,
+        CancellationToken ct,
+        Action<string>? onStatus)
     {
         var label = batchCount > 1 ? $"Batch {batchNumber}" : "Result";
         await using var cmd = new SqlCommand(batch, conn) { CommandTimeout = timeoutSeconds };
         var started = DateTime.UtcNow;
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
+        onStatus?.Invoke($"Batch {batchNumber}/{batchCount} sent to {target} - receiving rows...");
         var setNumber = 0;
         do
         {
@@ -85,6 +102,22 @@ public sealed class QueryExecutionService
                 IsTruncated = truncated,
                 Elapsed = DateTime.UtcNow - started
             });
+
+            if (truncated)
+            {
+                // Stop the server streaming the rest instead of draining it
+                // row-by-row over the wire (draining can take minutes on big tables).
+                try { cmd.Cancel(); } catch { /* already finished */ }
+                try
+                {
+                    // Consume the attention packet so the connection stays usable
+                    // for the next batch; the server stops sending immediately.
+                    while (await reader.ReadAsync(CancellationToken.None)) { }
+                }
+                catch (SqlException) { /* "operation canceled by user" - expected */ }
+                catch (InvalidOperationException) { /* reader already closed */ }
+                return; // remaining result sets belong to the aborted stream
+            }
         }
         while (await reader.NextResultAsync(ct));
     }
@@ -111,22 +144,39 @@ public sealed class QueryExecutionService
         SqlDataReader reader, List<string> columns, CancellationToken ct)
     {
         var rows = new List<Dictionary<string, object?>>();
-        var truncated = false;
+        long chars = 0;
         while (await reader.ReadAsync(ct))
         {
-            if (rows.Count >= MaxRowsPerResult)
-            {
-                truncated = true;
-                // Drain the reader so the next result set / batch stays in sync.
-                while (await reader.ReadAsync(ct)) { }
-                break;
-            }
+            // Cap first: the caller cancels the command instead of draining the
+            // rest of the result over the wire (draining can take minutes).
+            if (rows.Count >= MaxRowsPerResult || chars >= MaxCharsPerResult)
+                return (rows, true);
+
             var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
             for (var i = 0; i < reader.FieldCount; i++)
-                row[columns[i]] = reader.IsDBNull(i) ? null : reader.GetValue(i);
+            {
+                var value = reader.IsDBNull(i) ? null : reader.GetValue(i);
+                if (value is string s)
+                {
+                    chars += s.Length;
+                    if (s.Length > MaxCellChars)
+                        value = s[..MaxCellChars] + " ... (truncated)";
+                }
+                else if (value is byte[] b)
+                {
+                    chars += b.Length;
+                    if (b.Length > MaxBinaryCellBytes)
+                    {
+                        var cut = new byte[MaxBinaryCellBytes];
+                        Buffer.BlockCopy(b, 0, cut, 0, cut.Length);
+                        value = cut;
+                    }
+                }
+                row[columns[i]] = value;
+            }
             rows.Add(row);
         }
-        return (rows, truncated);
+        return (rows, false);
     }
 
     /// <summary>

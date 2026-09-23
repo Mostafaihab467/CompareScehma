@@ -221,7 +221,13 @@ public partial class QueryViewModel : ObservableObject
 
         try
         {
-            var tables = await _service.ExecuteAsync(info, sql, ct: cts.Token);
+            var tables = await _service.ExecuteAsync(
+                info, sql, ct: cts.Token,
+                onStatus: msg =>
+                {
+                    tab.StatusMessage = msg;
+                    StatusMessage = $"{tab.Title}: {msg}";
+                });
             foreach (var t in tables)
                 tab.Results.Add(t);
 
@@ -235,6 +241,9 @@ public partial class QueryViewModel : ObservableObject
             tab.StatusMessage = tab.Results.Count == 0
                 ? $"Completed {scope} in {elapsed.TotalSeconds:0.00}s — no results."
                 : $"Completed {scope} in {elapsed.TotalSeconds:0.00}s — {tab.Results.Count} result(s).";
+            var capped = tables.Count(t => t.IsTruncated);
+            if (capped > 0)
+                tab.StatusMessage += $" {capped} result set(s) capped at {QueryExecutionService.MaxRowsPerResult:N0} rows.";
             StatusMessage = $"{tab.Title}: {tab.StatusMessage}";
         }
         catch (OperationCanceledException)
