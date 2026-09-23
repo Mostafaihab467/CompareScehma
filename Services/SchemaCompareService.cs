@@ -9,7 +9,7 @@ public class SchemaCompareService
 {
     public async Task<(List<SchemaDiffItem> Items, CompareResultSummary Summary)> CompareAsync(
         ConnectionInfo sourceInfo, ConnectionInfo targetInfo, IProgress<string>? progress = null,
-        CancellationToken ct = default)
+        CancellationToken ct = default, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
     {
         return await Task.Run(() =>
         {
@@ -31,12 +31,11 @@ public class SchemaCompareService
             progress?.Report("Building comparison...");
             var comparison = new SchemaComparison(sourceEndpoint, targetEndpoint);
 
-            // Ensure all object types are compared; defaults can silently exclude some.
             comparison.Options.IgnoreAnsiNulls  = false;
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
-            comparison.Options.DropObjectsNotInSource = false;
-            comparison.Options.BlockOnPossibleDataLoss = false;
+            comparison.Options.DropObjectsNotInSource = allowUnsafeDrops;
+            comparison.Options.BlockOnPossibleDataLoss = !allowUnsafeChanges;
 
             ct.ThrowIfCancellationRequested();
             progress?.Report("Running comparison (this may take a moment)...");
@@ -134,7 +133,7 @@ public class SchemaCompareService
         });
     }
 
-    public async Task<string> GenerateScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo)
+    public async Task<string> GenerateScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
     {
         return await Task.Run(() =>
         {
@@ -144,8 +143,8 @@ public class SchemaCompareService
             comparison.Options.IgnoreAnsiNulls  = false;
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
-            comparison.Options.DropObjectsNotInSource = false;
-            comparison.Options.BlockOnPossibleDataLoss = false;
+            comparison.Options.DropObjectsNotInSource = allowUnsafeDrops;
+            comparison.Options.BlockOnPossibleDataLoss = !allowUnsafeChanges;
 
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
@@ -159,7 +158,7 @@ public class SchemaCompareService
 
     public async Task<(bool Success, string Script)> ApplyChangesAsync(
         ConnectionInfo sourceInfo, ConnectionInfo targetInfo, IProgress<string>? progress = null,
-        List<SchemaDiffItem>? includedItems = null)
+        List<SchemaDiffItem>? includedItems = null, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
 
     {
         return await Task.Run(async () =>
@@ -171,8 +170,8 @@ public class SchemaCompareService
             comparison.Options.IgnoreAnsiNulls  = false;
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
-            comparison.Options.DropObjectsNotInSource = false;
-            comparison.Options.BlockOnPossibleDataLoss = false;
+            comparison.Options.DropObjectsNotInSource = allowUnsafeDrops;
+            comparison.Options.BlockOnPossibleDataLoss = !allowUnsafeChanges;
 
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");

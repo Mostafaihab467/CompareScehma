@@ -126,6 +126,8 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _showAdded = true;
     [ObservableProperty] private bool _showChanged = true;
     [ObservableProperty] private bool _showDeleted = true;
+    [ObservableProperty] private bool _allowUnsafeDrops;
+    [ObservableProperty] private bool _allowUnsafeChanges;
 
     public ICommand CompareCommand { get; }
     public ICommand GenerateScriptCommand { get; }
@@ -595,7 +597,7 @@ public partial class MainViewModel : ObservableObject
                 StatusMessage = m;
                 AppendLog(m);
             });
-            var (items, summary) = await _compareService.CompareAsync(sourceInfo, targetInfo, p);
+            var (items, summary) = await _compareService.CompareAsync(sourceInfo, targetInfo, p, allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
             TotalAdded = summary.AddedCount; TotalChanged = summary.ChangedCount; TotalDeleted = summary.DeletedCount;
             AddedFilterText = $"Added: {summary.AddedCount}"; ChangedFilterText = $"Changed: {summary.ChangedCount}"; DeletedFilterText = $"Deleted: {summary.DeletedCount}";
             foreach (var item in items) Differences.Add(item);
@@ -617,7 +619,7 @@ public partial class MainViewModel : ObservableObject
         AppendLog("Generating deployment script...");
         try
         {
-            FullDeployScript = await _compareService.GenerateScriptAsync(GetSourceInfo(), GetTargetInfo());
+            FullDeployScript = await _compareService.GenerateScriptAsync(GetSourceInfo(), GetTargetInfo(), allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
             HasFullScript = true; StatusMessage = "Deployment script generated.";
             AppendLog("Deployment script generated successfully.");
         }
@@ -651,7 +653,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             var p = new Progress<string>(m => { ProgressText = m; StatusMessage = m; AppendLog(m); });
-            var (_, script) = await _compareService.ApplyChangesAsync(GetSourceInfo(), GetTargetInfo(), p, includedItems);
+            var (_, script) = await _compareService.ApplyChangesAsync(GetSourceInfo(), GetTargetInfo(), p, includedItems, allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
             FullDeployScript = script; HasFullScript = true;
             StatusMessage = "Changes applied successfully.";
             AppendLog("--- Apply finished successfully ---");

@@ -195,7 +195,7 @@
                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch">
                         <Border Classes="card" Padding="14,10">
                             <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
-                                <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
+                                <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto" Margin="0,0,0,0">
                                     <TextBlock Text="{Binding ResultSummaryText}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
                                     <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="20,0,0,0">
                                         <Border Background="{StaticResource SuccessPanelBg}" CornerRadius="6" Padding="8,4">
@@ -212,8 +212,12 @@
                                         <Button Classes="secondary" Command="{Binding SelectAllCommand}" Padding="10,4" FontSize="11"><TextBlock Text="✓ All" /></Button>
                                         <Button Classes="secondary" Command="{Binding DeselectAllCommand}" Padding="10,4" FontSize="11" Margin="4,0,0,0"><TextBlock Text="✗ None" /></Button>
                                     </StackPanel>
-                                    <Button Grid.Column="4" Classes="secondary" Command="{Binding GenerateScriptCommand}" Margin="12,0,0,0" Padding="16,6"><TextBlock Text="Generate Script" /></Button>
-                                    <Button Grid.Column="5" Classes="primary" Click="ApplyButton_Click" IsEnabled="{Binding !IsComparing}" Margin="8,0,0,0" Padding="16,6"><TextBlock Text="Apply to Target" /></Button>
+                                    <StackPanel Grid.Column="4" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center">
+                                        <CheckBox Content="Allow unsafe drops" IsChecked="{Binding AllowUnsafeDrops}" Margin="0,0,8,0" ToolTip.Tip="Drop objects that exist in target but not in source" />
+                                        <CheckBox Content="Allow unsafe changes" IsChecked="{Binding AllowUnsafeChanges}" ToolTip.Tip="Allow schema changes that might cause data loss" />
+                                    </StackPanel>
+                                    <Button Grid.Column="5" Classes="secondary" Command="{Binding GenerateScriptCommand}" Margin="12,0,0,0" Padding="16,6"><TextBlock Text="Generate Script" /></Button>
+                                    <Button Grid.Column="6" Classes="primary" Click="ApplyButton_Click" IsEnabled="{Binding !IsComparing}" Margin="8,0,0,0" Padding="16,6"><TextBlock Text="Apply to Target" /></Button>
                                 </Grid>
                             </ScrollViewer>
                         </Border>
