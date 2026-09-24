@@ -201,29 +201,38 @@ public sealed class SqlHighlightedEditor : UserControl
     {
         try
         {
-            if (_squiggles.Issues.Count == 0)
+            if (_squiggles.Issues.Count == 0 || _editor.Document == null)
             {
                 ToolTip.SetTip(_editor, null);
+                ToolTip.SetTip(_editor.TextArea, null);
+                ToolTip.SetIsOpen(_editor.TextArea, false);
                 return;
             }
-            var pos = e.GetPosition(_editor.TextArea.TextView);
-            TextViewPosition? docPos = null;
-            try
-            {
-                docPos = _editor.TextArea.TextView.GetPosition(pos + _editor.TextArea.TextView.ScrollOffset);
-            }
-            catch
-            {
-                docPos = _editor.GetPositionFromPoint(e.GetPosition(_editor));
-            }
+            var textView = _editor.TextArea.TextView;
+            var pos = e.GetPosition(textView);
+            var docPos = textView.GetPosition(pos + textView.ScrollOffset);
             if (docPos == null)
             {
                 ToolTip.SetTip(_editor, null);
+                ToolTip.SetTip(_editor.TextArea, null);
+                ToolTip.SetIsOpen(_editor.TextArea, false);
                 return;
             }
             var offset = _editor.Document.GetOffset(docPos.Value.Location);
             var hit = _squiggles.Issues.FirstOrDefault(i => offset >= i.Start && offset <= i.Start + Math.Max(1, i.Length));
-            ToolTip.SetTip(_editor, string.IsNullOrEmpty(hit.Message) ? null : hit.Message);
+            if (!string.IsNullOrEmpty(hit.Message))
+            {
+                ToolTip.SetShowDelay(_editor.TextArea, 50);
+                ToolTip.SetTip(_editor.TextArea, hit.Message);
+                ToolTip.SetTip(_editor, hit.Message);
+                ToolTip.SetIsOpen(_editor.TextArea, true);
+            }
+            else
+            {
+                ToolTip.SetTip(_editor, null);
+                ToolTip.SetTip(_editor.TextArea, null);
+                ToolTip.SetIsOpen(_editor.TextArea, false);
+            }
         }
         catch
         {

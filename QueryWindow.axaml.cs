@@ -58,6 +58,8 @@ public partial class QueryWindow : Window
         {
             _vm.PropertyChanged -= Vm_PropertyChanged;
             _vm.PropertyChanged += Vm_PropertyChanged;
+            if (_vm.SelectedConnection != null && !_vm.IsConnected)
+                _vm.ConnectCommand.Execute(null);
         }
     }
 

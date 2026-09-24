@@ -6,8 +6,8 @@ public readonly record struct SqlLintIssue(int Start, int Length, string Message
 
 /// <summary>
 /// Lightweight T-SQL diagnostics for the query editor: unmatched delimiters,
-/// common typos, unknown tables/columns (when schema cache is loaded).
-/// Conservative — does not flag legal T-SQL just because it is unusual.
+/// common typos, unknown tables, and qualified / unqualified unknown columns.
+/// Verified against the connected database schema cache.
 /// </summary>
 public static class SqlLintService
 {
@@ -23,22 +23,96 @@ public static class SqlLintService
         @"(?<a>\[[\w#$]+\]|[\w#$]+)\s*\.\s*(?<c>\[[\w#$]+\]|[\w#$]+)",
         RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex AsAliasRegex = new(
+        @"\bAS\s+(?<a>\[[\w#$]+\]|[A-Za-z_][A-Za-z0-9_#$]*)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Dictionary<string, string> Typos = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["SELCT"] = "SELECT", ["SLECT"] = "SELECT", ["SEELCT"] = "SELECT",
+        ["SELCT"] = "SELECT", ["SLECT"] = "SELECT", ["SEELCT"] = "SELECT", ["SELEST"] = "SELECT", ["SELETC"] = "SELECT",
         ["FORM"] = "FROM", ["FRM"] = "FROM",
-        ["WHRE"] = "WHERE", ["WHER"] = "WHERE", ["WEHRE"] = "WHERE",
+        ["WHRE"] = "WHERE", ["WHER"] = "WHERE", ["WEHRE"] = "WHERE", ["WHEREE"] = "WHERE",
         ["UDPATE"] = "UPDATE", ["UPATE"] = "UPDATE",
         ["DELET"] = "DELETE", ["DELTETE"] = "DELETE",
         ["INERT"] = "INSERT", ["INSER"] = "INSERT",
-        ["GRUP"] = "GROUP", ["HAVNG"] = "HAVING",
-        ["ODER"] = "ORDER", ["JOIM"] = "JOIN", ["JION"] = "JOIN"
+        ["GRUP"] = "GROUP", ["HAVNG"] = "HAVING", ["HAVINGG"] = "HAVING",
+        ["ODER"] = "ORDER", ["JOIM"] = "JOIN", ["JION"] = "JOIN",
+        ["CREAT"] = "CREATE", ["CRATE"] = "CREATE",
+        ["ALETR"] = "ALTER", ["ATRUNCATE"] = "TRUNCATE",
+        ["PROCEDUR"] = "PROCEDURE", ["EXECUET"] = "EXECUTE",
+        ["DISTINCTT"] = "DISTINCT", ["DITINCT"] = "DISTINCT",
+        ["TRANSACTOIN"] = "TRANSACTION", ["BEGGIN"] = "BEGIN", ["COMMTI"] = "COMMIT", ["ROLLBCK"] = "ROLLBACK"
     };
 
     private static readonly HashSet<string> SkipTableNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "SELECT", "VALUES", "OPENJSON", "OPENQUERY", "OPENROWSET", "OPENDATASOURCE",
         "STRING_SPLIT", "STRING_AGG", "SYS", "INFORMATION_SCHEMA", "INSERTED", "DELETED"
+    };
+
+    private static readonly HashSet<string> KnownSqlWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Keywords
+        "SELECT", "FROM", "WHERE", "AND", "OR", "NOT", "IN", "LIKE", "BETWEEN",
+        "IS", "NULL", "AS", "CASE", "WHEN", "THEN", "ELSE", "END", "GROUP",
+        "BY", "HAVING", "ORDER", "ASC", "DESC", "TOP", "DISTINCT", "JOIN",
+        "INNER", "LEFT", "RIGHT", "FULL", "CROSS", "ON", "INSERT", "INTO",
+        "VALUES", "UPDATE", "SET", "DELETE", "CREATE", "ALTER", "DROP", "TABLE",
+        "VIEW", "PROCEDURE", "PROC", "FUNCTION", "RETURNS", "TRIGGER", "DATABASE",
+        "INDEX", "CLUSTERED", "NONCLUSTERED", "PRIMARY", "KEY", "FOREIGN",
+        "REFERENCES", "CONSTRAINT", "DEFAULT", "CHECK", "UNIQUE", "WITH",
+        "UNION", "ALL", "EXCEPT", "INTERSECT", "EXEC", "EXECUTE", "BEGIN",
+        "COMMIT", "ROLLBACK", "TRAN", "TRANSACTION", "DECLARE", "IF", "WHILE",
+        "BREAK", "CONTINUE", "RETURN", "WAITFOR", "DELAY", "TRY", "CATCH",
+        "THROW", "PRINT", "USE", "SCHEMA", "GO", "OVER", "PARTITION", "ROWS",
+        "RANGE", "UNBOUNDED", "PRECEDING", "FOLLOWING", "CURRENT", "ROW", "ONLY",
+        "FETCH", "NEXT", "OFFSET", "OPTION", "RECOMPILE", "MAXDOP", "HASH",
+        "LOOP", "MERGE", "OUTPUT", "APPLY", "PIVOT", "UNPIVOT", "NOLOCK",
+        "HOLDLOCK", "UPDLOCK", "XLOCK", "TABLOCK", "TABLOCKX", "SERIALIZABLE",
+        "SNAPSHOT", "REPEATABLE", "READ", "COMMITTED", "UNCOMMITTED", "SOME",
+        "ANY", "EXISTS", "FOR", "XML", "PATH", "RAW", "AUTO", "ELEMENTS",
+        "TYPE", "ROOT", "SYSTEM_VERSIONING", "TEMPORAL", "OUT", "VARYING",
+        "RECONFIGURE", "IDENTITY", "IDENTITY_INSERT", "NOCHECK", "CHECKPOINT",
+        "OFF", "STATISTICS", "IO", "TIME", "PROFILE", "PLAN", "FORCE", "OPTIMIZE",
+        "UNKNOWN", "COLLATE", "ESCAPE", "OPENJSON", "OPENQUERY", "OPENROWSET",
+        "OPENDATASOURCE", "STRING_SPLIT", "STRING_AGG", "CHECKSUM_AGG",
+        // Functions
+        "COUNT", "SUM", "AVG", "MIN", "MAX", "COUNT_BIG", "STDEV", "STDEVP",
+        "VAR", "VARP", "GETDATE", "GETUTCDATE", "SYSDATETIME", "SYSUTCDATETIME",
+        "SYSDATETIMEOFFSET", "CURRENT_TIMESTAMP", "DATEDIFF", "DATEDIFF_BIG",
+        "DATEADD", "DATEPART", "DATENAME", "DAY", "MONTH", "YEAR", "EOMONTH",
+        "ISDATE", "DATEFROMPARTS", "DATETIMEFROMPARTS", "DATETIME2FROMPARTS",
+        "TIMEFROMPARTS", "SWITCHOFFSET", "TODATETIMEOFFSET", "ISNULL", "COALESCE",
+        "NULLIF", "IIF", "CHOOSE", "CAST", "CONVERT", "TRY_CAST", "TRY_CONVERT",
+        "PARSE", "TRY_PARSE", "LEN", "SUBSTRING", "CHARINDEX", "PATINDEX",
+        "REPLACE", "REPLICATE", "REVERSE", "RTRIM", "LTRIM", "TRIM", "LOWER",
+        "UPPER", "LEFT", "RIGHT", "CONCAT", "CONCAT_WS", "FORMAT", "SOUNDEX",
+        "SPACE", "STR", "STUFF", "TRANSLATE", "UNICODE", "ASCII", "CHAR",
+        "NCHAR", "DIFFERENCE", "STRING_ESCAPE", "QUOTENAME", "NEWID",
+        "NEWSEQUENTIALID", "CHECKSUM", "BINARY_CHECKSUM", "HASHBYTES",
+        "ROW_NUMBER", "RANK", "DENSE_RANK", "NTILE", "LEAD", "LAG",
+        "FIRST_VALUE", "LAST_VALUE", "CUME_DIST", "PERCENT_RANK",
+        "PERCENTILE_CONT", "PERCENTILE_DISC", "ABS", "ACOS", "ASIN", "ATAN",
+        "ATN2", "CEILING", "COS", "COT", "DEGREES", "EXP", "FLOOR", "LOG",
+        "LOG10", "PI", "POWER", "RADIANS", "RAND", "ROUND", "SIGN", "SIN",
+        "SQRT", "SQUARE", "TAN", "ISNUMERIC", "DB_NAME", "DB_ID", "OBJECT_ID",
+        "OBJECT_NAME", "OBJECT_SCHEMA_NAME", "SCHEMA_ID", "SCHEMA_NAME",
+        "USER_NAME", "USER_ID", "SUSER_NAME", "SUSER_SNAME", "SUSER_ID",
+        "ORIGINAL_DB_NAME", "PARSENAME", "SCOPE_IDENTITY", "IDENT_CURRENT",
+        "IDENT_INCR", "IDENT_SEED", "COL_LENGTH", "COL_NAME", "COLUMNPROPERTY",
+        "DATABASEPROPERTYEX", "OBJECTPROPERTY", "OBJECTPROPERTYEX",
+        "OBJECT_DEFINITION", "SESSION_CONTEXT", "XACT_STATE", "ERROR_NUMBER",
+        "ERROR_MESSAGE", "ERROR_LINE", "ERROR_SEVERITY", "ERROR_STATE",
+        "ERROR_PROCEDURE", "RAISERROR",
+        // Types
+        "BIGINT", "BINARY", "BIT", "CHAR", "DATE", "DATETIME", "DATETIME2",
+        "DATETIMEOFFSET", "DECIMAL", "FLOAT", "GEOGRAPHY", "GEOMETRY",
+        "HIERARCHYID", "IMAGE", "INT", "INTEGER", "MONEY", "NCHAR", "NTEXT",
+        "NUMERIC", "NVARCHAR", "REAL", "ROWVERSION", "SMALLDATETIME", "SMALLINT",
+        "SMALLMONEY", "SQL_VARIANT", "SYSNAME", "TEXT", "TIME", "TIMESTAMP",
+        "TINYINT", "UNIQUEIDENTIFIER", "VARBINARY", "VARCHAR", "XML",
+        // Common schemas & pseudo tables
+        "DBO", "SYS", "INFORMATION_SCHEMA", "GUEST", "INSERTED", "DELETED"
     };
 
     public static List<SqlLintIssue> Analyze(
@@ -223,15 +297,32 @@ public static class SqlLintService
             aliases[alias] = Unwrap(m.Groups["t"].Value);
         }
 
+        var referencedTableKeys = new List<string>();
+        var tableRefSpans = new List<(int Start, int End)>();
+
         foreach (Match m in TableRefRegex.Matches(stripped))
         {
             var raw = m.Groups["t"].Value;
             var name = Unwrap(raw);
             if (name.Length == 0 || name[0] is '#' or '@') continue;
             if (SkipTableNames.Contains(name)) continue;
+
+            tableRefSpans.Add((m.Groups["t"].Index, m.Groups["t"].Index + m.Groups["t"].Length));
+
             var shortName = name.Contains('.') ? name[(name.LastIndexOf('.') + 1)..] : name;
             if (cteNames.Contains(shortName)) continue;
-            if (tableLookup.Contains(name) || tableLookup.Contains(shortName)) continue;
+
+            if (tableLookup.Contains(name) || tableLookup.Contains(shortName))
+            {
+                if (columnsByTable != null)
+                {
+                    var resolved = ResolveTableKey(raw, tables, columnsByTable);
+                    if (!referencedTableKeys.Contains(resolved, StringComparer.OrdinalIgnoreCase))
+                        referencedTableKeys.Add(resolved);
+                }
+                continue;
+            }
+
             var idx = m.Groups["t"].Index;
             var len = Math.Max(1, m.Groups["t"].Length);
             issues.Add(new SqlLintIssue(idx, len, $"Unknown table or view '{name}'."));
@@ -239,6 +330,9 @@ public static class SqlLintService
 
         if (columnsByTable is null || columnsByTable.Count == 0) return;
 
+        var handledSpans = new List<(int Start, int End)>();
+
+        // 1. Validate qualified columns: alias.col or schema.table.col
         foreach (Match m in QualifiedColRegex.Matches(stripped))
         {
             var alias = Unwrap(m.Groups["a"].Value);
@@ -246,6 +340,8 @@ public static class SqlLintService
             if (alias.Length == 0 || col.Length == 0) continue;
             if (string.Equals(alias, "dbo", StringComparison.OrdinalIgnoreCase)) continue;
             if (SkipTableNames.Contains(alias)) continue;
+
+            handledSpans.Add((m.Index, m.Index + m.Length));
 
             string? tableKey = null;
             if (aliases.TryGetValue(alias, out var tableRef))
@@ -256,8 +352,65 @@ public static class SqlLintService
             if (tableKey == null) continue;
             if (!columnsByTable.TryGetValue(tableKey, out var cols)) continue;
             if (cols.Any(c => string.Equals(c, col, StringComparison.OrdinalIgnoreCase))) continue;
+
             issues.Add(new SqlLintIssue(m.Groups["c"].Index, m.Groups["c"].Length,
                 $"Unknown column '{col}' on '{tableKey}'."));
+        }
+
+        // 2. Validate unqualified columns if at least one database table is referenced
+        if (referencedTableKeys.Count == 0) return;
+
+        var allValidCols = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var tk in referencedTableKeys)
+        {
+            if (columnsByTable.TryGetValue(tk, out var cList))
+            {
+                foreach (var c in cList)
+                    allValidCols.Add(c);
+            }
+        }
+
+        // Also ignore aliases defined via "AS alias"
+        var definedAliases = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in aliases.Keys) definedAliases.Add(a);
+        foreach (Match m in AsAliasRegex.Matches(stripped))
+        {
+            definedAliases.Add(Unwrap(m.Groups["a"].Value));
+            handledSpans.Add((m.Groups["a"].Index, m.Groups["a"].Index + m.Groups["a"].Length));
+        }
+
+        // Scan all identifiers in the SQL query
+        foreach (Match m in Regex.Matches(stripped, @"\[(?<c>[\w#$]+)\]|\b(?<c>[A-Za-z_][A-Za-z0-9_#$]*)\b"))
+        {
+            var word = m.Groups["c"].Value;
+            var start = m.Groups["c"].Index;
+            var end = start + m.Groups["c"].Length;
+
+            // Skip if inside a qualified col span or table reference span
+            if (handledSpans.Any(s => start >= s.Start && end <= s.End)) continue;
+            if (tableRefSpans.Any(s => start >= s.Start && end <= s.End)) continue;
+
+            // Skip keywords, functions, types, schemas, CTEs, aliases, variables, numbers
+            if (KnownSqlWords.Contains(word)) continue;
+            if (definedAliases.Contains(word)) continue;
+            if (cteNames.Contains(word)) continue;
+            if (tableLookup.Contains(word)) continue;
+            if (word.StartsWith('@') || word.StartsWith('#')) continue;
+
+            // Check if it is a valid column on any of the referenced tables
+            if (allValidCols.Contains(word)) continue;
+
+            // Unknown column detected!
+            if (referencedTableKeys.Count == 1)
+            {
+                issues.Add(new SqlLintIssue(start, m.Groups["c"].Length,
+                    $"Unknown column '{word}' on '{referencedTableKeys[0]}'."));
+            }
+            else
+            {
+                issues.Add(new SqlLintIssue(start, m.Groups["c"].Length,
+                    $"Unknown column '{word}'."));
+            }
         }
     }
 

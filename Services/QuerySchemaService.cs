@@ -48,10 +48,18 @@ public sealed class QuerySchemaService
         await using var rdr = await cmd.ExecuteReaderAsync(ct);
         while (await rdr.ReadAsync(ct))
         {
-            var key = $"{rdr.GetString(0)}.{rdr.GetString(1)}";
+            var schema = rdr.GetString(0);
+            var table = rdr.GetString(1);
+            var col = rdr.GetString(2);
+
+            var key = $"{schema}.{table}";
             if (!map.TryGetValue(key, out var cols))
                 map[key] = cols = [];
-            cols.Add(rdr.GetString(2));
+            cols.Add(col);
+
+            if (!map.TryGetValue(table, out var shortCols))
+                map[table] = shortCols = [];
+            shortCols.Add(col);
         }
         return map;
     }

@@ -21,6 +21,11 @@ public partial class QueryViewModel : ObservableObject
 
     public ObservableCollection<SavedConnection> SavedConnections { get; } = [];
     [ObservableProperty] private SavedConnection? _selectedConnection;
+    partial void OnSelectedConnectionChanged(SavedConnection? value)
+    {
+        if (value != null && IsConnected)
+            _ = ConnectAsync();
+    }
     [ObservableProperty] private bool _isConnected;
     [ObservableProperty] private string _connectedDatabaseLabel = "Not connected";
 
