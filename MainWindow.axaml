@@ -58,6 +58,7 @@
                         <Button Classes="secondary" Command="{Binding OpenSchemaCompareCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Schema Compare" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenDbManagerCommand}" HorizontalAlignment="Stretch"><TextBlock Text="DB Manager" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenQueryCommand}" HorizontalAlignment="Stretch"><TextBlock Text="⚡ SQL Query" /></Button>
+                        <Button Classes="secondary" Command="{Binding OpenDbHealthCommand}" HorizontalAlignment="Stretch"><TextBlock Text="🩺 DB Health" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenMoveDataCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Move Data" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenBackupCommand}" HorizontalAlignment="Stretch"><TextBlock Text="Local Backup" /></Button>
                         <Button Classes="secondary" Command="{Binding OpenDiagramCommand}" HorizontalAlignment="Stretch"><TextBlock Text="DB Diagram" /></Button>

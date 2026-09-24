@@ -22,7 +22,12 @@ public sealed class QueryExecutionService
     public const long MaxCharsPerResult = 50_000_000;
     public const int DefaultCommandTimeoutSeconds = 120;
 
-    /// <summary>Runs the batch and streams result tables in order.</summary>
+    /// <summary>
+    /// Runs the batch and streams result tables in order. The whole pipeline —
+    /// connect, read, LOB truncation, row-dictionary building — executes on the
+    /// thread pool so a slow server or a large result can never stall the UI
+    /// thread; only the status callbacks hop back to the caller's context.
+    /// </summary>
     /// <param name="onStatus">
     /// Optional progress callback ("Connecting...", "Sending batch 1/2...",
     /// "Receiving rows..."). Invoked on the caller's synchronization context.
@@ -37,19 +42,32 @@ public sealed class QueryExecutionService
         var batches = SplitBatches(sql);
         var results = new List<QueryResultTable>();
         var index = 0;
+        var callerContext = SynchronizationContext.Current;
 
-        onStatus?.Invoke($"Connecting to {info.Server}/{info.Database}...");
-        await using var conn = new SqlConnection(info.ConnectionString);
-        await conn.OpenAsync(ct);
-        var target = string.IsNullOrWhiteSpace(conn.DataSource) ? info.Server : conn.DataSource;
-
-        foreach (var batch in batches)
+        void Status(string message)
         {
-            ct.ThrowIfCancellationRequested();
-            index++;
-            onStatus?.Invoke($"Sending batch {index}/{batches.Count} to {target}/{info.Database}...");
-            await ExecuteSingleBatchAsync(conn, batch, index, batches.Count, results, timeoutSeconds, target, ct, onStatus);
+            if (onStatus == null) return;
+            if (callerContext == null || callerContext == SynchronizationContext.Current)
+                onStatus(message);
+            else
+                callerContext.Post(_ => onStatus(message), null);
         }
+
+        Status($"Connecting to {info.Server}/{info.Database}...");
+        await Task.Run(async () =>
+        {
+            await using var conn = new SqlConnection(info.ConnectionString);
+            await conn.OpenAsync(ct);
+            var target = string.IsNullOrWhiteSpace(conn.DataSource) ? info.Server : conn.DataSource;
+
+            foreach (var batch in batches)
+            {
+                ct.ThrowIfCancellationRequested();
+                index++;
+                Status($"Sending batch {index}/{batches.Count} to {target}/{info.Database}...");
+                await ExecuteSingleBatchAsync(conn, batch, index, batches.Count, results, timeoutSeconds, target, ct, Status);
+            }
+        }, ct).ConfigureAwait(false);
 
         return results;
     }
@@ -63,14 +81,14 @@ public sealed class QueryExecutionService
         int timeoutSeconds,
         string target,
         CancellationToken ct,
-        Action<string>? onStatus)
+        Action<string> status)
     {
         var label = batchCount > 1 ? $"Batch {batchNumber}" : "Result";
         await using var cmd = new SqlCommand(batch, conn) { CommandTimeout = timeoutSeconds };
         var started = DateTime.UtcNow;
 
         await using var reader = await cmd.ExecuteReaderAsync(ct);
-        onStatus?.Invoke($"Batch {batchNumber}/{batchCount} sent to {target} - receiving rows...");
+        status($"Batch {batchNumber}/{batchCount} sent to {target} - receiving rows...");
         var setNumber = 0;
         do
         {

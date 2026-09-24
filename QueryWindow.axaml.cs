@@ -6,9 +6,11 @@ using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
+using AvaloniaEdit.Editing;
 using AvaloniaEdit.Highlighting;
 using AvaloniaEdit.Highlighting.Xshd;
 using SchemaCompare.Controls;
+using SchemaCompare.Models;
 using SchemaCompare.Services;
 using SchemaCompare.ViewModels;
 
@@ -29,12 +31,13 @@ public partial class QueryWindow : Window
             try
             {
                 if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb)
-                    await ClipboardExtensions.SetTextAsync(cb, text);
+                    return await ClipboardSafety.CopySelectionAsync(text, cb);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[QueryWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
             }
+            return false;
         };
 
         DataContext = _vm;
@@ -75,6 +78,7 @@ public partial class QueryWindow : Window
             editor.KeyDown -= SqlEditor_KeyDown;
             editor.KeyDown += SqlEditor_KeyDown;
             ApplyEditorFontSize(editor);
+            WireEditorClipboard(editor);
         }
     }
 
@@ -101,6 +105,72 @@ public partial class QueryWindow : Window
                 editor.FontSize = size;
         }
         catch { }
+    }
+
+    /// <summary>
+    /// Ctrl+C / Ctrl+X / Ctrl+V for the SQL editor go through ClipboardSafety.
+    /// AvaloniaEdit's built-in editing commands call the platform clipboard
+    /// unguarded — the same async-void COMException path that made Ctrl+C close
+    /// the whole app for TextBoxes (see ClipboardSafety) — so intercept the
+    /// gestures in the tunnel phase, mark them handled and redo them safely.
+    /// </summary>
+    private void WireEditorClipboard(TextEditor editor)
+    {
+        editor.TextArea.RemoveHandler(InputElement.KeyDownEvent, EditorClipboardKeyDown);
+        editor.TextArea.AddHandler(InputElement.KeyDownEvent, EditorClipboardKeyDown, RoutingStrategies.Tunnel);
+    }
+
+    private async void EditorClipboardKeyDown(object? sender, KeyEventArgs e)
+    {
+        try
+        {
+            if (e.Handled || sender is not TextArea area) return;
+            var hotkeys = Application.Current?.PlatformSettings?.HotkeyConfiguration;
+            if (hotkeys == null) return;
+            var editor = area.GetVisualAncestors().OfType<TextEditor>().FirstOrDefault();
+            if (editor == null) return;
+
+            if (hotkeys.Copy.Any(g => g.Matches(e)))
+            {
+                var text = editor.SelectedText;
+                if (string.IsNullOrEmpty(text)) return;
+                e.Handled = true;
+                if (!await ClipboardSafety.CopySelectionAsync(text, TopLevel.GetTopLevel(area)?.Clipboard))
+                    ReportClipboardFailure("Copy");
+            }
+            else if (hotkeys.Cut.Any(g => g.Matches(e)))
+            {
+                var text = editor.SelectedText;
+                if (string.IsNullOrEmpty(text)) return;
+                e.Handled = true;
+                if (!await ClipboardSafety.CutSelectionAsync(
+                        text, () => editor.SelectedText = string.Empty,
+                        editor.IsReadOnly, TopLevel.GetTopLevel(area)?.Clipboard))
+                    ReportClipboardFailure("Cut");
+            }
+            else if (hotkeys.Paste.Any(g => g.Matches(e)) && !editor.IsReadOnly)
+            {
+                e.Handled = true;
+                var (ok, text) = await ClipboardSafety.TakePasteTextAsync(TopLevel.GetTopLevel(area)?.Clipboard);
+                if (!ok)
+                {
+                    ReportClipboardFailure("Paste");
+                    return;
+                }
+                if (string.IsNullOrEmpty(text)) return;
+                editor.SelectedText = ClipboardSafety.SanitizePasteText(text, acceptsReturn: true);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[QueryWindow] Editor clipboard failed ({ex.GetType().Name}): {ex.Message}");
+        }
+    }
+
+    private void ReportClipboardFailure(string operation)
+    {
+        if (_vm != null)
+            _vm.StatusMessage = $"{operation} failed: the system clipboard is unavailable (another app may be holding it). Nothing was changed.";
     }
 
     /// <summary>
@@ -205,9 +275,9 @@ public partial class QueryWindow : Window
 
     private static void RebuildResultGridColumns(DataGrid grid)
     {
-        if (grid.Tag is not System.Collections.IEnumerable cols)
+        if (grid.Tag is not QueryResultTable result)
             return;
-        var names = cols.Cast<object?>().Select(c => c?.ToString() ?? string.Empty)
+        var names = result.Columns
             .Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
         if (names.Count == 0)
             return;
@@ -233,7 +303,10 @@ public partial class QueryWindow : Window
             {
                 Header = header,
                 Binding = new Binding($"[{col}]") { TargetNullValue = "(NULL)" },
-                Width = new DataGridLength(1, DataGridLengthUnitType.Star, 60, 400),
+                // Fixed pixel width fitted to the bold header and cell content
+                // (star sizing degenerates under unconstrained measure: the first
+                // column swallows the viewport). Wide grids scroll horizontally.
+                Width = new DataGridLength(MeasureColumnWidth(result, col)),
                 IsReadOnly = true
             });
         }
@@ -243,6 +316,55 @@ public partial class QueryWindow : Window
         // "Column: value" inspector updates on plain arrow/click navigation.
         grid.CurrentCellChanged -= ResultGrid_CurrentCellChanged;
         grid.CurrentCellChanged += ResultGrid_CurrentCellChanged;
+    }
+
+    private const double ResultGridFontSize = 12; // matches the DataGrid FontSize in XAML
+
+    /// <summary>
+    /// Pixel width fitting the bold header and the widest cell (sampled over the
+    /// first 30 rows), clamped so short columns stay clickable and very long
+    /// text (JSON, descriptions) cannot blow up the grid — it clips instead.
+    /// The sample is small because this runs on the UI thread per rebuild.
+    /// </summary>
+    private static double MeasureColumnWidth(QueryResultTable result, string column)
+    {
+        var width = MeasureText(column, bold: true);
+        var sample = Math.Min(result.Rows.Count, 30);
+        for (var i = 0; i < sample; i++)
+        {
+            if (!result.Rows[i].TryGetValue(column, out var value) || value == null)
+                continue;
+            var text = value switch
+            {
+                string s => s.Split('\n')[0],
+                byte[] => "System.Byte[]",
+                _ => value.ToString() ?? string.Empty
+            };
+            if (text.Length > 0)
+                width = Math.Max(width, MeasureText(text, bold: false));
+        }
+        return Math.Clamp(width + 26, 70, 360);
+    }
+
+    private static double MeasureText(string text, bool bold)
+    {
+        try
+        {
+            var formatted = new Avalonia.Media.FormattedText(
+                text,
+                System.Globalization.CultureInfo.CurrentCulture,
+                Avalonia.Media.FlowDirection.LeftToRight,
+                new Avalonia.Media.Typeface(Avalonia.Media.FontFamily.Default,
+                    Avalonia.Media.FontStyle.Normal,
+                    bold ? Avalonia.Media.FontWeight.Bold : Avalonia.Media.FontWeight.Normal),
+                ResultGridFontSize,
+                null);
+            return formatted.Width;
+        }
+        catch
+        {
+            return text.Length * (bold ? 8.2 : 7.0);
+        }
     }
 
     private static void ResultGrid_CurrentCellChanged(object? sender, EventArgs e)

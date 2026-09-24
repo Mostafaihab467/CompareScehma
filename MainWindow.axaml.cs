@@ -98,6 +98,18 @@ public partial class MainWindow : Window
             _queryWindow.Closed += (_, _) => _queryWindow = null;
             _queryWindow.Show(this);
         };
+        vm.OpenDbHealthWindowAction = () =>
+        {
+            if (_dbHealthWindow is { IsVisible: true })
+            {
+                _dbHealthWindow.Activate();
+                _dbHealthWindow.WindowState = WindowState.Normal;
+                return;
+            }
+            _dbHealthWindow = new DbHealthWindow();
+            _dbHealthWindow.Closed += (_, _) => _dbHealthWindow = null;
+            _dbHealthWindow.Show(this);
+        };
     }
 
     private MoveDataWindow? _moveDataWindow;
@@ -105,6 +117,7 @@ public partial class MainWindow : Window
     private DiagramWindow? _diagramWindow;
     private DbManagerWindow? _dbManagerWindow;
     private QueryWindow? _queryWindow;
+    private DbHealthWindow? _dbHealthWindow;
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)
     {

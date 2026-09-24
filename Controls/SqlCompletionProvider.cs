@@ -197,7 +197,12 @@ public static class SqlCompletionProvider
         var window = new CompletionWindow(area)
         {
             CloseAutomatically = true,
-            CloseWhenCaretAtBeginning = true
+            CloseWhenCaretAtBeginning = true,
+            // Replacement segment must span the WHOLE word typed so far, not just
+            // from the caret — otherwise accepting (Enter/Tab) keeps the already-
+            // typed prefix and yields e.g. "s" + "SELECT" = "sSELECT".
+            StartOffset = wordStart,
+            EndOffset = caretOffset
         };
         // We rank candidates ourselves (nearest/fuzzy included); AvaloniaEdit's
         // built-in prefix filter would hide non-prefix matches.

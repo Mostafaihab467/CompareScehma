@@ -96,7 +96,7 @@
                                 <Button Grid.Column="3" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,0,0"
                                         Command="{Binding $parent[Window].DataContext.CopyResultsCommand}"
                                         CommandParameter="{Binding}"
-                                        ToolTip.Tip="Copy first result set as TSV">
+                                        ToolTip.Tip="Copy selected result set as TSV">
                                     <TextBlock Text="📋 Copy" />
                                 </Button>
                                 <Button Grid.Column="4" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,0,0"
@@ -134,20 +134,9 @@
                         <Border Grid.Row="3" Classes="card" Padding="0">
                             <Grid RowDefinitions="Auto,*">
                                 <Border Background="{StaticResource SubtleHeader}" Padding="12,6">
-                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto">
+                                    <Grid ColumnDefinitions="Auto,*,Auto">
                                         <TextBlock Text="Results" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" />
-                                        <ComboBox Grid.Column="2" ItemsSource="{Binding Results}"
-                                                  SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
-                                                  MinWidth="200" FontSize="11" Margin="8,0,0,0"
-                                                  PlaceholderText="Select result set…"
-                                                  IsVisible="{Binding HasResults}">
-                                            <ComboBox.ItemTemplate>
-                                                <DataTemplate DataType="models:QueryResultTable">
-                                                    <TextBlock Text="{Binding Title}" />
-                                                </DataTemplate>
-                                            </ComboBox.ItemTemplate>
-                                        </ComboBox>
-                                        <TextBlock Grid.Column="3" Text="{Binding SelectedCellText}"
+                                        <TextBlock Grid.Column="2" Text="{Binding SelectedCellText}"
                                                    FontSize="11" Foreground="{StaticResource Success}"
                                                    VerticalAlignment="Center" Margin="12,0,0,0"
                                                    MaxWidth="420" TextTrimming="CharacterEllipsis"
@@ -155,39 +144,43 @@
                                                    IsVisible="{Binding HasResults}" />
                                     </Grid>
                                 </Border>
-                                <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                                              HorizontalScrollBarVisibility="Auto"
-                                              IsVisible="{Binding HasResults}">
-                                    <ItemsControl ItemsSource="{Binding Results}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate DataType="models:QueryResultTable">
-                                                <StackPanel Margin="0,0,0,10">
-                                                    <Border Background="{StaticResource CodeBg}" Padding="10,6">
-                                                        <StackPanel Orientation="Horizontal" Spacing="8">
-                                                            <TextBlock Text="{Binding Title}" FontWeight="Bold"
-                                                                       FontSize="12" Foreground="#CDD6F4"
-                                                                       VerticalAlignment="Center" />
-                                                            <TextBlock Text="{Binding Summary}" FontSize="11"
-                                                                       Foreground="{StaticResource Primary500}"
-                                                                       VerticalAlignment="Center" />
-                                                        </StackPanel>
-                                                    </Border>
-                                                    <DataGrid ItemsSource="{Binding Rows}"
-                                                              Tag="{Binding Columns}"
-                                                              AutoGenerateColumns="False"
-                                                              CanUserReorderColumns="True"
-                                                              CanUserResizeColumns="True"
-                                                              CanUserSortColumns="True"
-                                                              IsReadOnly="True"
-                                                              SelectionMode="Extended"
-                                                              GridLinesVisibility="All"
-                                                              FontSize="12"
-                                                              MaxHeight="420" />
-                                                </StackPanel>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </ScrollViewer>
+                                <!-- One tab per result set; SelectedResult (TwoWay) tracks the active tab. -->
+                                <TabControl Grid.Row="1" Margin="6,4,6,6"
+                                            ItemsSource="{Binding Results}"
+                                            SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
+                                            IsVisible="{Binding HasResults}">
+                                    <TabControl.ItemTemplate>
+                                        <DataTemplate DataType="models:QueryResultTable">
+                                            <TextBlock Text="{Binding Title}" FontSize="11" />
+                                        </DataTemplate>
+                                    </TabControl.ItemTemplate>
+                                    <TabControl.ContentTemplate>
+                                        <DataTemplate DataType="models:QueryResultTable">
+                                            <Grid RowDefinitions="Auto,*">
+                                                <Border Background="{StaticResource CodeBg}" Padding="10,4">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                                        <TextBlock Text="{Binding Title}" FontWeight="Bold"
+                                                                   FontSize="12" Foreground="#CDD6F4"
+                                                                   VerticalAlignment="Center" />
+                                                        <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="11"
+                                                                   Foreground="{StaticResource Primary500}"
+                                                                   VerticalAlignment="Center" />
+                                                    </Grid>
+                                                </Border>
+                                                <DataGrid Grid.Row="1" ItemsSource="{Binding Rows}"
+                                                          Tag="{Binding}"
+                                                          AutoGenerateColumns="False"
+                                                          CanUserReorderColumns="True"
+                                                          CanUserResizeColumns="True"
+                                                          CanUserSortColumns="True"
+                                                          IsReadOnly="True"
+                                                          SelectionMode="Extended"
+                                                          GridLinesVisibility="All"
+                                                          FontSize="12" />
+                                            </Grid>
+                                        </DataTemplate>
+                                    </TabControl.ContentTemplate>
+                                </TabControl>
                                 <StackPanel Grid.Row="1" IsVisible="{Binding !HasResults}"
                                             HorizontalAlignment="Center" VerticalAlignment="Center"
                                             Spacing="8" Margin="0,16">

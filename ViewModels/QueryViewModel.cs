@@ -32,8 +32,9 @@ public partial class QueryViewModel : ObservableObject
     [ObservableProperty] private bool _showError;
     [ObservableProperty] private string _errorMessage = string.Empty;
 
-    /// <summary>Set by the view to enable clipboard copy of results.</summary>
-    public Func<string, Task>? CopyToClipboardAsync { get; set; }
+    /// <summary>Set by the view to enable clipboard copy of results.
+    /// Returns false when the clipboard was unavailable (status must not claim success).</summary>
+    public Func<string, Task<bool>>? CopyToClipboardAsync { get; set; }
 
     public ICommand ConnectCommand { get; }
     public ICommand NewTabCommand { get; }
@@ -286,18 +287,22 @@ public partial class QueryViewModel : ObservableObject
     private async Task CopyResultsAsync(QueryTab? tab)
     {
         if (tab == null || CopyToClipboardAsync == null) return;
-        var first = tab.Results.FirstOrDefault(r => r.Rows.Count > 0);
-        if (first == null)
+        var source = tab.SelectedResult is { Rows.Count: > 0 } selected
+            ? selected
+            : tab.Results.FirstOrDefault(r => r.Rows.Count > 0);
+        if (source == null)
         {
             tab.StatusMessage = "Nothing to copy — no result rows.";
             return;
         }
         var sb = new System.Text.StringBuilder();
-        sb.AppendLine(string.Join("\t", first.Columns));
-        foreach (var row in first.Rows.Take(1_000))
-            sb.AppendLine(string.Join("\t", first.Columns.Select(c =>
+        sb.AppendLine(string.Join("\t", source.Columns));
+        foreach (var row in source.Rows.Take(1_000))
+            sb.AppendLine(string.Join("\t", source.Columns.Select(c =>
                 row.TryGetValue(c, out var v) ? v?.ToString() ?? "NULL" : "NULL")));
-        await CopyToClipboardAsync(sb.ToString());
-        tab.StatusMessage = $"Copied {Math.Min(first.Rows.Count, 1_000):N0} row(s) from “{first.Title}” (TSV).";
+        if (await CopyToClipboardAsync(sb.ToString()))
+            tab.StatusMessage = $"Copied {Math.Min(source.Rows.Count, 1_000):N0} row(s) from “{source.Title}” (TSV).";
+        else
+            tab.StatusMessage = "Copy failed: the system clipboard is unavailable (another app may be holding it). Nothing was changed.";
     }
 }
