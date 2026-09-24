@@ -103,7 +103,9 @@ public class MiniChart : Control
                 Point Pt(int i)
                 {
                     var x = left + plotW * i / (pts.Count - 1);
-                    var y = top + plotH * (1 - Math.Clamp(pts[i] / maxValue, 0, 1));
+                    var raw = pts[i];
+                    var ratio = double.IsFinite(raw) ? raw / maxValue : 0;
+                    var y = top + plotH * (1 - Math.Clamp(ratio, 0, 1));
                     return new Point(x, y);
                 }
                 var first = Pt(0);
@@ -136,7 +138,9 @@ public class MiniChart : Control
 
             // Dot on the newest sample.
             var lastX = left + plotW;
-            var lastY = top + plotH * (1 - Math.Clamp(pts[^1] / maxValue, 0, 1));
+            var lastRaw = pts[^1];
+            var lastRatio = double.IsFinite(lastRaw) ? lastRaw / maxValue : 0;
+            var lastY = top + plotH * (1 - Math.Clamp(lastRatio, 0, 1));
             context.DrawEllipse(series.Stroke, null, new Point(lastX, lastY), 2.6, 2.6);
         }
 
@@ -161,7 +165,7 @@ public class MiniChart : Control
         if (seriesList != null)
             foreach (var s in seriesList)
                 foreach (var p in s.Points)
-                    if (p > max) max = p;
+                    if (double.IsFinite(p) && p > max) max = p;
         return max * 1.15;
     }
 

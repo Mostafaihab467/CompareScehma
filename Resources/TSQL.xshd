@@ -6,152 +6,429 @@
   <Color name="Number" foreground="#B5CEA8" />
   <Color name="Keyword" foreground="#569CD6" fontWeight="bold" />
   <Color name="Function" foreground="#DCDCAA" />
-  <Color name="SystemFunc" foreground="#4EC9B0" />
+  <Color name="SystemFunc" foreground="#C586C0" />
   <Color name="Type" foreground="#4EC9B0" />
+  <Color name="Variable" foreground="#9CDCFE" />
+  <Color name="Bracketed" foreground="#E6E6F2" />
   <Color name="Operator" foreground="#D4D4D4" />
 
   <RuleSet ignoreCase="true">
+    <!-- Block Comments -->
     <Span color="Comment" multiline="true">
       <Begin>/\*</Begin>
       <End>\*/</End>
     </Span>
+
+    <!-- Line Comments -->
     <Span color="Comment">
       <Begin>--</Begin>
     </Span>
-    <Span color="String">
+
+    <!-- String Literals (including Unicode N'...' and escaped '') -->
+    <Span color="String" multiline="true">
+      <Begin>N'</Begin>
+      <End>'</End>
+      <RuleSet>
+        <Span begin="''" end="" />
+      </RuleSet>
+    </Span>
+    <Span color="String" multiline="true">
       <Begin>'</Begin>
       <End>'</End>
+      <RuleSet>
+        <Span begin="''" end="" />
+      </RuleSet>
     </Span>
 
-    <Rule color="Number">\b\d+(\.\d+)?\b</Rule>
+    <!-- Bracketed Identifiers [schema].[table] -->
+    <Rule color="Bracketed">\[[^\]]+\]</Rule>
 
+    <!-- Numeric Literals -->
+    <Rule color="Number">\b\d+(\.\d+)?\b</Rule>
+    <Rule color="Number">\b0x[0-9A-Fa-f]+\b</Rule>
+
+    <!-- Local Variables: @name -->
+    <Rule color="Variable">@[A-Za-z_][A-Za-z0-9_]*</Rule>
+
+    <!-- System Functions / Variables: @@name -->
+    <Rule color="SystemFunc">@@[A-Za-z_][A-Za-z0-9_]*</Rule>
+
+    <!-- Standard SQL / T-SQL Keywords -->
     <Keywords color="Keyword">
+      <Word>ACTION</Word>
       <Word>ADD</Word>
       <Word>ALL</Word>
       <Word>ALTER</Word>
       <Word>AND</Word>
+      <Word>ANY</Word>
+      <Word>APPLY</Word>
       <Word>AS</Word>
       <Word>ASC</Word>
+      <Word>AUTHORIZATION</Word>
+      <Word>BACKUP</Word>
       <Word>BEGIN</Word>
       <Word>BETWEEN</Word>
+      <Word>BREAK</Word>
+      <Word>BULK</Word>
       <Word>BY</Word>
+      <Word>CASCADE</Word>
       <Word>CASE</Word>
+      <Word>CATCH</Word>
       <Word>CHECK</Word>
+      <Word>CHECKPOINT</Word>
+      <Word>CLOSE</Word>
+      <Word>CLUSTERED</Word>
+      <Word>COALESCE</Word>
+      <Word>COLLATE</Word>
+      <Word>COLUMN</Word>
       <Word>COMMIT</Word>
       <Word>CONSTRAINT</Word>
+      <Word>CONTAINS</Word>
+      <Word>CONTINUE</Word>
       <Word>CREATE</Word>
       <Word>CROSS</Word>
+      <Word>CURRENT</Word>
+      <Word>CURRENT_TIMESTAMP</Word>
+      <Word>CURSOR</Word>
+      <Word>DATABASE</Word>
+      <Word>DEALLOCATE</Word>
+      <Word>DECLARE</Word>
       <Word>DEFAULT</Word>
+      <Word>DELAY</Word>
       <Word>DELETE</Word>
       <Word>DESC</Word>
+      <Word>DISABLE</Word>
       <Word>DISTINCT</Word>
       <Word>DROP</Word>
       <Word>ELSE</Word>
+      <Word>ENABLE</Word>
       <Word>END</Word>
+      <Word>ESCAPE</Word>
+      <Word>EXCEPT</Word>
       <Word>EXEC</Word>
       <Word>EXECUTE</Word>
       <Word>EXISTS</Word>
+      <Word>EXIT</Word>
+      <Word>EXTERNAL</Word>
+      <Word>FETCH</Word>
+      <Word>FILE</Word>
+      <Word>FILLFACTOR</Word>
+      <Word>FILTER</Word>
+      <Word>FOR</Word>
+      <Word>FORCE</Word>
       <Word>FOREIGN</Word>
       <Word>FROM</Word>
       <Word>FULL</Word>
+      <Word>FUNCTION</Word>
       <Word>GO</Word>
+      <Word>GOTO</Word>
+      <Word>GRANT</Word>
       <Word>GROUP</Word>
+      <Word>HASH</Word>
       <Word>HAVING</Word>
+      <Word>HOLDLOCK</Word>
+      <Word>IDENTITY</Word>
+      <Word>IDENTITY_INSERT</Word>
+      <Word>IF</Word>
       <Word>IN</Word>
+      <Word>INCLUDE</Word>
       <Word>INDEX</Word>
       <Word>INNER</Word>
       <Word>INSERT</Word>
+      <Word>INTERSECT</Word>
       <Word>INTO</Word>
       <Word>IS</Word>
+      <Word>ISOLATION</Word>
       <Word>JOIN</Word>
       <Word>KEY</Word>
+      <Word>KILL</Word>
       <Word>LEFT</Word>
+      <Word>LEVEL</Word>
       <Word>LIKE</Word>
+      <Word>LOOP</Word>
+      <Word>MATCHED</Word>
+      <Word>MAXDOP</Word>
       <Word>MERGE</Word>
+      <Word>NEXT</Word>
+      <Word>NOCHECK</Word>
+      <Word>NOLOCK</Word>
+      <Word>NONCLUSTERED</Word>
       <Word>NOT</Word>
       <Word>NULL</Word>
+      <Word>NULLIF</Word>
+      <Word>OFF</Word>
+      <Word>OFFSET</Word>
       <Word>ON</Word>
+      <Word>ONLY</Word>
+      <Word>OPEN</Word>
+      <Word>OPENDATASOURCE</Word>
+      <Word>OPENJSON</Word>
+      <Word>OPENQUERY</Word>
+      <Word>OPENROWSET</Word>
+      <Word>OPTION</Word>
       <Word>OR</Word>
       <Word>ORDER</Word>
       <Word>OUTER</Word>
+      <Word>OUTPUT</Word>
       <Word>OVER</Word>
       <Word>PARTITION</Word>
+      <Word>PERCENT</Word>
+      <Word>PIVOT</Word>
+      <Word>PLAN</Word>
       <Word>PRIMARY</Word>
+      <Word>PRINT</Word>
+      <Word>PROC</Word>
       <Word>PROCEDURE</Word>
+      <Word>RAISERROR</Word>
+      <Word>READ</Word>
+      <Word>READCOMMITTED</Word>
+      <Word>READPAST</Word>
+      <Word>READUNCOMMITTED</Word>
+      <Word>RECOMPILE</Word>
+      <Word>REFERENCES</Word>
+      <Word>REPEATABLE</Word>
+      <Word>REPEATABLEREAD</Word>
+      <Word>REPLACE</Word>
+      <Word>RESTORE</Word>
+      <Word>RETURN</Word>
+      <Word>RETURNS</Word>
+      <Word>REVOKE</Word>
       <Word>RIGHT</Word>
       <Word>ROLLBACK</Word>
+      <Word>ROWCOUNT</Word>
+      <Word>ROWS</Word>
+      <Word>RULE</Word>
+      <Word>SAVE</Word>
+      <Word>SCHEMA</Word>
       <Word>SELECT</Word>
+      <Word>SEQUENCE</Word>
+      <Word>SERIALIZABLE</Word>
       <Word>SET</Word>
+      <Word>SNAPSHOT</Word>
+      <Word>SOME</Word>
+      <Word>STATISTICS</Word>
+      <Word>SYSTEM_VERSIONING</Word>
       <Word>TABLE</Word>
+      <Word>TABLOCK</Word>
+      <Word>TABLOCKX</Word>
+      <Word>TARGET</Word>
+      <Word>TEMPORAL</Word>
       <Word>THEN</Word>
+      <Word>THROW</Word>
+      <Word>TIES</Word>
+      <Word>TIME</Word>
+      <Word>TO</Word>
       <Word>TOP</Word>
+      <Word>TRAN</Word>
       <Word>TRANSACTION</Word>
+      <Word>TRIGGER</Word>
       <Word>TRUNCATE</Word>
+      <Word>TRY</Word>
+      <Word>TYPE</Word>
+      <Word>UNCOMMITTED</Word>
       <Word>UNION</Word>
       <Word>UNIQUE</Word>
+      <Word>UNPIVOT</Word>
+      <Word>UPDLOCK</Word>
       <Word>UPDATE</Word>
+      <Word>UPDATETEXT</Word>
+      <Word>USE</Word>
+      <Word>USER</Word>
       <Word>VALUES</Word>
+      <Word>VARYING</Word>
       <Word>VIEW</Word>
+      <Word>WAITFOR</Word>
       <Word>WHEN</Word>
       <Word>WHERE</Word>
+      <Word>WHILE</Word>
       <Word>WITH</Word>
+      <Word>WITHIN</Word>
+      <Word>WRITETEXT</Word>
+      <Word>XLOCK</Word>
     </Keywords>
 
+    <!-- Data Types -->
     <Keywords color="Type">
       <Word>BIGINT</Word>
+      <Word>BINARY</Word>
       <Word>BIT</Word>
       <Word>CHAR</Word>
       <Word>DATE</Word>
       <Word>DATETIME</Word>
       <Word>DATETIME2</Word>
+      <Word>DATETIMEOFFSET</Word>
       <Word>DECIMAL</Word>
       <Word>FLOAT</Word>
+      <Word>GEOGRAPHY</Word>
+      <Word>GEOMETRY</Word>
+      <Word>HIERARCHYID</Word>
+      <Word>IMAGE</Word>
       <Word>INT</Word>
+      <Word>INTEGER</Word>
       <Word>MONEY</Word>
       <Word>NCHAR</Word>
       <Word>NTEXT</Word>
       <Word>NUMERIC</Word>
       <Word>NVARCHAR</Word>
       <Word>REAL</Word>
+      <Word>ROWVERSION</Word>
       <Word>SMALLDATETIME</Word>
       <Word>SMALLINT</Word>
+      <Word>SMALLMONEY</Word>
+      <Word>SQL_VARIANT</Word>
+      <Word>SYSNAME</Word>
       <Word>TEXT</Word>
+      <Word>TIME</Word>
+      <Word>TIMESTAMP</Word>
       <Word>TINYINT</Word>
       <Word>UNIQUEIDENTIFIER</Word>
+      <Word>VARBINARY</Word>
       <Word>VARCHAR</Word>
+      <Word>XML</Word>
     </Keywords>
 
-    <Keywords color="SystemFunc">
-      <Word>COUNT</Word>
-      <Word>SUM</Word>
+    <!-- Built-in Functions -->
+    <Keywords color="Function">
+      <Word>ABS</Word>
+      <Word>ACOS</Word>
+      <Word>APPROX_COUNT_DISTINCT</Word>
+      <Word>ASCII</Word>
+      <Word>ASIN</Word>
+      <Word>ATAN</Word>
+      <Word>ATN2</Word>
       <Word>AVG</Word>
-      <Word>MIN</Word>
-      <Word>MAX</Word>
-      <Word>GETDATE</Word>
-      <Word>GETUTCDATE</Word>
-      <Word>ISNULL</Word>
-      <Word>COALESCE</Word>
       <Word>CAST</Word>
-      <Word>CONVERT</Word>
-      <Word>LEN</Word>
-      <Word>SUBSTRING</Word>
+      <Word>CEILING</Word>
+      <Word>CHAR</Word>
       <Word>CHARINDEX</Word>
-      <Word>LEFT</Word>
-      <Word>RIGHT</Word>
-      <Word>LTRIM</Word>
-      <Word>RTRIM</Word>
-      <Word>UPPER</Word>
-      <Word>LOWER</Word>
-      <Word>REPLACE</Word>
+      <Word>CHECKSUM</Word>
+      <Word>CHECKSUM_AGG</Word>
+      <Word>CHOOSE</Word>
+      <Word>COL_LENGTH</Word>
+      <Word>COL_NAME</Word>
+      <Word>COLUMNPROPERTY</Word>
+      <Word>CONCAT</Word>
+      <Word>CONCAT_WS</Word>
+      <Word>CONVERT</Word>
+      <Word>COS</Word>
+      <Word>COT</Word>
+      <Word>COUNT</Word>
+      <Word>COUNT_BIG</Word>
+      <Word>CUME_DIST</Word>
+      <Word>DATABASEPROPERTYEX</Word>
       <Word>DATEADD</Word>
       <Word>DATEDIFF</Word>
-      <Word>YEAR</Word>
-      <Word>MONTH</Word>
+      <Word>DATEDIFF_BIG</Word>
+      <Word>DATEFROMPARTS</Word>
+      <Word>DATENAME</Word>
+      <Word>DATEPART</Word>
+      <Word>DATETIME2FROMPARTS</Word>
+      <Word>DATETIMEFROMPARTS</Word>
+      <Word>DATETIMEOFFSETFROMPARTS</Word>
       <Word>DAY</Word>
-      <Word>NEWID</Word>
-      <Word>@@ROWCOUNT</Word>
-      <Word>@@SERVERNAME</Word>
+      <Word>DB_ID</Word>
       <Word>DB_NAME</Word>
+      <Word>DEGREES</Word>
+      <Word>DENSE_RANK</Word>
+      <Word>DIFFERENCE</Word>
+      <Word>EOMONTH</Word>
+      <Word>EXP</Word>
+      <Word>FIRST_VALUE</Word>
+      <Word>FLOOR</Word>
+      <Word>FORMAT</Word>
+      <Word>GETDATE</Word>
+      <Word>GETUTCDATE</Word>
+      <Word>GROUPING</Word>
+      <Word>GROUPING_ID</Word>
+      <Word>HASHBYTES</Word>
+      <Word>IDENT_CURRENT</Word>
+      <Word>IDENT_INCR</Word>
+      <Word>IDENT_SEED</Word>
+      <Word>IIF</Word>
+      <Word>ISDATE</Word>
+      <Word>ISNULL</Word>
+      <Word>ISNUMERIC</Word>
+      <Word>LAG</Word>
+      <Word>LAST_VALUE</Word>
+      <Word>LEAD</Word>
+      <Word>LEN</Word>
+      <Word>LOG</Word>
+      <Word>LOG10</Word>
+      <Word>LOWER</Word>
+      <Word>LTRIM</Word>
+      <Word>MAX</Word>
+      <Word>MIN</Word>
+      <Word>MONTH</Word>
+      <Word>NEWID</Word>
+      <Word>NEWSEQUENTIALID</Word>
+      <Word>NTILE</Word>
+      <Word>OBJECT_DEFINITION</Word>
+      <Word>OBJECT_ID</Word>
+      <Word>OBJECT_NAME</Word>
+      <Word>OBJECT_SCHEMA_NAME</Word>
+      <Word>OBJECTPROPERTY</Word>
+      <Word>OBJECTPROPERTYEX</Word>
+      <Word>PARSE</Word>
+      <Word>PARSENAME</Word>
+      <Word>PATINDEX</Word>
+      <Word>PERCENT_RANK</Word>
+      <Word>PERCENTILE_CONT</Word>
+      <Word>PERCENTILE_DISC</Word>
+      <Word>PI</Word>
+      <Word>POWER</Word>
+      <Word>QUOTENAME</Word>
+      <Word>RADIANS</Word>
+      <Word>RAND</Word>
+      <Word>RANK</Word>
+      <Word>REPLICATE</Word>
+      <Word>REVERSE</Word>
+      <Word>ROUND</Word>
+      <Word>ROW_NUMBER</Word>
+      <Word>ROWCOUNT_BIG</Word>
+      <Word>RTRIM</Word>
+      <Word>SCHEMA_ID</Word>
+      <Word>SCHEMA_NAME</Word>
+      <Word>SCOPE_IDENTITY</Word>
+      <Word>SESSION_CONTEXT</Word>
+      <Word>SIGN</Word>
+      <Word>SIN</Word>
+      <Word>SOUNDEX</Word>
+      <Word>SPACE</Word>
+      <Word>SQRT</Word>
+      <Word>SQUARE</Word>
+      <Word>STR</Word>
+      <Word>STRING_AGG</Word>
+      <Word>STRING_ESCAPE</Word>
+      <Word>STRING_SPLIT</Word>
+      <Word>STUFF</Word>
+      <Word>SUBSTRING</Word>
+      <Word>SUM</Word>
+      <Word>SUSER_ID</Word>
+      <Word>SUSER_NAME</Word>
+      <Word>SUSER_SNAME</Word>
+      <Word>SWITCHOFFSET</Word>
+      <Word>SYSDATETIME</Word>
+      <Word>SYSDATETIMEOFFSET</Word>
+      <Word>SYSUTCDATETIME</Word>
+      <Word>TAN</Word>
+      <Word>TIMEFROMPARTS</Word>
+      <Word>TODATETIMEOFFSET</Word>
+      <Word>TRANSLATE</Word>
+      <Word>TRIM</Word>
+      <Word>TRY_CAST</Word>
+      <Word>TRY_CONVERT</Word>
+      <Word>TRY_PARSE</Word>
+      <Word>UNICODE</Word>
+      <Word>UPPER</Word>
+      <Word>USER_ID</Word>
+      <Word>USER_NAME</Word>
+      <Word>VAR</Word>
+      <Word>VARP</Word>
+      <Word>XACT_STATE</Word>
+      <Word>YEAR</Word>
     </Keywords>
+
+    <!-- Operators -->
+    <Rule color="Operator">[=&lt;&gt;!+\-*/%&amp;|^~]</Rule>
   </RuleSet>
 </SyntaxDefinition>

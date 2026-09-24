@@ -22,6 +22,10 @@ public partial class QueryTab : ObservableObject
     /// <summary>Cell selected in the active result grid: "Column: value".</summary>
     [ObservableProperty] private string _selectedCellText = "No cell selected.";
 
+    [ObservableProperty] private string _lintSummary = string.Empty;
+    public bool HasLintIssues => !string.IsNullOrEmpty(LintSummary);
+    partial void OnLintSummaryChanged(string value) => OnPropertyChanged(nameof(HasLintIssues));
+
     public ObservableCollection<QueryResultTable> Results { get; } = [];
     public ObservableCollection<string> Messages { get; } = [];
 

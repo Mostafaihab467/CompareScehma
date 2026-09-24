@@ -112,6 +112,7 @@ public partial class QueryViewModel : ObservableObject
             var columns = await _schemaService.GetColumnsByTableAsync(info, cts.Token);
             Controls.SqlCompletionProvider.Tables = tables;
             Controls.SqlCompletionProvider.ColumnsByTable = columns;
+            Controls.SqlCompletionProvider.NotifySchemaChanged();
             StatusMessage = $"Connected to {ConnectedDatabaseLabel}. Schema loaded ({tables.Count:N0} tables/views). Press F5 to execute.";
         }
         catch (Exception ex)

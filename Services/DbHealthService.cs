@@ -1,5 +1,6 @@
 using System.Data;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using System.Xml;
 using System.Xml.Linq;
 using Microsoft.Data.SqlClient;
@@ -9,14 +10,14 @@ namespace SchemaCompare.Services;
 
 /// <summary>
 /// Reads live server health data from SQL Server DMVs — the same sources SSMS
-/// Activity Monitor uses — plus deadlock graphs from the system_health extended
-/// events ring buffer. All queries run on the thread pool; one connection is
-/// kept open and reused between refreshes. Per-section failures are collected
+/// Activity Monitor uses — plus deadlock graphs from system_health. One
+/// connection is reused between refreshes. Per-section failures are collected
 /// into <see cref="DbHealthSnapshot.Warnings"/> instead of failing the pass.
 /// </summary>
 public sealed class DbHealthService : IDisposable
 {
     private SqlConnection? _conn;
+    private string? _connString;
 
     public async Task<DbHealthSnapshot> CollectAsync(ConnectionInfo info, bool includeSlow, CancellationToken ct,
         Action<string>? onSection = null)
@@ -36,33 +37,32 @@ public sealed class DbHealthService : IDisposable
         List<HealthDeadlockReport>? deadlocks = null;
         List<HealthFileIoRow>? fileIo = null;
 
-        // --- fast sections (every tick) ---
-        Run("server info", onSection, () => serverInfo = ReadServerInfo(conn, ct), warnings);
-        Run("cpu ring buffer", onSection, () => cpuHistory = ReadCpuHistory(conn, ct), warnings);
-        Run("memory", onSection, () => (physicalMemoryKb, committedKb, committedTargetKb, processPhysicalKb) = ReadMemory(conn, ct), warnings);
-        Run("schedulers", onSection, () => (waitingTasks, runnableTasks, pendingDiskIo) = ReadSchedulers(conn, ct), warnings);
-        Run("perf counters", onSection, () => counters = ReadCounters(conn, ct), warnings);
-        Run("processes", onSection, () => processes = ReadProcesses(conn, ct), warnings);
+        Run("server info", onSection, () => serverInfo = ReadServerInfo(conn, ct), warnings, ct);
+        Run("cpu ring buffer", onSection, () => cpuHistory = ReadCpuHistory(conn, ct), warnings, ct);
+        Run("memory", onSection, () => (physicalMemoryKb, committedKb, committedTargetKb, processPhysicalKb) = ReadMemory(conn, ct), warnings, ct);
+        Run("schedulers", onSection, () => (waitingTasks, runnableTasks, pendingDiskIo) = ReadSchedulers(conn, ct), warnings, ct);
+        Run("perf counters", onSection, () => counters = ReadCounters(conn, ct), warnings, ct);
+        Run("processes", onSection, () => processes = ReadProcesses(conn, ct), warnings, ct);
         if (includeSlow)
-            Run("database list", onSection, () => databases = ReadDatabases(conn, ct), warnings);
+            Run("database list", onSection, () => databases = ReadDatabases(conn, ct), warnings, ct);
 
-        // --- slow sections (periodic / on demand) ---
         if (includeSlow)
         {
-            Run("wait stats", onSection, () => waits = ReadWaits(conn, ct), warnings);
-            Run("expensive queries", onSection, () => expensive = ReadExpensiveQueries(conn, ct), warnings);
-            Run("deadlocks", onSection, () => deadlocks = ReadDeadlocks(conn, ct), warnings);
-            Run("file I/O", onSection, () => fileIo = ReadFileIo(conn, ct), warnings);
+            Run("wait stats", onSection, () => waits = ReadWaits(conn, ct), warnings, ct);
+            Run("expensive queries", onSection, () => expensive = ReadExpensiveQueries(conn, ct), warnings, ct);
+            Run("deadlocks", onSection, () => deadlocks = ReadDeadlocks(conn, ct), warnings, ct);
+            Run("file I/O", onSection, () => fileIo = ReadFileIo(conn, ct), warnings, ct);
         }
 
         ct.ThrowIfCancellationRequested();
+        var lastCpu = cpuHistory.Count > 0 ? cpuHistory[^1] : null;
         return new DbHealthSnapshot
         {
             CollectedUtc = DateTime.UtcNow,
             ServerInfo = serverInfo,
-            SqlCpuPercent = cpuHistory.Count > 0 ? cpuHistory[^1].SqlPercent : 0,
-            SystemIdlePercent = cpuHistory.Count > 0 ? cpuHistory[^1].OtherPercent : 0,
-            OtherProcessPercent = 0,
+            SqlCpuPercent = lastCpu?.SqlPercent ?? 0,
+            SystemIdlePercent = lastCpu?.IdlePercent ?? 0,
+            OtherProcessPercent = lastCpu?.OtherPercent ?? 0,
             CpuHistory = cpuHistory,
             PhysicalMemoryKb = physicalMemoryKb,
             CommittedKb = committedKb,
@@ -80,32 +80,83 @@ public sealed class DbHealthService : IDisposable
             Databases = databases,
             Warnings = warnings
         };
+    }
 
-        static void Run(string section, Action<string>? onSection, Action read, List<string> warnings)
+    private void Run(string section, Action<string>? onSection, Action read, List<string> warnings,
+        CancellationToken ct)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        try
         {
-            var sw = System.Diagnostics.Stopwatch.StartNew();
-            try
-            {
-                onSection?.Invoke($"{section} starting");
-                read();
-                onSection?.Invoke($"{section} ok in {sw.ElapsedMilliseconds} ms");
-            }
-            catch (Exception ex) when (ex is SqlException or InvalidOperationException)
-            {
-                warnings.Add($"{section}: {ex.Message}");
-                onSection?.Invoke($"{section} FAILED in {sw.ElapsedMilliseconds} ms: {ex.Message}");
-            }
+            ct.ThrowIfCancellationRequested();
+            onSection?.Invoke($"{section} starting");
+            read();
+            onSection?.Invoke($"{section} ok in {sw.ElapsedMilliseconds} ms");
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // Catch everything a DMV/XML read can throw (SqlException, XmlException,
+            // InvalidCastException, overflow) so one bad section cannot take down
+            // the monitor the way SSMS Activity Monitor does on truncated XML.
+            warnings.Add($"{section}: {ex.Message}");
+            onSection?.Invoke($"{section} FAILED in {sw.ElapsedMilliseconds} ms: {ex.Message}");
+            if (ex is SqlException or System.IO.IOException)
+                DisposeConnection();
+            else
+                ResetConnectionIfBroken();
         }
     }
 
     private async Task<SqlConnection> GetOpenAsync(ConnectionInfo info, CancellationToken ct)
     {
-        if (_conn is { State: ConnectionState.Open })
+        var cs = info.ConnectionString;
+        if (_conn is { State: ConnectionState.Open } &&
+            string.Equals(_connString, cs, StringComparison.Ordinal))
             return _conn;
-        _conn?.Dispose();
-        _conn = new SqlConnection(info.ConnectionString);
+
+        DisposeConnection();
+        _conn = new SqlConnection(cs);
+        _connString = cs;
         await _conn.OpenAsync(ct).ConfigureAwait(false);
         return _conn;
+    }
+
+    private void ResetConnectionIfBroken()
+    {
+        if (_conn is null) return;
+        if (_conn.State is ConnectionState.Broken or ConnectionState.Closed)
+            DisposeConnection();
+    }
+
+    private void DisposeConnection()
+    {
+        try { _conn?.Dispose(); }
+        catch { /* ignore dispose of a doomed connection */ }
+        _conn = null;
+        _connString = null;
+    }
+
+    private static SqlCommand Cmd(SqlConnection conn, string sql, CancellationToken ct, int timeoutSeconds)
+    {
+        var cmd = new SqlCommand(sql, conn) { CommandTimeout = timeoutSeconds };
+        if (ct.CanBeCanceled)
+        {
+            var reg = ct.Register(() =>
+            {
+                try { cmd.Cancel(); }
+                catch { /* already completed */ }
+            });
+            cmd.Disposed += (_, _) =>
+            {
+                try { reg.Dispose(); }
+                catch { /* ignore */ }
+            };
+        }
+        return cmd;
     }
 
     private static List<T> ReadList<T>(SqlCommand cmd, Func<SqlDataReader, T> map, CancellationToken ct)
@@ -113,109 +164,117 @@ public sealed class DbHealthService : IDisposable
         using var reader = cmd.ExecuteReader();
         var list = new List<T>();
         while (reader.Read())
+        {
+            ct.ThrowIfCancellationRequested();
             list.Add(map(reader));
+        }
         return list;
     }
 
     private static HealthServerInfo ReadServerInfo(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
+        using var cmd = Cmd(conn, """
             SELECT @@SERVERNAME AS server_name,
                    @@VERSION AS version,
                    CAST(SERVERPROPERTY('ProductLevel') AS nvarchar(64)) AS level,
                    osi.sqlserver_start_time, osi.cpu_count, osi.hyperthread_ratio,
                    osi.scheduler_count, osi.physical_memory_kb
             FROM sys.dm_os_sys_info AS osi
-            """, conn) { CommandTimeout = 15 };
+            """, ct, 15);
         using var reader = cmd.ExecuteReader();
         if (!reader.Read())
             return new HealthServerInfo { ServerName = "?" };
-        var version = reader["version"] as string ?? "";
-        // @@VERSION spans several lines (build, date, copyright, edition) — keep
-        // the product head and the edition on one line for the info strip.
+        var version = GetString(reader, "version");
         var lines = version.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         if (lines.Length > 2)
             version = $"{lines[0]} • {lines[^1]}";
         return new HealthServerInfo
         {
-            ServerName = reader["server_name"] as string ?? "",
+            ServerName = GetString(reader, "server_name"),
             ProductVersion = version,
-            ProductLevel = reader["level"] as string ?? "",
-            SqlServerStartTimeUtc = reader["sqlserver_start_time"] is DateTime st ? st.ToUniversalTime() : null,
-            CpuCount = reader["cpu_count"] as int? ?? 0,
-            HyperthreadRatio = reader["hyperthread_ratio"] as int? ?? 0,
-            SchedulerCount = reader["scheduler_count"] as int? ?? 0,
-            PhysicalMemoryKb = reader["physical_memory_kb"] as long? ?? 0
+            ProductLevel = GetString(reader, "level"),
+            SqlServerStartTimeUtc = GetDateTime(reader, "sqlserver_start_time")?.ToUniversalTime(),
+            CpuCount = GetInt32(reader, "cpu_count"),
+            HyperthreadRatio = GetInt32(reader, "hyperthread_ratio"),
+            SchedulerCount = GetInt32(reader, "scheduler_count"),
+            PhysicalMemoryKb = GetInt64(reader, "physical_memory_kb")
         };
     }
 
-    /// <summary>Returns the scheduler-monitor ring buffer history (the source SSMS
-    /// graphs "Processor Time %"). Each record is ~1 per minute, up to ~5 hours back.</summary>
+    /// <summary>Scheduler-monitor ring buffer (SSMS "Processor Time %").
+    /// DATEADD(ms, bigint) overflows INT on long-uptime servers — convert to
+    /// seconds first. TRY_CONVERT skips corrupt ring-buffer payloads.</summary>
     private static List<CpuSample> ReadCpuHistory(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
+        using var cmd = Cmd(conn, """
             SET QUOTED_IDENTIFIER ON;
             WITH rb AS (
-                SELECT [timestamp],
-                       CONVERT(xml, record) AS rec
+                SELECT [timestamp], TRY_CONVERT(xml, record) AS rec
                 FROM sys.dm_os_ring_buffers
                 WHERE ring_buffer_type = N'RING_BUFFER_SCHEDULER_MONITOR'
-                  AND record LIKE '%SystemHealth%'
+                  AND record LIKE N'%SystemHealth%'
             ),
             tops AS (
                 SELECT TOP (240) [timestamp], rec
                 FROM rb
+                WHERE rec IS NOT NULL
                 ORDER BY [timestamp] DESC
             )
-            SELECT DATEADD(ms, tops.[timestamp] - osi.ms_ticks, SYSDATETIME()) AS event_time,
+            SELECT DATEADD(second, -CAST((osi.ms_ticks - tops.[timestamp]) / 1000 AS int), SYSDATETIME()) AS event_time,
                    tops.rec.value('(./Record/SchedulerMonitorEvent/SystemHealth/SQLProcessUtilization)[1]', 'int') AS sql_cpu,
                    tops.rec.value('(./Record/SchedulerMonitorEvent/SystemHealth/SystemIdle)[1]', 'int') AS system_idle
             FROM tops CROSS JOIN sys.dm_os_sys_info AS osi
             ORDER BY tops.[timestamp] ASC
-            """, conn) { CommandTimeout = 15 };
-        return ReadList(cmd, r => new CpuSample
+            """, ct, 15);
+        return ReadList(cmd, r =>
         {
-            Time = r["event_time"] is DateTime t ? t : DateTime.MinValue,
-            SqlPercent = r["sql_cpu"] as int? ?? 0,
-            OtherPercent = Math.Clamp(100 - (r["sql_cpu"] as int? ?? 0) - (r["system_idle"] as int? ?? 0), 0, 100)
+            var sql = GetInt32(r, "sql_cpu");
+            var idle = GetInt32(r, "system_idle");
+            return new CpuSample
+            {
+                Time = GetDateTime(r, "event_time") ?? DateTime.MinValue,
+                SqlPercent = sql,
+                IdlePercent = idle,
+                OtherPercent = Math.Clamp(100 - sql - idle, 0, 100)
+            };
         }, ct);
     }
 
     private static (long Physical, long Committed, long CommittedTarget, long ProcessPhysical) ReadMemory(
         SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
+        using var cmd = Cmd(conn, """
             SELECT osi.physical_memory_kb, osi.committed_kb, osi.committed_target_kb,
                    ISNULL(opm.physical_memory_in_use_kb, 0) AS process_kb
             FROM sys.dm_os_sys_info AS osi
             LEFT JOIN sys.dm_os_process_memory AS opm ON 1 = 1
-            """, conn) { CommandTimeout = 15 };
+            """, ct, 15);
         using var reader = cmd.ExecuteReader();
         if (!reader.Read())
             return (0, 0, 0, 0);
         return (
-            reader["physical_memory_kb"] as long? ?? 0,
-            reader["committed_kb"] as long? ?? 0,
-            reader["committed_target_kb"] as long? ?? 0,
-            reader["process_kb"] as long? ?? 0);
+            GetInt64(reader, "physical_memory_kb"),
+            GetInt64(reader, "committed_kb"),
+            GetInt64(reader, "committed_target_kb"),
+            GetInt64(reader, "process_kb"));
     }
 
     private static (long Waiting, long Runnable, long PendingIo) ReadSchedulers(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
-            SELECT ISNULL(SUM(work_queue_count), 0) AS waiting,
-                   ISNULL(SUM(runnable_tasks_count), 0) AS runnable,
-                   ISNULL(SUM(pending_disk_io_count), 0) AS pending_io
+        using var cmd = Cmd(conn, """
+            SELECT ISNULL(SUM(CAST(work_queue_count AS bigint)), 0) AS waiting,
+                   ISNULL(SUM(CAST(runnable_tasks_count AS bigint)), 0) AS runnable,
+                   ISNULL(SUM(CAST(pending_disk_io_count AS bigint)), 0) AS pending_io
             FROM sys.dm_os_schedulers
-            WHERE status = 'VISIBLE ONLINE'
-            """, conn) { CommandTimeout = 15 };
+            WHERE status = N'VISIBLE ONLINE'
+            """, ct, 15);
         using var reader = cmd.ExecuteReader();
         if (!reader.Read())
             return (0, 0, 0);
         return (
-            reader["waiting"] as long? ?? 0,
-            reader["runnable"] as long? ?? 0,
-            reader["pending_io"] as long? ?? 0);
+            GetInt64(reader, "waiting"),
+            GetInt64(reader, "runnable"),
+            GetInt64(reader, "pending_io"));
     }
 
     /// <summary>Counter names we surface. Per-second counters are cumulative
@@ -235,96 +294,113 @@ public sealed class DbHealthService : IDisposable
     private static HealthCounterSample ReadCounters(SqlConnection conn, CancellationToken ct)
     {
         var names = string.Join(",", TrackedCounters.Select(n => "N'" + n.Replace("'", "''") + "'"));
-        using var cmd = new SqlCommand(
-            $"SELECT counter_name, instance_name, cntr_value FROM sys.dm_os_performance_counters " +
-            $"WHERE counter_name IN ({names})", conn) { CommandTimeout = 15 };
+        using var cmd = Cmd(conn,
+            $"""
+             SELECT RTRIM(counter_name) AS counter_name,
+                    RTRIM(instance_name) AS instance_name,
+                    cntr_value
+             FROM sys.dm_os_performance_counters
+             WHERE RTRIM(counter_name) IN ({names})
+               AND (RTRIM(instance_name) IN (N'', N'_Total') OR RTRIM(counter_name) = N'Page life expectancy')
+             """, ct, 15);
         var values = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
         using (var reader = cmd.ExecuteReader())
         {
             while (reader.Read())
             {
-                var name = reader["counter_name"] as string ?? "";
-                var instance = reader["instance_name"] as string ?? "";
-                var value = reader["cntr_value"] as long? ?? 0;
-                // Per-database counters (e.g. Transactions/sec) are summed across
-                // instances; lock/error counters use the _Total instance.
-                var key = instance is "_Total" or "" ? name : $"{name}|{instance}";
-                if (TrackedCounters.Contains(name) && (instance == "_Total" || instance == ""))
-                {
-                    values[name] = values.TryGetValue(name, out var cur) ? cur + value : value;
-                }
-                else if (name == "Transactions/sec" || name == "Errors/sec")
-                {
-                    values[name] = values.TryGetValue(name, out var cur) ? cur + value : value;
-                }
-                else
-                {
-                    values[key] = value;
-                }
+                ct.ThrowIfCancellationRequested();
+                var name = GetString(reader, "counter_name").Trim();
+                if (name.Length == 0) continue;
+                values[name] = GetInt64(reader, "cntr_value");
             }
         }
         return new HealthCounterSample { Utc = DateTime.UtcNow, Values = values };
     }
 
+    /// <summary>Safe SUBSTRING of the current statement. Negative length
+    /// (statement_end_offset &lt; start) is a common SSMS / DMV crash.</summary>
+    private const string StatementTextSql = """
+        CASE
+            WHEN t.text IS NULL THEN N''
+            ELSE SUBSTRING(
+                t.text,
+                (CASE WHEN ISNULL(r.statement_start_offset, 0) < 0 THEN 0
+                      ELSE ISNULL(r.statement_start_offset, 0) END / 2) + 1,
+                CASE
+                    WHEN r.statement_end_offset IS NULL
+                      OR r.statement_end_offset < ISNULL(r.statement_start_offset, 0) THEN 4000
+                    WHEN r.statement_end_offset = -1 THEN
+                        CASE WHEN (DATALENGTH(t.text) / 2) - (ISNULL(r.statement_start_offset, 0) / 2) < 0 THEN 0
+                             ELSE (DATALENGTH(t.text) / 2) - (ISNULL(r.statement_start_offset, 0) / 2) + 1 END
+                    ELSE ((r.statement_end_offset - ISNULL(r.statement_start_offset, 0)) / 2) + 1
+                END)
+        END
+        """;
+
     private static List<HealthProcessRow> ReadProcesses(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
-            SELECT r.session_id,
+        using var cmd = Cmd(conn, $"""
+            SELECT s.session_id,
                    ISNULL(r.blocking_session_id, 0) AS blocking_session_id,
-                   ISNULL(DB_NAME(r.database_id), '') AS db_name,
-                   r.status, r.command,
-                   ISNULL(r.wait_type, '') AS wait_type,
+                   ISNULL(DB_NAME(COALESCE(r.database_id, s.database_id)), N'') AS db_name,
+                   ISNULL(r.status, s.status) AS status,
+                   ISNULL(r.command, N'') AS command,
+                   ISNULL(r.wait_type, N'') AS wait_type,
                    ISNULL(r.wait_time, 0) AS wait_ms,
-                   r.cpu_time, r.logical_reads, r.reads, r.writes, r.total_elapsed_time,
-                   r.granted_query_memory * 8 AS granted_kb,
-                   s.login_name, ISNULL(s.host_name, '') AS host_name, ISNULL(s.program_name, '') AS program_name,
-                   CASE WHEN t.text IS NULL THEN ''
-                        ELSE SUBSTRING(t.text,
-                             (ISNULL(r.statement_start_offset, 0) / 2) + 1,
-                             ((CASE r.statement_end_offset WHEN -1 THEN DATALENGTH(t.text)
-                                   ELSE r.statement_end_offset END
-                               - ISNULL(r.statement_start_offset, 0)) / 2) + 1)
-                   END AS stmt_text
-            FROM sys.dm_exec_requests AS r
-            JOIN sys.dm_exec_sessions AS s ON s.session_id = r.session_id
-            OUTER APPLY sys.dm_exec_sql_text(r.sql_handle) AS t
-            WHERE s.is_user_process = 1 AND r.session_id <> @@SPID
-            ORDER BY r.session_id
-            """, conn) { CommandTimeout = 15 };
+                   ISNULL(r.cpu_time, s.cpu_time) AS cpu_time,
+                   ISNULL(r.logical_reads, s.logical_reads) AS logical_reads,
+                   ISNULL(r.reads, s.reads) AS reads,
+                   ISNULL(r.writes, s.writes) AS writes,
+                   ISNULL(r.total_elapsed_time, s.total_elapsed_time) AS total_elapsed_time,
+                   CAST(ISNULL(r.granted_query_memory, 0) AS bigint) * 8 AS granted_kb,
+                   s.login_name,
+                   ISNULL(s.host_name, N'') AS host_name,
+                   ISNULL(s.program_name, N'') AS program_name,
+                   {StatementTextSql} AS stmt_text
+            FROM sys.dm_exec_sessions AS s
+            LEFT JOIN sys.dm_exec_requests AS r
+                   ON r.session_id = s.session_id AND r.session_id <> @@SPID
+            OUTER APPLY sys.dm_exec_sql_text(COALESCE(r.sql_handle,
+                (SELECT TOP (1) c.most_recent_sql_handle
+                 FROM sys.dm_exec_connections AS c
+                 WHERE c.session_id = s.session_id))) AS t
+            WHERE s.is_user_process = 1 AND s.session_id <> @@SPID
+            ORDER BY CASE WHEN r.session_id IS NULL THEN 1 ELSE 0 END, s.session_id
+            """, ct, 15);
         return ReadList(cmd, r => new HealthProcessRow
         {
-            SessionId = r["session_id"] as short? ?? 0,
-            BlockingSessionId = r["blocking_session_id"] as short? ?? 0,
-            Database = r["db_name"] as string ?? "",
-            Status = r["status"] as string ?? "",
-            Command = r["command"] as string ?? "",
-            WaitType = r["wait_type"] as string ?? "",
-            WaitMs = r["wait_ms"] as int? ?? 0,
-            CpuMs = r["cpu_time"] as int? ?? 0,
-            LogicalReads = r["logical_reads"] as long? ?? 0,
-            Reads = r["reads"] as long? ?? 0,
-            Writes = r["writes"] as long? ?? 0,
-            ElapsedMs = r["total_elapsed_time"] as int? ?? 0,
-            GrantedMemoryKb = r["granted_kb"] as int? ?? 0,
-            Login = r["login_name"] as string ?? "",
-            Host = r["host_name"] as string ?? "",
-            Program = r["program_name"] as string ?? "",
-            Statement = Truncate(r["stmt_text"] as string ?? "", 400)
+            SessionId = GetInt32(r, "session_id"),
+            BlockingSessionId = GetInt32(r, "blocking_session_id"),
+            Database = GetString(r, "db_name"),
+            Status = GetString(r, "status"),
+            Command = GetString(r, "command"),
+            WaitType = GetString(r, "wait_type"),
+            WaitMs = GetInt64(r, "wait_ms"),
+            CpuMs = GetInt64(r, "cpu_time"),
+            LogicalReads = GetInt64(r, "logical_reads"),
+            Reads = GetInt64(r, "reads"),
+            Writes = GetInt64(r, "writes"),
+            ElapsedMs = GetInt64(r, "total_elapsed_time"),
+            GrantedMemoryKb = GetInt64(r, "granted_kb"),
+            Login = GetString(r, "login_name"),
+            Host = GetString(r, "host_name"),
+            Program = GetString(r, "program_name"),
+            Statement = Truncate(GetString(r, "stmt_text", trimEnd: false), 400)
         }, ct);
     }
 
     private static List<string> ReadDatabases(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand(
-            "SELECT name FROM sys.databases WHERE state_desc = 'ONLINE' ORDER BY name", conn) { CommandTimeout = 15 };
-        return ReadList(cmd, r => r["name"] as string ?? "", ct);
+        using var cmd = Cmd(conn,
+            "SELECT name FROM sys.databases WHERE state_desc = N'ONLINE' ORDER BY name", ct, 15);
+        return ReadList(cmd, r => GetString(r, "name"), ct);
     }
 
     private static readonly HashSet<string> BenignWaits = new(StringComparer.OrdinalIgnoreCase)
     {
         "SLEEP_TASK", "SLEEP_SYSTEMTASK", "SLEEP_BPOOL_FLUSH", "SLEEP_BUFFERPOOL_HELPLW",
         "SLEEP_DBSTARTUP", "SLEEP_DCOMSTARTUP", "SLEEP_MASTERDBREADY", "SLEEP_MASTERMDREADY",
-        "SLEEP_MASTERUPGRADED", "SLEEP_MSDBSTARTUP", "SLEEP_TEMPDBSTARTUP", "SLEEP_TASK",
+        "SLEEP_MASTERUPGRADED", "SLEEP_MSDBSTARTUP", "SLEEP_TEMPDBSTARTUP",
         "WAITFOR", "BROKER_TO_FLUSH", "BROKER_TASK_STOP", "BROKER_EVENTHANDLER",
         "BROKER_RECEIVE_WAITFOR", "BROKER_TRANSMITTER", "CLR_AUTO_EVENT", "CLR_MANUAL_EVENT",
         "CHECKPOINT_QUEUE", "DIRTY_PAGE_POLL", "DISPATCHER_QUEUE_SEMAPHORE",
@@ -335,40 +411,56 @@ public sealed class DbHealthService : IDisposable
         "SQLTRACE_INCREMENTAL_FLUSH_SLEEP", "SQLTRACE_WAIT_ENTRIES", "SWITCH_INCOMPLETE",
         "XE_DISPATCHER_WAIT", "XE_TIMER_EVENT", "XE_LIVE_TARGET_TVF",
         "WAIT_XTP_RECOVERY", "VDI_CLIENT_OTHER", "RECOVER_WRITEFORWARD",
-        "HADR_FILESTREAM_IOMGR_IOCOMPLETION", "PVS_PREALLOCATE"
+        "HADR_FILESTREAM_IOMGR_IOCOMPLETION"
     };
 
     private static List<HealthWaitRow> ReadWaits(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
-            SELECT TOP (30) wait_type,
+        using var cmd = Cmd(conn, """
+            SELECT TOP (80) wait_type,
                    wait_time_ms / 1000.0 AS wait_s,
                    signal_wait_time_ms / 1000.0 AS signal_s,
                    waiting_tasks_count
             FROM sys.dm_os_wait_stats
             WHERE wait_time_ms > 0
             ORDER BY wait_time_ms DESC
-            """, conn) { CommandTimeout = 15 };
+            """, ct, 15);
         var rows = ReadList(cmd, r => new HealthWaitRow
         {
-            WaitType = r["wait_type"] as string ?? "",
-            WaitSeconds = Convert.ToDouble(r["wait_s"]),
-            SignalSeconds = Convert.ToDouble(r["signal_s"]),
-            WaitingTasks = r["waiting_tasks_count"] as long? ?? 0
+            WaitType = GetString(r, "wait_type"),
+            WaitSeconds = GetDouble(r, "wait_s"),
+            SignalSeconds = GetDouble(r, "signal_s"),
+            WaitingTasks = GetInt64(r, "waiting_tasks_count")
         }, ct);
-        return rows.Where(w => !BenignWaits.Contains(w.WaitType)).ToList();
+        return rows.Where(w => !BenignWaits.Contains(w.WaitType)
+                               && !w.WaitType.StartsWith("SLEEP", StringComparison.OrdinalIgnoreCase)
+                               && !w.WaitType.StartsWith("BROKER_", StringComparison.OrdinalIgnoreCase)
+                               && !w.WaitType.StartsWith("XE_", StringComparison.OrdinalIgnoreCase))
+                   .Take(30)
+                   .ToList();
     }
 
     private static List<HealthExpensiveQueryRow> ReadExpensiveQueries(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
+        // No dm_exec_query_plan — that XML is huge and a common timeout/OOM in SSMS.
+        using var cmd = Cmd(conn, """
             SELECT TOP (50)
-                   SUBSTRING(st.text,
-                       (ISNULL(qs.statement_start_offset, 0) / 2) + 1,
-                       ((CASE qs.statement_end_offset WHEN -1 THEN DATALENGTH(st.text)
-                             ELSE qs.statement_end_offset END
-                         - ISNULL(qs.statement_start_offset, 0)) / 2) + 1) AS stmt_text,
-                   ISNULL(DB_NAME(COALESCE(pl.dbid, st.dbid)), '') AS db_name,
+                   CASE
+                       WHEN st.text IS NULL THEN N''
+                       ELSE SUBSTRING(
+                           st.text,
+                           (CASE WHEN ISNULL(qs.statement_start_offset, 0) < 0 THEN 0
+                                 ELSE ISNULL(qs.statement_start_offset, 0) END / 2) + 1,
+                           CASE
+                               WHEN qs.statement_end_offset IS NULL
+                                 OR qs.statement_end_offset < ISNULL(qs.statement_start_offset, 0) THEN 4000
+                               WHEN qs.statement_end_offset = -1 THEN
+                                   CASE WHEN (DATALENGTH(st.text) / 2) - (ISNULL(qs.statement_start_offset, 0) / 2) < 0 THEN 0
+                                        ELSE (DATALENGTH(st.text) / 2) - (ISNULL(qs.statement_start_offset, 0) / 2) + 1 END
+                               ELSE ((qs.statement_end_offset - ISNULL(qs.statement_start_offset, 0)) / 2) + 1
+                           END)
+                   END AS stmt_text,
+                   ISNULL(DB_NAME(st.dbid), N'') AS db_name,
                    qs.execution_count,
                    qs.total_worker_time / 1000.0 AS total_cpu_ms,
                    qs.total_elapsed_time / 1000.0 AS total_elapsed_ms,
@@ -376,19 +468,18 @@ public sealed class DbHealthService : IDisposable
                    qs.last_execution_time
             FROM sys.dm_exec_query_stats AS qs
             CROSS APPLY sys.dm_exec_sql_text(qs.sql_handle) AS st
-            OUTER APPLY sys.dm_exec_query_plan(qs.plan_handle) AS pl
             ORDER BY qs.total_worker_time DESC
-            """, conn) { CommandTimeout = 25 };
+            """, ct, 25);
         return ReadList(cmd, r =>
         {
-            var execCount = r["execution_count"] as long? ?? 0;
-            var totalCpu = Convert.ToDouble(r["total_cpu_ms"]);
-            var totalElapsed = Convert.ToDouble(r["total_elapsed_ms"]);
-            var totalReads = r["total_logical_reads"] as long? ?? 0;
+            var execCount = GetInt64(r, "execution_count");
+            var totalCpu = GetDouble(r, "total_cpu_ms");
+            var totalElapsed = GetDouble(r, "total_elapsed_ms");
+            var totalReads = GetInt64(r, "total_logical_reads");
             return new HealthExpensiveQueryRow
             {
-                Statement = Truncate(r["stmt_text"] as string ?? "", 2000),
-                Database = r["db_name"] as string ?? "",
+                Statement = Truncate(GetString(r, "stmt_text", trimEnd: false), 2000),
+                Database = GetString(r, "db_name"),
                 ExecutionCount = execCount,
                 TotalCpuMs = totalCpu,
                 AvgCpuMs = execCount > 0 ? totalCpu / execCount : 0,
@@ -396,91 +487,142 @@ public sealed class DbHealthService : IDisposable
                 AvgElapsedMs = execCount > 0 ? totalElapsed / execCount : 0,
                 TotalReads = totalReads,
                 AvgReads = execCount > 0 ? (double)totalReads / execCount : 0,
-                LastExecution = r["last_execution_time"] is DateTime le ? le : null
+                LastExecution = GetDateTime(r, "last_execution_time")
             };
         }, ct);
     }
 
-    /// <summary>Extracts deadlock graphs from the system_health ring buffer (the
-    /// store SSMS reads when you "view deadlocks" via extended events).</summary>
+    private static readonly Regex DeadlockEventRegex = new(
+        """<event\s+name=["']xml_deadlock_report["'][\s\S]*?</event>""",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>Deadlock graphs from the system_health ring buffer. If the
+    /// buffer XML is truncated (the classic SSMS parse crash), extract
+    /// individual event fragments instead of failing the whole refresh.</summary>
     private static List<HealthDeadlockReport> ReadDeadlocks(SqlConnection conn, CancellationToken ct)
     {
         string xml;
-        using (var cmd = new SqlCommand("""
+        using (var cmd = Cmd(conn, """
             SELECT CAST(xet.target_data AS nvarchar(max)) AS target_data
             FROM sys.dm_xe_session_targets AS xet
             JOIN sys.dm_xe_sessions AS xes ON xes.address = xet.event_session_address
             WHERE xes.name = N'system_health' AND xet.target_name = N'ring_buffer'
-            """, conn) { CommandTimeout = 20 })
+            """, ct, 20))
         {
             using var reader = cmd.ExecuteReader();
             if (!reader.Read())
                 return [];
-            xml = reader["target_data"] as string ?? "";
+            xml = GetString(reader, "target_data");
         }
         if (xml.Length == 0) return [];
 
-        var root = XDocument.Parse(xml).Root;
         var reports = new List<HealthDeadlockReport>();
-        if (root is null) return reports;
+        IEnumerable<string> fragments;
+        try
+        {
+            var root = XDocument.Parse(xml, LoadOptions.PreserveWhitespace).Root;
+            fragments = root is null
+                ? []
+                : root.Descendants("event")
+                    .Where(e => (string?)e.Attribute("name") == "xml_deadlock_report")
+                    .TakeLast(30)
+                    .Reverse()
+                    .Select(e => e.ToString());
+        }
+        catch (XmlException)
+        {
+            fragments = DeadlockEventRegex.Matches(xml).Select(m => m.Value).TakeLast(30).Reverse();
+        }
 
-        foreach (var ev in root.Descendants("event").Where(e => (string?)e.Attribute("name") == "xml_deadlock_report").TakeLast(30).Reverse())
+        foreach (var fragment in fragments)
         {
             ct.ThrowIfCancellationRequested();
-            try
-            {
-                var timeUtc = DateTime.MinValue;
-                if (DateTime.TryParse(ev.Attribute("timestamp")?.Value, CultureInfo.InvariantCulture,
-                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
-                    timeUtc = parsed;
-
-                var value = ev.Element("data")?.Element("value");
-                var deadlock = value?.Element("deadlock")
-                               ?? XDocument.Parse(value?.Value ?? "<deadlock/>").Root;
-                if (deadlock is null) continue;
-
-                var victimId = deadlock.Element("victim-list")?.Element("victimProcess")?.Attribute("id")?.Value ?? "";
-                var processes = new List<HealthDeadlockProcess>();
-                foreach (var p in deadlock.Element("process-list")?.Elements("process") ?? [])
-                {
-                    var stmt = string.Join("\n",
-                        p.Element("executionStack")?.Elements("frame").Select(f => f.Value.Trim()) ?? []);
-                    processes.Add(new HealthDeadlockProcess
-                    {
-                        ProcessId = p.Attribute("id")?.Value ?? "",
-                        Spid = p.Attribute("spid")?.Value ?? "",
-                        Login = p.Attribute("loginname")?.Value ?? "",
-                        Host = p.Attribute("hostname")?.Value ?? "",
-                        App = p.Attribute("clientapp")?.Value ?? "",
-                        WaitResource = p.Attribute("waitresource")?.Value ?? "",
-                        WaitMs = p.Attribute("waittime")?.Value ?? "",
-                        LockMode = p.Attribute("lockMode")?.Value ?? "",
-                        Statement = Truncate(stmt, 2000),
-                        InputBuf = Truncate(p.Element("inputbuf")?.Value.Trim() ?? "", 2000),
-                        IsVictim = false
-                    });
-                }
-                foreach (var p in processes.Where(p => p.ProcessId == victimId))
-                    p.IsVictim = true;
-
-                reports.Add(new HealthDeadlockReport
-                {
-                    TimeUtc = timeUtc,
-                    VictimSpid = processes.FirstOrDefault(p => p.IsVictim)?.Spid ?? "",
-                    Processes = processes,
-                    RawXml = deadlock.ToString()
-                });
-            }
-            catch (XmlException) { /* one corrupt event must not drop the rest */ }
+            var report = ParseDeadlockEvent(fragment, ct);
+            if (report != null)
+                reports.Add(report);
         }
         return reports;
     }
 
+    private static HealthDeadlockReport? ParseDeadlockEvent(string eventXml, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var ev = XElement.Parse(eventXml);
+            if (!string.Equals((string?)ev.Attribute("name"), "xml_deadlock_report", StringComparison.OrdinalIgnoreCase)
+                && ev.Name.LocalName != "deadlock")
+            {
+                var nested = ev.Descendants("event")
+                    .FirstOrDefault(e => (string?)e.Attribute("name") == "xml_deadlock_report");
+                if (nested != null) ev = nested;
+            }
+
+            var timeUtc = DateTime.MinValue;
+            var ts = ev.Attribute("timestamp")?.Value;
+            if (ts != null && DateTime.TryParse(ts, CultureInfo.InvariantCulture,
+                    DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out var parsed))
+                timeUtc = parsed;
+
+            XElement? deadlock = ev.Name.LocalName == "deadlock"
+                ? ev
+                : ev.Element("data")?.Element("value")?.Element("deadlock");
+            if (deadlock is null)
+            {
+                var value = ev.Element("data")?.Element("value");
+                var raw = value?.Value;
+                if (!string.IsNullOrWhiteSpace(raw))
+                {
+                    try { deadlock = XElement.Parse(raw); }
+                    catch (XmlException) { return null; }
+                }
+            }
+            if (deadlock is null || deadlock.Name.LocalName != "deadlock")
+                return null;
+
+            var victimId = deadlock.Element("victim-list")?.Element("victimProcess")?.Attribute("id")?.Value ?? "";
+            var processes = new List<HealthDeadlockProcess>();
+            foreach (var p in deadlock.Element("process-list")?.Elements("process") ?? [])
+            {
+                var stmt = string.Join("\n",
+                    p.Element("executionStack")?.Elements("frame").Select(f => f.Value.Trim()) ?? []);
+                processes.Add(new HealthDeadlockProcess
+                {
+                    ProcessId = p.Attribute("id")?.Value ?? "",
+                    Spid = p.Attribute("spid")?.Value ?? "",
+                    Login = p.Attribute("loginname")?.Value ?? "",
+                    Host = p.Attribute("hostname")?.Value ?? "",
+                    App = p.Attribute("clientapp")?.Value ?? "",
+                    WaitResource = p.Attribute("waitresource")?.Value ?? "",
+                    WaitMs = p.Attribute("waittime")?.Value ?? "",
+                    LockMode = p.Attribute("lockMode")?.Value ?? "",
+                    Statement = Truncate(stmt, 2000),
+                    InputBuf = Truncate(p.Element("inputbuf")?.Value.Trim() ?? "", 2000),
+                    IsVictim = false
+                });
+            }
+            foreach (var p in processes.Where(p => p.ProcessId == victimId))
+                p.IsVictim = true;
+
+            return new HealthDeadlockReport
+            {
+                TimeUtc = timeUtc,
+                VictimSpid = processes.FirstOrDefault(p => p.IsVictim)?.Spid ?? "",
+                Processes = processes,
+                RawXml = deadlock.ToString()
+            };
+        }
+        catch (Exception ex) when (ex is XmlException or InvalidOperationException or ArgumentException or FormatException)
+        {
+            return null;
+        }
+    }
+
     private static List<HealthFileIoRow> ReadFileIo(SqlConnection conn, CancellationToken ct)
     {
-        using var cmd = new SqlCommand("""
+        using var cmd = Cmd(conn, """
             SELECT TOP (60)
-                   DB_NAME(vfs.database_id) AS db_name,
+                   ISNULL(DB_NAME(vfs.database_id), N'') AS db_name,
                    mf.name AS file_name, mf.type_desc,
                    vfs.size_on_disk_bytes / 1048576.0 AS size_mb,
                    vfs.num_of_reads, vfs.num_of_writes,
@@ -493,23 +635,58 @@ public sealed class DbHealthService : IDisposable
             JOIN sys.master_files AS mf
                  ON mf.database_id = vfs.database_id AND mf.file_id = vfs.file_id
             ORDER BY vfs.io_stall_read_ms + vfs.io_stall_write_ms DESC
-            """, conn) { CommandTimeout = 15 };
+            """, ct, 15);
         return ReadList(cmd, r => new HealthFileIoRow
         {
-            Database = r["db_name"] as string ?? "",
-            File = r["file_name"] as string ?? "",
-            TypeDesc = r["type_desc"] as string ?? "",
-            SizeMb = Convert.ToDouble(r["size_mb"]),
-            NumOfReads = r["num_of_reads"] as long? ?? 0,
-            NumOfWrites = r["num_of_writes"] as long? ?? 0,
-            ReadStallSec = Convert.ToDouble(r["read_stall_s"]),
-            WriteStallSec = Convert.ToDouble(r["write_stall_s"]),
-            AvgStallMs = Convert.ToDouble(r["avg_stall_ms"])
+            Database = GetString(r, "db_name"),
+            File = GetString(r, "file_name"),
+            TypeDesc = GetString(r, "type_desc"),
+            SizeMb = GetDouble(r, "size_mb"),
+            NumOfReads = GetInt64(r, "num_of_reads"),
+            NumOfWrites = GetInt64(r, "num_of_writes"),
+            ReadStallSec = GetDouble(r, "read_stall_s"),
+            WriteStallSec = GetDouble(r, "write_stall_s"),
+            AvgStallMs = GetDouble(r, "avg_stall_ms")
         }, ct);
     }
 
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + " ...";
 
-    public void Dispose() => _conn?.Dispose();
+    private static string GetString(SqlDataReader r, string col, bool trimEnd = true)
+    {
+        var v = r[col];
+        if (v is null or DBNull) return "";
+        var s = Convert.ToString(v, CultureInfo.InvariantCulture) ?? "";
+        return trimEnd ? s.TrimEnd() : s;
+    }
+
+    private static int GetInt32(SqlDataReader r, string col) =>
+        (int)Math.Clamp(GetInt64(r, col), int.MinValue, int.MaxValue);
+
+    private static long GetInt64(SqlDataReader r, string col)
+    {
+        var v = r[col];
+        if (v is null or DBNull) return 0;
+        return Convert.ToInt64(v, CultureInfo.InvariantCulture);
+    }
+
+    private static double GetDouble(SqlDataReader r, string col)
+    {
+        var v = r[col];
+        if (v is null or DBNull) return 0;
+        var d = Convert.ToDouble(v, CultureInfo.InvariantCulture);
+        return double.IsFinite(d) ? d : 0;
+    }
+
+    private static DateTime? GetDateTime(SqlDataReader r, string col)
+    {
+        var v = r[col];
+        if (v is null or DBNull) return null;
+        if (v is DateTime dt) return dt;
+        if (v is DateTimeOffset dto) return dto.UtcDateTime;
+        return Convert.ToDateTime(v, CultureInfo.InvariantCulture);
+    }
+
+    public void Dispose() => DisposeConnection();
 }

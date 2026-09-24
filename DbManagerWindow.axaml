@@ -4,6 +4,7 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:vm="clr-namespace:SchemaCompare.ViewModels"
         xmlns:models="clr-namespace:SchemaCompare.Models"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
         mc:Ignorable="d"
         x:Class="SchemaCompare.DbManagerWindow"
         Title="DB Manager"
@@ -415,17 +416,9 @@
                             </Grid>
                         </Border>
                         <Border Grid.Row="1" Classes="card" Padding="0" Margin="0,4,0,0">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto"
-                                          HorizontalScrollBarVisibility="Auto"
-                                          HorizontalAlignment="Stretch"
-                                          VerticalAlignment="Stretch">
-                                <TextBox Text="{Binding ObjectDefinition}"
-                                         Classes="codeBox" IsReadOnly="False"
-                                         AcceptsReturn="True"
-                                         HorizontalAlignment="Stretch"
-                                         VerticalAlignment="Stretch"
-                                         PlaceholderText="Select an object to view or modify its T-SQL definition." />
-                            </ScrollViewer>
+                            <controls:SqlHighlightedEditor Text="{Binding ObjectDefinition, Mode=TwoWay}"
+                                                           IsReadOnly="False" EnableLint="True"
+                                                           HorizontalAlignment="Stretch" VerticalAlignment="Stretch" />
                         </Border>
                     </Grid>
 

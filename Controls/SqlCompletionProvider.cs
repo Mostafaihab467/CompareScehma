@@ -81,7 +81,10 @@ public static class SqlCompletionProvider
         @"\b(?:FROM|JOIN)\s+(?<t>\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?)?)\s+(?:AS\s+)?(?<a>\[?[\w#$]+\]?)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
-    /// <summary>Refreshed on connect; read on the UI thread.</summary>
+    /// <summary>Raised after Tables / ColumnsByTable are refreshed so open editors re-lint.</summary>
+    public static event EventHandler? SchemaChanged;
+
+    public static void NotifySchemaChanged() => SchemaChanged?.Invoke(null, EventArgs.Empty);
     public static List<QuerySchemaService.TableInfo> Tables { get; set; } = [];
     public static Dictionary<string, List<string>> ColumnsByTable { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);

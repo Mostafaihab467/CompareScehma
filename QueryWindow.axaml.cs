@@ -72,7 +72,14 @@ public partial class QueryWindow : Window
     {
         ApplySqlHighlighting();
         SyncActiveEditorText();
-        if (sender is TextEditor editor)
+        TextEditor? editor = sender as TextEditor;
+        if (sender is SqlHighlightedEditor host)
+        {
+            host.EnableLint = true;
+            host.AttachCompletion();
+            editor = host.InnerEditor;
+        }
+        if (editor != null)
         {
             SqlCompletionProvider.Attach(editor);
             editor.KeyDown -= SqlEditor_KeyDown;
@@ -187,6 +194,8 @@ public partial class QueryWindow : Window
             if (editor.Text != _vm.ActiveTab.SqlText)
                 editor.Text = _vm.ActiveTab.SqlText ?? string.Empty;
             editor.TextChanged += ActiveEditor_TextChanged;
+            foreach (var host in this.GetVisualDescendants().OfType<SqlHighlightedEditor>())
+                host.EnableLint = true;
         }
         catch (Exception ex)
         {

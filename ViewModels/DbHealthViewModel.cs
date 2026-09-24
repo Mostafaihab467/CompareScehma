@@ -96,7 +96,7 @@ public partial class DbHealthViewModel : ObservableObject
     // ── grids ──
     public ObservableCollection<HealthProcessRow> Processes { get; } = [];
     public ObservableCollection<HealthProcessRow> FilteredProcesses { get; } = [];
-    public string ProcessesSummaryText => $"{FilteredProcesses.Count} of {Processes.Count} active request(s) shown";
+    public string ProcessesSummaryText => $"{FilteredProcesses.Count} of {Processes.Count} session(s) shown";
     public ObservableCollection<HealthWaitRow> Waits { get; } = [];
     [ObservableProperty] private string _waitsSummaryText = "";
     public ObservableCollection<HealthExpensiveQueryRow> ExpensiveQueries { get; } = [];
@@ -457,7 +457,11 @@ public partial class DbHealthViewModel : ObservableObject
         _ple.Clear(); _cacheHit.Clear(); _deadlockRate.Clear(); _lockWaits.Clear();
     }
 
-    public void Shutdown() => _cts.Cancel();
+    public void Shutdown()
+    {
+        _cts.Cancel();
+        _service.Dispose();
+    }
 
     // ═══════════ misc ═══════════
 

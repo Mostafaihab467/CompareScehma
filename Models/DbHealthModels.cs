@@ -8,6 +8,7 @@ public sealed class CpuSample
 {
     public DateTime Time { get; init; }
     public double SqlPercent { get; init; }
+    public double IdlePercent { get; init; }
     public double OtherPercent { get; init; }
 }
 

@@ -5,6 +5,7 @@
         xmlns:vm="clr-namespace:SchemaCompare.ViewModels"
         xmlns:models="clr-namespace:SchemaCompare.Models"
         xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
         mc:Ignorable="d"
         x:Class="SchemaCompare.QueryWindow"
         Title="SQL Query"
@@ -118,15 +119,19 @@
                             </Grid>
                         </Border>
                         <Border Grid.Row="1" Classes="card" Padding="0">
-                            <!-- Text is synced to the tab in code-behind (TextEditor.Text is not bindable) -->
-                            <ae:TextEditor x:Name="PART_SqlEditor"
-                                           ShowLineNumbers="True"
-                                           Loaded="SqlEditor_Loaded"
-                                           FontFamily="Cascadia Code,Consolas,Menlo,Monospace"
-                                           FontSize="13"
-                                           MinHeight="160"
-                                           HorizontalScrollBarVisibility="Auto"
-                                           VerticalScrollBarVisibility="Auto" />
+                            <Grid RowDefinitions="*,Auto">
+                                <controls:SqlHighlightedEditor Text="{Binding SqlText, Mode=TwoWay}"
+                                                               EnableLint="True"
+                                                               Loaded="SqlEditor_Loaded"
+                                                               FontSize="13"
+                                                               MinHeight="160"
+                                                               HorizontalAlignment="Stretch"
+                                                               VerticalAlignment="Stretch" />
+                                <TextBlock Grid.Row="1" Text="{Binding LintSummary}" FontSize="11"
+                                           Foreground="{StaticResource Error}" Padding="8,4"
+                                           TextTrimming="CharacterEllipsis"
+                                           IsVisible="{Binding HasLintIssues}" />
+                            </Grid>
                         </Border>
                         <GridSplitter Grid.Row="2" Height="6" ResizeDirection="Rows" Margin="0,6" />
 

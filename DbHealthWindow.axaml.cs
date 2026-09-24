@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Threading;
+using SchemaCompare.Services;
 using SchemaCompare.ViewModels;
 
 namespace SchemaCompare;
@@ -13,6 +14,19 @@ public partial class DbHealthWindow : Window
         InitializeComponent();
         var vm = new DbHealthViewModel();
         DataContext = vm;
+        vm.CopyToClipboardAsync = async text =>
+        {
+            try
+            {
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } cb)
+                    return await ClipboardSafety.CopySelectionAsync(text, cb);
+            }
+            catch
+            {
+                return false;
+            }
+            return false;
+        };
 
         vm.PropertyChanged += (_, e) =>
         {
