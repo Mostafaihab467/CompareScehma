@@ -24,7 +24,7 @@
 
         <!-- ═══════════ HEADER ═══════════ -->
         <Border Background="{StaticResource HeaderGradient}" Padding="20,12">
-            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
+            <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto">
                 <StackPanel VerticalAlignment="Center">
                     <TextBlock Text="SQL Query" FontSize="20" FontWeight="Bold" Foreground="White" />
                     <TextBlock Text="{Binding ConnectedDatabaseLabel}" FontSize="11" Foreground="#E0D4FF" />
@@ -32,7 +32,7 @@
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
                     <TextBlock Text="Connection:" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="13" />
-                    <ComboBox ItemsSource="{Binding SavedConnections}"
+                    <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
                               SelectedItem="{Binding SelectedConnection}"
                               PlaceholderText="Select connection…"
                               MinWidth="220">
@@ -41,7 +41,7 @@
                                 <TextBlock Text="{Binding DisplayName}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
-                    </ComboBox>
+                    </controls:SearchableComboBox>
                 </StackPanel>
 
                 <Button Grid.Column="3" Classes="primary" Command="{Binding ConnectCommand}"
@@ -49,7 +49,13 @@
                     <TextBlock Text="⚡ Connect" />
                 </Button>
 
-                <Button Grid.Column="4" Classes="secondary" Command="{Binding NewTabCommand}"
+                <Button Grid.Column="4" Classes="secondary" Click="OnOpenQueryBuilderClick"
+                        Padding="14,8" Margin="0,0,8,0" FontSize="13"
+                        ToolTip.Tip="Build a SELECT visually with dropdowns — great for learning SQL">
+                    <TextBlock Text="🧩 Query Constructor" />
+                </Button>
+
+                <Button Grid.Column="5" Classes="secondary" Command="{Binding NewTabCommand}"
                         Padding="14,8" FontSize="13"
                         ToolTip.Tip="Open a new query tab (Ctrl+T)">
                     <TextBlock Text="+ New Tab" />
@@ -79,7 +85,7 @@
                 <DataTemplate DataType="models:QueryTab">
                     <Grid RowDefinitions="Auto,*,Auto,*,Auto">
                         <Border Classes="card" Padding="10,8" Margin="0,0,0,6">
-                            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto">
+                            <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto,*,Auto">
                                 <Button Grid.Column="0" Classes="primary" Padding="14,6" FontSize="12"
                                         Command="{Binding $parent[Window].DataContext.ExecuteCommand}"
                                         CommandParameter="{Binding}"
@@ -94,23 +100,56 @@
                                         ToolTip.Tip="Cancel running query">
                                     <TextBlock Text="⏹ Stop" />
                                 </Button>
+                                <Button Grid.Column="1" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,0,0"
+                                        Command="{Binding $parent[Window].DataContext.ExplainCommand}"
+                                        ToolTip.Tip="Explain in plain English what this query will do (no AI — deterministic SQL parsing)">
+                                    <TextBlock Text="💬 Explain" />
+                                </Button>
+                                <Button Grid.Column="2" Classes="planToggle" Padding="10,6" FontSize="11" Margin="6,0,0,0"
+                                        Command="{Binding $parent[Window].DataContext.TogglePlanCommand}"
+                                        ToolTip.Tip="Include the actual execution plan — shows an operator diagram in the results pane after each run">
+                                    <TextBlock Text="{Binding $parent[Window].DataContext.PlanToggleText}" />
+                                </Button>
                                 <Button Grid.Column="3" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,0,0"
+                                        Command="{Binding $parent[Window].DataContext.EstimatedPlanCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="Display estimated execution plan (Ctrl+L) — compiles the query WITHOUT running it and shows the operator diagram">
+                                    <TextBlock Text="🌩 Estimated" />
+                                </Button>
+                                <Button Grid.Column="4" Classes="planToggle" Padding="10,6" FontSize="11" Margin="6,0,0,0"
+                                        Command="{Binding $parent[Window].DataContext.ToggleIoTimeCommand}"
+                                        ToolTip.Tip="Include client statistics — logical reads per table, execution times, roundtrips and bytes in the Messages pane">
+                                    <TextBlock Text="{Binding $parent[Window].DataContext.IoTimeToggleText}" />
+                                </Button>
+                                <controls:SearchableComboBox Grid.Column="5"
+                                          ItemsSource="{Binding $parent[Window].DataContext.ExplainKeywords}"
+                                          SelectedItem="{Binding $parent[Window].DataContext.SelectedKeyword, Mode=TwoWay}"
+                                          PlaceholderText="keyword…"
+                                          MinWidth="120" Margin="6,0,0,0" VerticalAlignment="Center"
+                                          ToolTip.Tip="Pick a SQL keyword to learn about" />
+                                <Button Grid.Column="6" Classes="legendary" Padding="12,6" FontSize="12" FontWeight="Bold"
+                                        Margin="4,0,0,0"
+                                        Command="{Binding $parent[Window].DataContext.ExplainKeywordCommand}"
+                                        ToolTip.Tip="✨ Explain the selected keyword in plain English, with an example">
+                                    <TextBlock Text="✨ Explain" />
+                                </Button>
+                                <Button Grid.Column="7" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,0,0"
                                         Command="{Binding $parent[Window].DataContext.CopyResultsCommand}"
                                         CommandParameter="{Binding}"
                                         ToolTip.Tip="Copy selected result set as TSV">
                                     <TextBlock Text="📋 Copy" />
                                 </Button>
-                                <Button Grid.Column="4" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,0,0"
+                                <Button Grid.Column="8" Classes="secondary" Padding="10,6" FontSize="11" Margin="6,0,12,0"
                                         Command="{Binding $parent[Window].DataContext.ClearResultsCommand}"
                                         CommandParameter="{Binding}"
                                         ToolTip.Tip="Clear results and messages">
                                     <TextBlock Text="🧹 Clear" />
                                 </Button>
-                                <TextBlock Grid.Column="5" Text="{Binding StatusMessage}"
+                                <TextBlock Grid.Column="9" Text="{Binding StatusMessage}"
                                            FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
-                                           VerticalAlignment="Center" Margin="12,0,0,0"
+                                           VerticalAlignment="Center" Margin="0,0,0,0"
                                            TextTrimming="CharacterEllipsis" />
-                                <Border Grid.Column="6" Background="{StaticResource InputBackground}" CornerRadius="4"
+                                <Border Grid.Column="10" Background="{StaticResource InputBackground}" CornerRadius="4"
                                         Padding="8,3" Margin="8,0,0,0" VerticalAlignment="Center"
                                         IsVisible="{Binding ElapsedText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
                                     <TextBlock Text="{Binding ElapsedText}" FontSize="11" FontWeight="SemiBold"
@@ -139,9 +178,23 @@
                         <Border Grid.Row="3" Classes="card" Padding="0">
                             <Grid RowDefinitions="Auto,*">
                                 <Border Background="{StaticResource SubtleHeader}" Padding="12,6">
-                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                    <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                                         <TextBlock Text="Results" FontWeight="Bold" FontSize="13" VerticalAlignment="Center" />
-                                        <TextBlock Grid.Column="2" Text="{Binding SelectedCellText}"
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" Margin="12,0,0,0"
+                                                    IsVisible="{Binding HasPlan}">
+                                            <Button Classes="link" FontSize="11" Padding="6,2"
+                                                    Command="{Binding $parent[Window].DataContext.ShowResultsViewCommand}"
+                                                    ToolTip.Tip="Show result grids">
+                                                <TextBlock Text="Results" />
+                                            </Button>
+                                            <TextBlock Text="·" VerticalAlignment="Center" FontSize="11" Opacity="0.6" />
+                                            <Button Classes="link" FontSize="11" Padding="6,2"
+                                                    Command="{Binding $parent[Window].DataContext.ShowPlanViewCommand}"
+                                                    ToolTip.Tip="Show the execution-plan diagram">
+                                                <TextBlock Text="Execution Plan" />
+                                            </Button>
+                                        </StackPanel>
+                                        <TextBlock Grid.Column="3" Text="{Binding SelectedCellText}"
                                                    FontSize="11" Foreground="{StaticResource Success}"
                                                    VerticalAlignment="Center" Margin="12,0,0,0"
                                                    MaxWidth="420" TextTrimming="CharacterEllipsis"
@@ -153,7 +206,7 @@
                                 <TabControl Grid.Row="1" Margin="6,4,6,6"
                                             ItemsSource="{Binding Results}"
                                             SelectedItem="{Binding SelectedResult, Mode=TwoWay}"
-                                            IsVisible="{Binding HasResults}">
+                                            IsVisible="{Binding ShowResultsGrid}">
                                     <TabControl.ItemTemplate>
                                         <DataTemplate DataType="models:QueryResultTable">
                                             <TextBlock Text="{Binding Title}" FontSize="11" />
@@ -163,13 +216,25 @@
                                         <DataTemplate DataType="models:QueryResultTable">
                                             <Grid RowDefinitions="Auto,*">
                                                 <Border Background="{StaticResource CodeBg}" Padding="10,4">
-                                                    <Grid ColumnDefinitions="Auto,*,Auto">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto">
                                                         <TextBlock Text="{Binding Title}" FontWeight="Bold"
                                                                    FontSize="12" Foreground="#CDD6F4"
                                                                    VerticalAlignment="Center" />
-                                                        <TextBlock Grid.Column="2" Text="{Binding Summary}" FontSize="11"
+                                                        <Button Grid.Column="2" Classes="link" FontSize="11" Padding="6,2"
+                                                                Command="{Binding $parent[Window].DataContext.CopyWithHeadersCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Copy this result set with the header row (TSV, up to 5000 rows)">
+                                                            <TextBlock Text="Copy with Headers" />
+                                                        </Button>
+                                                        <Button Grid.Column="3" Classes="link" FontSize="11" Padding="6,2" Margin="8,0,0,0"
+                                                                Command="{Binding $parent[Window].DataContext.SaveCsvCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Save this result set as a CSV file">
+                                                            <TextBlock Text="💾 CSV" />
+                                                        </Button>
+                                                        <TextBlock Grid.Column="4" Text="{Binding Summary}" FontSize="11"
                                                                    Foreground="{StaticResource Primary500}"
-                                                                   VerticalAlignment="Center" />
+                                                                   VerticalAlignment="Center" Margin="12,0,0,0" />
                                                     </Grid>
                                                 </Border>
                                                 <DataGrid Grid.Row="1" ItemsSource="{Binding Rows}"
@@ -186,7 +251,11 @@
                                         </DataTemplate>
                                     </TabControl.ContentTemplate>
                                 </TabControl>
-                                <StackPanel Grid.Row="1" IsVisible="{Binding !HasResults}"
+                                <controls:PlanDiagramControl Grid.Row="1" Margin="6,4,6,6"
+                                                             Plan="{Binding Plan}"
+                                                             MinHeight="120"
+                                                             IsVisible="{Binding ShowPlanDiagram}" />
+                                <StackPanel Grid.Row="1" IsVisible="{Binding ShowEmptyState}"
                                             HorizontalAlignment="Center" VerticalAlignment="Center"
                                             Spacing="8" Margin="0,16">
                                     <TextBlock Text="📭" FontSize="40" HorizontalAlignment="Center" />

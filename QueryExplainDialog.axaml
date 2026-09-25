@@ -1,0 +1,53 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SchemaCompare.QueryExplainDialog"
+        Title="🧠 Query Assistant"
+        Width="640" Height="560" MinWidth="520" MinHeight="420"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="16">
+
+        <!-- Assistant header -->
+        <StackPanel Orientation="Horizontal" Spacing="10">
+            <TextBlock Text="🧠" FontSize="26" VerticalAlignment="Center" />
+            <StackPanel VerticalAlignment="Center">
+                <TextBlock Text="Here's what your query will do" FontSize="17" FontWeight="Bold" />
+                <TextBlock Text="Deterministic SQL analysis — not AI. Nothing leaves your machine."
+                           FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
+            </StackPanel>
+        </StackPanel>
+
+        <Border Grid.Row="1" Classes="card" Padding="14" Margin="0,10,0,0">
+            <StackPanel>
+                <TextBlock Text="In short" FontSize="11" FontWeight="Bold"
+                           Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,4" />
+                <TextBlock x:Name="HeadlineText" FontSize="14.5" TextWrapping="Wrap" LineHeight="21"
+                           Foreground="{StaticResource PrimaryText}" />
+            </StackPanel>
+        </Border>
+
+        <ScrollViewer Grid.Row="2" Margin="0,10,0,0" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+                <Border x:Name="WarningsPanel" Background="{StaticResource WarningPanelBg}"
+                        BorderBrush="{StaticResource WarningPanelBorder}" BorderThickness="1"
+                        CornerRadius="8" Padding="12,8" IsVisible="False">
+                    <StackPanel x:Name="WarningsList" Spacing="3" />
+                </Border>
+                <Border Classes="card" Padding="14">
+                    <StackPanel>
+                        <TextBlock Text="Step by step" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource OnSurfaceVariant}" Margin="0,0,0,6" />
+                        <StackPanel x:Name="BulletsList" Spacing="6" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="CloseBtn" Classes="primary" Padding="18,7" FontSize="12">
+                <TextBlock Text="Got it" />
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

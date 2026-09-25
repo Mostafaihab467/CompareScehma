@@ -321,6 +321,202 @@ public class DbManagerService
     }
 
     // -------------------------------------------------------------------------
+    // Table metadata (SSMS-style explorer folders)
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Loads keys, indexes, triggers, statistics and partition info for a table in
+    /// one round trip series on a single connection. Column list comes from the
+    /// existing <see cref="GetTableColumnsAsync"/>.
+    /// </summary>
+    public async Task<TableMetadata> GetTableMetadataAsync(
+        ConnectionInfo info, string schema, string tableName, CancellationToken ct = default)
+    {
+        var meta = new TableMetadata { Schema = schema, Name = tableName };
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+
+        // Columns (reuse)
+        meta.Columns = await GetTableColumnsAsync(info, schema, tableName, ct);
+
+        // PK / unique keys
+        var keys = new Dictionary<string, MetaKey>(StringComparer.OrdinalIgnoreCase);
+        const string keyQuery = """
+            SELECT kc.name, kc.type_desc, c.name AS col
+            FROM sys.key_constraints kc
+            JOIN sys.tables t ON kc.parent_object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            JOIN sys.index_columns ic ON ic.object_id = kc.parent_object_id AND ic.index_id = kc.unique_index_id
+            JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE s.name = @schema AND t.name = @table
+            ORDER BY kc.name, ic.key_ordinal
+            """;
+        await using (var cmd = new SqlCommand(keyQuery, conn))
+        {
+            cmd.Parameters.AddWithValue("@schema", schema);
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.CommandTimeout = 30;
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+            {
+                var name = rdr.GetString(0);
+                var kind = rdr.GetString(1) == "PRIMARY_KEY_CONSTRAINT" ? "PK" : "UQ";
+                if (!keys.TryGetValue(name, out var k))
+                    keys[name] = k = new MetaKey(name, kind, [], null);
+                k.Columns.Add(rdr.GetString(2));
+            }
+        }
+
+        // Foreign keys
+        const string fkQuery = """
+            SELECT fk.name, c.name AS col, rt.name AS ref_table
+            FROM sys.foreign_keys fk
+            JOIN sys.tables t ON fk.parent_object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            JOIN sys.foreign_key_columns fkc ON fkc.constraint_object_id = fk.object_id
+            JOIN sys.columns c ON c.object_id = fkc.parent_object_id AND c.column_id = fkc.parent_column_id
+            JOIN sys.tables rt ON rt.object_id = fk.referenced_object_id
+            WHERE s.name = @schema AND t.name = @table
+            ORDER BY fk.name, fkc.constraint_column_id
+            """;
+        await using (var cmd = new SqlCommand(fkQuery, conn))
+        {
+            cmd.Parameters.AddWithValue("@schema", schema);
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.CommandTimeout = 30;
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+            {
+                var name = rdr.GetString(0);
+                if (!keys.TryGetValue(name, out var k))
+                    keys[name] = k = new MetaKey(name, "FK", [], rdr.GetString(2));
+                k.Columns.Add(rdr.GetString(1));
+            }
+        }
+        meta.Keys = keys.Values.ToList();
+
+        // Indexes (key + included columns grouped client-side)
+        const string idxQuery = """
+            SELECT i.name, i.type_desc, i.is_unique, i.is_primary_key, i.is_unique_constraint,
+                   i.is_disabled, i.has_filter, CAST(i.filter_definition AS NVARCHAR(4000)),
+                   c.name AS col, ic.is_included_column, ic.key_ordinal
+            FROM sys.indexes i
+            JOIN sys.tables t ON i.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            JOIN sys.index_columns ic ON ic.object_id = i.object_id AND ic.index_id = i.index_id
+            JOIN sys.columns c ON c.object_id = ic.object_id AND c.column_id = ic.column_id
+            WHERE s.name = @schema AND t.name = @table AND i.name IS NOT NULL
+            ORDER BY i.name, ic.is_included_column, ic.key_ordinal
+            """;
+        var idx = new Dictionary<string, MetaIndex>(StringComparer.OrdinalIgnoreCase);
+        await using (var cmd = new SqlCommand(idxQuery, conn))
+        {
+            cmd.Parameters.AddWithValue("@schema", schema);
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.CommandTimeout = 30;
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+            {
+                var name = rdr.GetString(0);
+                if (!idx.TryGetValue(name, out var ix))
+                    idx[name] = ix = new MetaIndex(
+                        name, rdr.GetString(1), rdr.GetBoolean(2), rdr.GetBoolean(3),
+                        rdr.GetBoolean(4), rdr.GetBoolean(5),
+                        rdr.GetBoolean(6) ? rdr.IsDBNull(7) ? null : rdr.GetString(7) : null,
+                        [], []);
+                if (rdr.GetBoolean(9)) ix.IncludedColumns.Add(rdr.GetString(8));
+                else ix.KeyColumns.Add(rdr.GetString(8));
+            }
+        }
+        meta.Indexes = idx.Values.ToList();
+
+        // Triggers on this table
+        const string trgQuery = """
+            SELECT t.name
+            FROM sys.triggers t
+            JOIN sys.tables tb ON t.parent_id = tb.object_id
+            JOIN sys.schemas s ON tb.schema_id = s.schema_id
+            WHERE s.name = @schema AND tb.name = @table
+            ORDER BY t.name
+            """;
+        var trg = new List<string>();
+        await using (var cmd = new SqlCommand(trgQuery, conn))
+        {
+            cmd.Parameters.AddWithValue("@schema", schema);
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.CommandTimeout = 30;
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+                trg.Add(rdr.GetString(0));
+        }
+        meta.Triggers = trg;
+
+        // Statistics (with live row counts from dm_db_stats_properties when available)
+        const string statQuery = """
+            SELECT s.name, COALESCE(spp.rows, 0), spp.last_updated
+            FROM sys.stats s
+            JOIN sys.tables t ON s.object_id = t.object_id
+            JOIN sys.schemas sch ON t.schema_id = sch.schema_id
+            OUTER APPLY sys.dm_db_stats_properties(s.object_id, s.stats_id) spp
+            WHERE sch.name = @schema AND t.name = @table
+            ORDER BY s.name
+            """;
+        var stats = new List<MetaStat>();
+        await using (var cmd = new SqlCommand(statQuery, conn))
+        {
+            cmd.Parameters.AddWithValue("@schema", schema);
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.CommandTimeout = 30;
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+                stats.Add(new MetaStat(
+                    rdr.GetString(0),
+                    Convert.ToInt64(rdr.GetValue(1)),
+                    rdr.IsDBNull(2) ? null : (DateTime)rdr.GetValue(2)));
+        }
+        meta.Stats = stats;
+
+        // Partitions (heap or clustered; boundary + scheme when partitioned)
+        const string partQuery = """
+            SELECT p.partition_number, p.rows,
+                   pf.name, ps.name,
+                   CAST(rv.value AS NVARCHAR(4000)),
+                   COALESCE(fg.name, fg0.name)
+            FROM sys.partitions p
+            JOIN sys.tables t ON p.object_id = t.object_id
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            LEFT JOIN sys.indexes i ON i.object_id = p.object_id AND i.index_id = p.index_id
+            LEFT JOIN sys.partition_schemes ps ON i.data_space_id = ps.data_space_id
+            LEFT JOIN sys.partition_functions pf ON ps.function_id = pf.function_id
+            LEFT JOIN sys.partition_range_values rv ON rv.function_id = pf.function_id AND rv.boundary_id = p.partition_number
+            LEFT JOIN sys.destination_data_spaces dds ON dds.partition_scheme_id = ps.data_space_id AND dds.destination_id = p.partition_number
+            LEFT JOIN sys.filegroups fg ON fg.data_space_id = dds.data_space_id
+            LEFT JOIN sys.filegroups fg0 ON fg0.data_space_id = i.data_space_id
+            WHERE s.name = @schema AND t.name = @table AND p.index_id IN (0, 1)
+            ORDER BY p.partition_number
+            """;
+        var parts = new List<MetaPartition>();
+        await using (var cmd = new SqlCommand(partQuery, conn))
+        {
+            cmd.Parameters.AddWithValue("@schema", schema);
+            cmd.Parameters.AddWithValue("@table", tableName);
+            cmd.CommandTimeout = 30;
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+                parts.Add(new MetaPartition(
+                    rdr.GetInt32(0),
+                    rdr.GetInt64(1),
+                    rdr.IsDBNull(2) ? null : rdr.GetString(2),
+                    rdr.IsDBNull(3) ? null : rdr.GetString(3),
+                    rdr.IsDBNull(4) ? null : rdr.GetString(4),
+                    rdr.IsDBNull(5) ? null : rdr.GetString(5)));
+        }
+        meta.Partitions = parts;
+
+        return meta;
+    }
+
+    // -------------------------------------------------------------------------
     // Object definitions
     // -------------------------------------------------------------------------
 
@@ -569,6 +765,174 @@ public class DbManagerService
             cmd.Parameters.AddWithValue($"@pk{j}", validPk[j].Value ?? DBNull.Value);
 
         await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    // -------------------------------------------------------------------------
+    // Database properties / security / restore
+    // -------------------------------------------------------------------------
+
+    /// <summary>Core properties + file list of the connected database (SSMS
+    /// Properties dialog). FILEPROPERTY only works inside the file's own
+    /// database — the connection already points there.</summary>
+    public async Task<DatabaseProperties> GetDatabasePropertiesAsync(
+        ConnectionInfo info, CancellationToken ct = default)
+    {
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+
+        var files = new List<DbFileInfo>();
+        string name = "", compat = "", collation = "", recovery = "", state = "",
+               userAccess = "", logReuse = "";
+        DateTime? created = null;
+        var rcsi = false;
+        double logTotalMb = 0, logUsedMb = 0;
+
+        await using (var cmd = new SqlCommand("""
+            SELECT d.name, d.create_date, d.compatibility_level, d.collation_name,
+                   d.recovery_model_desc, d.state_desc, d.user_access_desc, d.log_reuse_wait_desc,
+                   d.is_read_committed_snapshot_on,
+                   mf.name, mf.type_desc, mf.state_desc,
+                   mf.size * 8 / 1024.0,
+                   CAST(FILEPROPERTY(mf.name, 'SpaceUsed') AS bigint) * 8 / 1024.0,
+                   mf.physical_name, mf.growth, mf.is_percent_growth
+            FROM sys.databases AS d
+            CROSS JOIN sys.database_files AS mf
+            WHERE d.database_id = DB_ID()
+            ORDER BY mf.file_id;
+
+            SELECT total_log_size_in_bytes / 1048576.0, used_log_space_in_bytes / 1048576.0
+            FROM sys.dm_db_log_space_usage;
+            """, conn) { CommandTimeout = 30 })
+        {
+            await using var rdr = await cmd.ExecuteReaderAsync(ct);
+            while (await rdr.ReadAsync(ct))
+            {
+                name = rdr.GetString(0);
+                created = rdr.GetDateTime(1);
+                compat = Convert.ToInt32(rdr.GetValue(2), System.Globalization.CultureInfo.InvariantCulture).ToString();
+                collation = rdr.GetString(3);
+                recovery = rdr.GetString(4);
+                state = rdr.GetString(5);
+                userAccess = rdr.GetString(6);
+                logReuse = rdr.GetString(7);
+                rcsi = rdr.GetBoolean(8);
+
+                var growth = rdr.GetInt32(15);
+                var growthText = rdr.GetBoolean(16)
+                    ? $"{growth} %"
+                    : $"{growth * 8 / 1024.0:N0} MB";
+                files.Add(new DbFileInfo
+                {
+                    Name = rdr.GetString(9),
+                    TypeDesc = rdr.GetString(10),
+                    StateDesc = rdr.GetString(11),
+                    SizeMb = Convert.ToDouble(rdr.GetValue(12), System.Globalization.CultureInfo.InvariantCulture),
+                    UsedMb = Convert.ToDouble(rdr.GetValue(13), System.Globalization.CultureInfo.InvariantCulture),
+                    PhysicalName = rdr.GetString(14),
+                    GrowthText = growthText
+                });
+            }
+            if (await rdr.NextResultAsync(ct) && await rdr.ReadAsync(ct))
+            {
+                logTotalMb = Convert.ToDouble(rdr.GetValue(0), System.Globalization.CultureInfo.InvariantCulture);
+                logUsedMb = Convert.ToDouble(rdr.GetValue(1), System.Globalization.CultureInfo.InvariantCulture);
+            }
+        }
+
+        if (name.Length == 0)
+            throw new InvalidOperationException("Could not read database properties.");
+        return new DatabaseProperties
+        {
+            Name = name,
+            CreatedUtc = DateTime.SpecifyKind(created!.Value, DateTimeKind.Unspecified).ToUniversalTime(),
+            CompatibilityLevel = compat,
+            Collation = collation,
+            RecoveryModel = recovery,
+            State = state,
+            UserAccess = userAccess,
+            LogReuseWait = logReuse,
+            IsRcsi = rcsi,
+            Files = files,
+            LogTotalMb = logTotalMb,
+            LogUsedMb = logUsedMb
+        };
+    }
+
+    /// <summary>Database users and roles for the read-only Security folder.</summary>
+    public async Task<(List<DbPrincipalRow> Users, List<DbPrincipalRow> Roles)> GetDbSecurityAsync(
+        ConnectionInfo info, CancellationToken ct = default)
+    {
+        const string query = """
+            SELECT dp.name, dp.type_desc,
+                   ISNULL(dp.default_schema_name, N'') AS default_schema,
+                   dp.create_date, dp.is_fixed_role,
+                   ISNULL(o.name, N'') AS owner_name
+            FROM sys.database_principals AS dp
+            LEFT JOIN sys.database_principals AS o ON o.principal_id = dp.owning_principal_id
+            WHERE dp.type IN (N'S', N'U', N'G', N'R')
+              AND dp.name NOT IN (N'INFORMATION_SCHEMA', N'sys', N'guest')
+            """;
+
+        var users = new List<DbPrincipalRow>();
+        var roles = new List<DbPrincipalRow>();
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new SqlCommand(query, conn) { CommandTimeout = 30 };
+        await using var rdr = await cmd.ExecuteReaderAsync(ct);
+        while (await rdr.ReadAsync(ct))
+        {
+            var row = new DbPrincipalRow
+            {
+                Name = rdr.GetString(0),
+                TypeDesc = rdr.GetString(1),
+                DefaultSchema = rdr.GetString(2),
+                CreatedUtc = rdr.GetDateTime(3),
+                IsFixedRole = rdr.GetBoolean(4),
+                Owner = rdr.GetString(5)
+            };
+            if (row.TypeDesc.Contains("ROLE", StringComparison.OrdinalIgnoreCase))
+                roles.Add(row);
+            else
+                users.Add(row);
+        }
+        users.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        // Fixed roles (db_owner…) first, like SSMS; custom roles after.
+        roles.Sort((a, b) =>
+        {
+            var byFixed = a.IsFixedRole == b.IsFixedRole
+                ? string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase)
+                : a.IsFixedRole ? -1 : 1;
+            return byFixed;
+        });
+        return (users, roles);
+    }
+
+    /// <summary>Restores the connected database from a .bak file, forcing
+    /// exclusive access. Runs from master so the target's own connections
+    /// (including this session's context) never block the restore.
+    /// No command timeout — backups can take as long as they take.</summary>
+    public async Task RestoreDatabaseAsync(
+        ConnectionInfo info, string backupPath, CancellationToken ct = default)
+    {
+        var builder = new SqlConnectionStringBuilder(info.ConnectionString)
+        {
+            InitialCatalog = "master"
+        };
+        var db = info.Database.Replace("]", "]]");
+        var path = backupPath.Replace("'", "''");
+
+        await using var conn = new SqlConnection(builder.ConnectionString);
+        await conn.OpenAsync(ct);
+        foreach (var batch in new[]
+                 {
+                     $"ALTER DATABASE [{db}] SET SINGLE_USER WITH ROLLBACK IMMEDIATE;",
+                     $"RESTORE DATABASE [{db}] FROM DISK = N'{path}' WITH REPLACE, RECOVERY;",
+                     $"ALTER DATABASE [{db}] SET MULTI_USER;"
+                 })
+        {
+            await using var cmd = new SqlCommand(batch, conn) { CommandTimeout = 0 };
+            await cmd.ExecuteNonQueryAsync(ct);
+        }
     }
 
     // -------------------------------------------------------------------------

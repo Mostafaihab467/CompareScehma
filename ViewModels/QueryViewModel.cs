@@ -37,9 +37,38 @@ public partial class QueryViewModel : ObservableObject
     [ObservableProperty] private bool _showError;
     [ObservableProperty] private string _errorMessage = string.Empty;
 
+    /// <summary>When on, executions also capture the actual plan (SET STATISTICS XML)
+    /// and render it as a diagram in the results pane.</summary>
+    [ObservableProperty] private bool _showExecutionPlan;
+
+    partial void OnShowExecutionPlanChanged(bool value) => OnPropertyChanged(nameof(PlanToggleText));
+
+    /// <summary>When on, executions emit SET STATISTICS IO/TIME output (logical reads
+    /// per table, execution times) plus SqlClient client statistics into Messages.</summary>
+    [ObservableProperty] private bool _showIoTimeStats;
+
+    partial void OnShowIoTimeStatsChanged(bool value) => OnPropertyChanged(nameof(IoTimeToggleText));
+
+    /// <summary>Keywords offered by the ✨ Explain dropdown (aggregation-centric).</summary>
+    public ObservableCollection<string> ExplainKeywords { get; } = new(
+        new[] { "SUM", "AVG", "COUNT", "COUNT(*)", "COUNT_BIG", "MIN", "MAX", "STDEV", "STDEVP",
+                "VAR", "VARP", "GROUP BY", "HAVING", "WHERE", "DISTINCT", "TOP", "ORDER BY",
+                "INNER JOIN", "LEFT JOIN", "OFFSET / FETCH" });
+    [ObservableProperty] private string _selectedKeyword = "HAVING";
+
+    /// <summary>Set by the view — opens the ✨ keyword explainer dialog for a keyword.</summary>
+    public Action<string>? ShowKeywordExplainer { get; set; }
+
+    /// <summary>Set by the view — opens the 🧠 explain dialog for the active tab's SQL.</summary>
+    public Action<string>? ShowQueryExplanation { get; set; }
+
     /// <summary>Set by the view to enable clipboard copy of results.
     /// Returns false when the clipboard was unavailable (status must not claim success).</summary>
     public Func<string, Task<bool>>? CopyToClipboardAsync { get; set; }
+
+    /// <summary>Set by the view — asks the user for a save path (StorageProvider).
+    /// Returns null when cancelled or unavailable.</summary>
+    public Func<string, Task<string?>>? PickSavePathAsync { get; set; }
 
     public ICommand ConnectCommand { get; }
     public ICommand NewTabCommand { get; }
@@ -50,7 +79,39 @@ public partial class QueryViewModel : ObservableObject
     public ICommand CancelCommand { get; }
     public ICommand ExecuteSelectionCommand { get; }
     public ICommand CopyResultsCommand { get; }
+    public ICommand CopyWithHeadersCommand { get; }
+    public ICommand SaveCsvCommand { get; }
     public ICommand ClearResultsCommand { get; }
+    public ICommand ExplainCommand { get; }
+    public ICommand ExplainKeywordCommand { get; }
+    public ICommand TogglePlanCommand { get; }
+    public ICommand ToggleIoTimeCommand { get; }
+    public ICommand EstimatedPlanCommand { get; }
+    public ICommand ShowResultsViewCommand { get; }
+    public ICommand ShowPlanViewCommand { get; }
+
+    public string PlanToggleText => ShowExecutionPlan ? "🧭 Plan ON" : "🧭 Plan";
+
+    public string IoTimeToggleText => ShowIoTimeStats ? "📊 IO/Time ON" : "📊 IO/Time";
+
+    /// <summary>
+    /// Set by the view after construction. Opens the Query Constructor dialog
+    /// modal-over-this-window. Keep as a callback (not a command) so the dialog
+    /// can be wired without re-tearing down the view-model on every close.
+    /// </summary>
+    public Action? OpenQueryBuilderAction { get; set; }
+
+    /// <summary>
+    /// Replaces the SQL text of the currently active tab. Called by the Query
+    /// Constructor dialog when the user chooses "Apply to Current Tab".
+    /// </summary>
+    public void ReplaceActiveTabSql(string sql)
+    {
+        if (ActiveTab == null) { NewTab(sql); return; }
+        if (ActiveTab.IsExecuting) return;
+        ActiveTab.SqlText = sql;
+        StatusMessage = $"Replaced SQL in '{ActiveTab.Title}'.";
+    }
 
     public QueryViewModel()
     {
@@ -63,7 +124,20 @@ public partial class QueryViewModel : ObservableObject
         CancelCommand     = new RelayCommand<QueryTab?>(t => Cancel(t ?? ActiveTab));
         ExecuteSelectionCommand = new AsyncRelayCommand<string?>(sel => ExecuteAsync(ActiveTab, sel));
         CopyResultsCommand  = new AsyncRelayCommand<QueryTab?>(CopyResultsAsync);
+        CopyWithHeadersCommand = new AsyncRelayCommand<QueryResultTable?>(CopyWithHeadersAsync);
+        SaveCsvCommand = new AsyncRelayCommand<QueryResultTable?>(SaveCsvAsync);
         ClearResultsCommand = new RelayCommand<QueryTab?>(ClearResults);
+        ExplainCommand      = new RelayCommand(ExplainActiveTab);
+        ExplainKeywordCommand = new RelayCommand(() =>
+        {
+            if (string.IsNullOrWhiteSpace(SelectedKeyword)) return;
+            if (ShowKeywordExplainer is { } show) show(SelectedKeyword);
+        });
+        TogglePlanCommand   = new RelayCommand(() => ShowExecutionPlan = !ShowExecutionPlan);
+        ToggleIoTimeCommand = new RelayCommand(() => ShowIoTimeStats = !ShowIoTimeStats);
+        EstimatedPlanCommand = new AsyncRelayCommand<QueryTab?>(t => EstimatedPlanAsync(t ?? ActiveTab));
+        ShowResultsViewCommand = new RelayCommand(() => { if (ActiveTab != null) ActiveTab.ShowPlanView = false; });
+        ShowPlanViewCommand = new RelayCommand(() => { if (ActiveTab != null) ActiveTab.ShowPlanView = true; });
 
         LoadSavedConnections();
         NewTab();
@@ -212,6 +286,8 @@ public partial class QueryViewModel : ObservableObject
         }
 
         var info = SelectedConnection.ToConnectionInfo();
+        var usePlan = ShowExecutionPlan;
+        var useStats = ShowIoTimeStats;
         var cts = new CancellationTokenSource();
         tab.ExecutionCts = cts;
         tab.IsExecuting = true;
@@ -219,6 +295,8 @@ public partial class QueryViewModel : ObservableObject
         tab.Messages.Clear();
         tab.HasResults = false;
         tab.HasMessages = false;
+        tab.Plan = null;
+        tab.ShowPlanView = false;
         tab.StatusMessage = "Executing…";
         tab.ElapsedText = string.Empty;
         ShowError = false;
@@ -228,13 +306,36 @@ public partial class QueryViewModel : ObservableObject
 
         try
         {
+            // Session-scoped: persists on this connection for every batch of the script.
+            var statsPrefix = useStats ? "SET STATISTICS IO ON;\r\nSET STATISTICS TIME ON;\r\n\r\n" : "";
+            var sqlToRun = (usePlan ? "SET STATISTICS XML ON;\r\n\r\n" : "") + statsPrefix + sql;
             var tables = await _service.ExecuteAsync(
-                info, sql, ct: cts.Token,
+                info, sqlToRun, ct: cts.Token,
                 onStatus: msg =>
                 {
                     tab.StatusMessage = msg;
                     StatusMessage = $"{tab.Title}: {msg}";
-                });
+                },
+                onMessage: useStats
+                    ? msg =>
+                    {
+                        tab.Messages.Add(msg);
+                        tab.HasMessages = true;
+                    }
+                    : null,
+                captureClientStats: useStats);
+
+            var planStatementCount = 0;
+            if (usePlan)
+            {
+                var planTables = tables.Where(ExecutionPlanService.IsPlanTable).ToList();
+                tab.Plan = ExecutionPlanService.Parse(planTables.SelectMany(ExecutionPlanService.ExtractPlanXmls));
+                planStatementCount = tab.Plan.Statements.Count;
+                tables = tables.Where(t => !ExecutionPlanService.IsPlanTable(t)).ToList();
+                if (planStatementCount > 0)
+                    tab.ShowPlanView = true;
+            }
+
             foreach (var t in tables)
                 tab.Results.Add(t);
 
@@ -251,6 +352,10 @@ public partial class QueryViewModel : ObservableObject
             var capped = tables.Count(t => t.IsTruncated);
             if (capped > 0)
                 tab.StatusMessage += $" {capped} result set(s) capped at {QueryExecutionService.MaxRowsPerResult:N0} rows.";
+            if (planStatementCount > 0)
+                tab.StatusMessage += $" Execution plan captured ({planStatementCount} statement(s)).";
+            if (useStats)
+                tab.StatusMessage += " IO/Time + client statistics in Messages.";
             StatusMessage = $"{tab.Title}: {tab.StatusMessage}";
         }
         catch (OperationCanceledException)
@@ -290,6 +395,133 @@ public partial class QueryViewModel : ObservableObject
         tab.ElapsedText = string.Empty;
     }
 
+    /// <summary>
+    /// SSMS "Display Estimated Execution Plan" (Ctrl+L): compiles the script under
+    /// SET SHOWPLAN_XML ON so the server returns the plan WITHOUT executing it.
+    /// The SET statements must each be the only statement in their batch (GO).
+    /// </summary>
+    private async Task EstimatedPlanAsync(QueryTab? tab)
+    {
+        if (tab == null) return;
+        if (tab.IsExecuting)
+        {
+            tab.StatusMessage = "Already executing — press Stop to cancel.";
+            return;
+        }
+        if (SelectedConnection == null || !IsConnected)
+        {
+            tab.StatusMessage = "Connect to a database first.";
+            return;
+        }
+        var sql = tab.SqlText;
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            tab.StatusMessage = "Nothing to estimate — the tab is empty.";
+            return;
+        }
+
+        var info = SelectedConnection.ToConnectionInfo();
+        var cts = new CancellationTokenSource();
+        tab.ExecutionCts = cts;
+        tab.IsExecuting = true;
+        tab.Results.Clear();
+        tab.Messages.Clear();
+        tab.HasResults = false;
+        tab.HasMessages = false;
+        tab.Plan = null;
+        tab.ShowPlanView = false;
+        tab.StatusMessage = "Compiling estimated plan…";
+        tab.ElapsedText = string.Empty;
+        ShowError = false;
+        ErrorMessage = string.Empty;
+        StatusMessage = $"Estimating plan for {tab.Title}…";
+        var started = DateTime.UtcNow;
+
+        try
+        {
+            var wrapped = "SET SHOWPLAN_XML ON\r\nGO\r\n" + sql + "\r\nGO\r\nSET SHOWPLAN_XML OFF";
+            var tables = await _service.ExecuteAsync(
+                info, wrapped, ct: cts.Token,
+                onStatus: msg =>
+                {
+                    tab.StatusMessage = msg;
+                    StatusMessage = $"{tab.Title}: {msg}";
+                });
+
+            var planXmls = tables.Where(ExecutionPlanService.IsPlanTable)
+                .SelectMany(ExecutionPlanService.ExtractPlanXmls).ToList();
+            tab.Plan = ExecutionPlanService.Parse(planXmls);
+            var statementCount = tab.Plan.Statements.Count;
+
+            tab.ElapsedText = $"Elapsed {(DateTime.UtcNow - started).TotalSeconds:0.00}s";
+            if (statementCount > 0)
+            {
+                tab.ShowPlanView = true;
+                tab.Messages.Add($"Estimated plan: {statementCount} statement(s) compiled — nothing was executed.");
+                tab.HasMessages = true;
+                tab.StatusMessage = $"Estimated plan ready ({statementCount} statement(s)) — query was NOT executed.";
+            }
+            else
+            {
+                tab.StatusMessage = "No estimated plan returned — check the script (some statements cannot be compiled, e.g. USE).";
+            }
+            StatusMessage = $"{tab.Title}: {tab.StatusMessage}";
+        }
+        catch (OperationCanceledException)
+        {
+            tab.StatusMessage = "Cancelled by user.";
+            tab.Messages.Add("Plan estimation cancelled by user.");
+            tab.HasMessages = true;
+            StatusMessage = $"{tab.Title}: cancelled.";
+        }
+        catch (Exception ex)
+        {
+            tab.StatusMessage = $"Error: {ex.Message.Split('\n')[0]}";
+            tab.Messages.Add($"Msg: {ex.Message}");
+            tab.HasMessages = true;
+            ErrorMessage = ex.Message;
+            ShowError = true;
+            StatusMessage = $"{tab.Title}: error — {ex.Message.Split('\n')[0]}";
+        }
+        finally
+        {
+            tab.IsExecuting = false;
+            tab.ExecutionCts?.Dispose();
+            tab.ExecutionCts = null;
+        }
+    }
+
+    /// <summary>
+    /// Deterministic plain-English explanation of the active tab's SQL (no AI) —
+    /// written into the tab's Messages pane so it scrolls with execution output.
+    /// </summary>
+    private void ExplainActiveTab()
+    {
+        var tab = ActiveTab;
+        if (tab == null) return;
+        var sql = tab.SqlText;
+        if (string.IsNullOrWhiteSpace(sql))
+        {
+            tab.StatusMessage = "Nothing to explain — the tab is empty.";
+            return;
+        }
+        try
+        {
+            var explanation = SqlExplainerService.Explain(sql);
+            tab.Messages.Add($"Plain English: {explanation}");
+            tab.HasMessages = true;
+            tab.StatusMessage = "Explained in plain English — see Messages below.";
+            StatusMessage = $"{tab.Title}: {explanation}";
+            ShowQueryExplanation?.Invoke(sql);
+        }
+        catch (Exception ex)
+        {
+            tab.Messages.Add($"Plain English: could not analyze this script ({ex.Message}).");
+            tab.HasMessages = true;
+            tab.StatusMessage = "Could not analyze this script.";
+        }
+    }
+
     private async Task CopyResultsAsync(QueryTab? tab)
     {
         if (tab == null || CopyToClipboardAsync == null) return;
@@ -310,5 +542,50 @@ public partial class QueryViewModel : ObservableObject
             tab.StatusMessage = $"Copied {Math.Min(source.Rows.Count, 1_000):N0} row(s) from “{source.Title}” (TSV).";
         else
             tab.StatusMessage = "Copy failed: the system clipboard is unavailable (another app may be holding it). Nothing was changed.";
+    }
+
+    /// <summary>SSMS "Copy with Headers": the whole result set incl. the header row (TSV).</summary>
+    private async Task CopyWithHeadersAsync(QueryResultTable? table)
+    {
+        var tab = ActiveTab;
+        if (table == null || CopyToClipboardAsync == null) return;
+        if (table.Rows.Count == 0)
+        {
+            if (tab != null) tab.StatusMessage = "Nothing to copy — this result set has no rows.";
+            return;
+        }
+        if (await CopyToClipboardAsync(ResultsExportService.ToTsv(table)))
+            tab?.StatusMessage = $"Copied {table.Rows.Count:N0} row(s) with headers from “{table.Title}” (TSV).";
+        else
+            tab?.StatusMessage = "Copy failed: the system clipboard is unavailable. Nothing was changed.";
+    }
+
+    /// <summary>SSMS "Save Results As…": writes the result set as a CSV file.</summary>
+    private async Task SaveCsvAsync(QueryResultTable? table)
+    {
+        var tab = ActiveTab;
+        if (table == null || PickSavePathAsync == null) return;
+        if (table.Rows.Count == 0)
+        {
+            if (tab != null) tab.StatusMessage = "Nothing to save — this result set has no rows.";
+            return;
+        }
+        var suggested = $"results_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
+        var path = await PickSavePathAsync(suggested);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            if (tab != null) tab.StatusMessage = "Save cancelled — no file was written.";
+            return;
+        }
+        try
+        {
+            await File.WriteAllTextAsync(path, ResultsExportService.ToCsv(table), new System.Text.UTF8Encoding(true));
+            if (tab != null) tab.StatusMessage = $"Saved {table.Rows.Count:N0} row(s) to {path}";
+            StatusMessage = tab != null ? $"{tab.Title}: saved CSV to {path}" : StatusMessage;
+        }
+        catch (Exception ex)
+        {
+            if (tab != null) tab.StatusMessage = $"Save failed: {ex.Message}";
+        }
     }
 }

@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
 using Avalonia.Input;
 using Avalonia.Media;
 using Avalonia.Threading;
@@ -35,10 +36,17 @@ public sealed class SqlHighlightedEditor : UserControl
     public static readonly StyledProperty<string> LintSummaryProperty =
         AvaloniaProperty.Register<SqlHighlightedEditor, string>(nameof(LintSummary), "");
 
+    /// <summary>IntelliSense is ON by default so every window that hosts this
+    /// control inherits completion without extra wiring.</summary>
+    public static readonly StyledProperty<bool> EnableIntelliSenseProperty =
+        AvaloniaProperty.Register<SqlHighlightedEditor, bool>(nameof(EnableIntelliSense), true);
+
     private readonly TextEditor _editor = new();
     private readonly SqlSquiggleRenderer _squiggles = new();
     private readonly SqlLineHighlightRenderer _lines = new();
     private readonly DispatcherTimer _lintTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
+    private readonly Popup _lintTip;
+    private readonly TextBlock _lintTipText = new() { TextWrapping = TextWrapping.Wrap, FontSize = 11, MaxWidth = 420 };
     private bool _syncing;
 
     public string? Text
@@ -77,6 +85,12 @@ public sealed class SqlHighlightedEditor : UserControl
         set => SetValue(LintSummaryProperty, value);
     }
 
+    public bool EnableIntelliSense
+    {
+        get => GetValue(EnableIntelliSenseProperty);
+        set => SetValue(EnableIntelliSenseProperty, value);
+    }
+
     public TextEditor InnerEditor => _editor;
 
     public SqlHighlightedEditor()
@@ -84,7 +98,28 @@ public sealed class SqlHighlightedEditor : UserControl
         TsqlHighlighting.Apply(_editor);
         _editor.TextArea.TextView.BackgroundRenderers.Add(_lines);
         _editor.TextArea.TextView.BackgroundRenderers.Add(_squiggles);
-        Content = _editor;
+
+        // Dedicated hover popup for lint squiggles. A ToolTip forced open via
+        // SetIsOpen on every PointerMoved sticks/flickers because it re-shows
+        // while the pointer travels; this popup is closed explicitly on leave.
+        _lintTip = new Popup
+        {
+            Placement = PlacementMode.Pointer,
+            PlacementTarget = _editor.TextArea,
+            Child = new Border
+            {
+                CornerRadius = new CornerRadius(4),
+                Padding = new Thickness(8, 5),
+                BorderThickness = new Thickness(1),
+                Background = ResolveBrush("ErrorPanelBg", Color.Parse("#2C1215")),
+                BorderBrush = ResolveBrush("ErrorPanelBorder", Color.Parse("#F87171")),
+                Child = _lintTipText
+            }
+        };
+        _lintTipText.Foreground = ResolveBrush("ErrorPanelText", Color.Parse("#FCA5A5"));
+
+        // Popup must live in the tree to resolve its TopLevel for positioning.
+        Content = new Panel { Children = { _editor, _lintTip } };
 
         _editor.TextChanged += (_, _) =>
         {
@@ -92,6 +127,7 @@ public sealed class SqlHighlightedEditor : UserControl
             _syncing = true;
             try { Text = _editor.Text; }
             finally { _syncing = false; }
+            HideLintTip();
             ScheduleLint();
             RefreshDiff();
         };
@@ -103,8 +139,40 @@ public sealed class SqlHighlightedEditor : UserControl
         };
 
         _editor.TextArea.PointerMoved += OnPointerMoved;
+        _editor.TextArea.PointerExited += (_, _) => HideLintTip();
+        _editor.TextArea.KeyDown += OnEditorKeyDown;
+        ApplyIntelliSense();
         SqlCompletionProvider.SchemaChanged += (_, _) =>
             Dispatcher.UIThread.Post(ScheduleLint);
+    }
+
+    private void OnEditorKeyDown(object? sender, KeyEventArgs e)
+    {
+        if (!EnableIntelliSense) return;
+        if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Space)
+        {
+            SqlCompletionProvider.Close();
+            SqlCompletionProvider.Show(_editor.TextArea, _editor.CaretOffset);
+            e.Handled = true;
+        }
+    }
+
+    private void ApplyIntelliSense()
+    {
+        if (EnableIntelliSense)
+            SqlCompletionProvider.Attach(_editor);
+        else
+            SqlCompletionProvider.Detach(_editor);
+    }
+
+    private static IBrush ResolveBrush(string key, Color fallback)
+    {
+        if (Application.Current?.TryGetResource(key, null, out var value) == true)
+        {
+            if (value is IBrush brush) return brush;
+            if (value is Color color) return new SolidColorBrush(color);
+        }
+        return new SolidColorBrush(fallback);
     }
 
     protected override void OnPropertyChanged(AvaloniaPropertyChangedEventArgs change)
@@ -129,6 +197,10 @@ public sealed class SqlHighlightedEditor : UserControl
         else if (change.Property == EnableLintProperty)
         {
             ScheduleLint();
+        }
+        else if (change.Property == EnableIntelliSenseProperty)
+        {
+            ApplyIntelliSense();
         }
         else if (change.Property == PartnerTextProperty || change.Property == DiffRoleProperty)
         {
@@ -160,6 +232,8 @@ public sealed class SqlHighlightedEditor : UserControl
                 SqlCompletionProvider.Tables,
                 SqlCompletionProvider.ColumnsByTable);
             _squiggles.Issues = issues;
+            if (issues.Count == 0)
+                HideLintTip();
             LintSummary = issues.Count == 0
                 ? ""
                 : issues.Count == 1
@@ -201,43 +275,46 @@ public sealed class SqlHighlightedEditor : UserControl
     {
         try
         {
-            if (_squiggles.Issues.Count == 0 || _editor.Document == null)
+            if (SqlCompletionProvider.IsPopupOpen || _squiggles.Issues.Count == 0 || _editor.Document == null)
             {
-                ToolTip.SetTip(_editor, null);
-                ToolTip.SetTip(_editor.TextArea, null);
-                ToolTip.SetIsOpen(_editor.TextArea, false);
+                HideLintTip();
                 return;
             }
             var textView = _editor.TextArea.TextView;
             var pos = e.GetPosition(textView);
             var docPos = textView.GetPosition(pos + textView.ScrollOffset);
-            if (docPos == null)
+            var offset = docPos == null ? -1 : _editor.Document.GetOffset(docPos.Value.Location);
+            var hit = offset < 0
+                ? (SqlLintIssue?)null
+                : _squiggles.Issues.FirstOrDefault(i => offset >= i.Start && offset <= i.Start + Math.Max(1, i.Length));
+            if (string.IsNullOrEmpty(hit?.Message))
             {
-                ToolTip.SetTip(_editor, null);
-                ToolTip.SetTip(_editor.TextArea, null);
-                ToolTip.SetIsOpen(_editor.TextArea, false);
+                HideLintTip();
                 return;
             }
-            var offset = _editor.Document.GetOffset(docPos.Value.Location);
-            var hit = _squiggles.Issues.FirstOrDefault(i => offset >= i.Start && offset <= i.Start + Math.Max(1, i.Length));
-            if (!string.IsNullOrEmpty(hit.Message))
-            {
-                ToolTip.SetShowDelay(_editor.TextArea, 50);
-                ToolTip.SetTip(_editor.TextArea, hit.Message);
-                ToolTip.SetTip(_editor, hit.Message);
-                ToolTip.SetIsOpen(_editor.TextArea, true);
-            }
-            else
-            {
-                ToolTip.SetTip(_editor, null);
-                ToolTip.SetTip(_editor.TextArea, null);
-                ToolTip.SetIsOpen(_editor.TextArea, false);
-            }
+            ShowLintTip(hit.Value.Message);
         }
         catch
         {
             /* ignore hover failures */
         }
+    }
+
+    private void ShowLintTip(string message)
+    {
+        if (_lintTipText.Text != message)
+        {
+            // Reopen with fresh placement; updating while open keeps stale coordinates.
+            _lintTip.IsOpen = false;
+            _lintTipText.Text = message;
+        }
+        _lintTip.IsOpen = true;
+    }
+
+    private void HideLintTip()
+    {
+        if (_lintTip.IsOpen)
+            _lintTip.IsOpen = false;
     }
 }
 

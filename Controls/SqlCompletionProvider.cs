@@ -91,6 +91,9 @@ public static class SqlCompletionProvider
 
     private static CompletionWindow? _window;
 
+    /// <summary>True while the completion popup is open (editors hide hover tips).</summary>
+    public static bool IsPopupOpen => _window != null;
+
     public static void Attach(TextEditor editor)
     {
         editor.TextArea.TextEntered -= OnTextEntered;

@@ -47,7 +47,9 @@ public static class SqlLintService
     private static readonly HashSet<string> SkipTableNames = new(StringComparer.OrdinalIgnoreCase)
     {
         "SELECT", "VALUES", "OPENJSON", "OPENQUERY", "OPENROWSET", "OPENDATASOURCE",
-        "STRING_SPLIT", "STRING_AGG", "SYS", "INFORMATION_SCHEMA", "INSERTED", "DELETED"
+        "STRING_SPLIT", "STRING_AGG", "SYS", "INFORMATION_SCHEMA", "INSERTED", "DELETED",
+        // Bare schema prefix — "FROM dbo." / "[dbo].[]" is an in-progress edit, not a table.
+        "DBO"
     };
 
     private static readonly HashSet<string> KnownSqlWords = new(StringComparer.OrdinalIgnoreCase)
@@ -306,6 +308,8 @@ public static class SqlLintService
             var name = Unwrap(raw);
             if (name.Length == 0 || name[0] is '#' or '@') continue;
             if (SkipTableNames.Contains(name)) continue;
+            // "dbo." / "[dbo].[]" — an in-progress qualified name, not a real table.
+            if (name.EndsWith(".")) continue;
 
             tableRefSpans.Add((m.Groups["t"].Index, m.Groups["t"].Index + m.Groups["t"].Length));
 

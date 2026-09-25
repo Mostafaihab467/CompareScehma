@@ -35,7 +35,7 @@
                 <!-- Connection selector -->
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
                     <TextBlock Text="Connection:" Foreground="White" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="13" />
-                    <ComboBox ItemsSource="{Binding SavedConnections}"
+                    <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
                               SelectedItem="{Binding SelectedConnection}"
                               PlaceholderText="Select connection…"
                               MinWidth="220">
@@ -44,7 +44,7 @@
                                 <TextBlock Text="{Binding DisplayName}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
-                    </ComboBox>
+                    </controls:SearchableComboBox>
                 </StackPanel>
 
                 <!-- Connect button -->
@@ -102,65 +102,22 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Object groups list -->
-                    <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto"
-                                  HorizontalScrollBarVisibility="Disabled">
-                        <ItemsControl ItemsSource="{Binding ObjectGroups}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate DataType="models:DbObjectGroup">
-                                    <StackPanel Margin="0,4,0,0">
-                                        <!-- Group header with toggle button -->
-                                        <Button Command="{Binding ToggleExpandCommand}"
-                                                Background="{StaticResource SubtleHeader}"
-                                                BorderThickness="0"
-                                                Padding="10,6"
-                                                HorizontalAlignment="Stretch"
-                                                HorizontalContentAlignment="Stretch"
-                                                Cursor="Hand">
-                                            <Grid ColumnDefinitions="Auto,Auto,*,Auto">
-                                                <TextBlock Text="{Binding ExpandIcon}" FontSize="10" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{StaticResource Primary500}" />
-                                                <TextBlock Grid.Column="1" Text="{Binding Icon}" FontSize="13" VerticalAlignment="Center" Margin="0,0,6,0" />
-                                                <TextBlock Grid.Column="2" Text="{Binding Header}" FontWeight="SemiBold"
-                                                           FontSize="12" VerticalAlignment="Center" />
-                                            </Grid>
-                                        </Button>
-
-                                        <!-- Category specific search filter (shown when expanded) -->
-                                        <TextBox Text="{Binding FilterText}"
-                                                 PlaceholderText="Filter here…"
-                                                 FontSize="11" Margin="6,4,6,2"
-                                                 Padding="6,3"
-                                                 IsVisible="{Binding IsExpanded}" />
-
-                                        <!-- Object items (filtered) -->
-                                        <ItemsControl ItemsSource="{Binding FilteredItems}" IsVisible="{Binding IsExpanded}">
-                                            <ItemsControl.ItemTemplate>
-                                                <DataTemplate DataType="models:DbObjectInfo">
-                                                    <Button Command="{Binding $parent[Window].DataContext.SelectObjectCommand}"
-                                                            CommandParameter="{Binding}"
-                                                            Background="Transparent"
-                                                            BorderThickness="0"
-                                                            Padding="10,4"
-                                                            HorizontalAlignment="Stretch"
-                                                            HorizontalContentAlignment="Left"
-                                                            CornerRadius="4"
-                                                            Cursor="Hand">
-                                                        <StackPanel Orientation="Horizontal">
-                                                            <TextBlock Text="{Binding TypeIcon}" FontSize="11"
-                                                                       Margin="0,0,6,0" VerticalAlignment="Center" />
-                                                            <TextBlock Text="{Binding DisplayName}" FontSize="12"
-                                                                       TextTrimming="CharacterEllipsis"
-                                                                       MaxWidth="190" VerticalAlignment="Center" />
-                                                        </StackPanel>
-                                                    </Button>
-                                                </DataTemplate>
-                                            </ItemsControl.ItemTemplate>
-                                        </ItemsControl>
-                                    </StackPanel>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
-                    </ScrollViewer>
+                    <!-- SSMS-style explorer tree (node template is assigned in code-behind:
+                         Avalonia 12 has no XAML hierarchical template type) -->
+                    <TreeView x:Name="ManagerTree" Grid.Row="1"
+                              ItemsSource="{Binding ManagerTreeRoots}"
+                              SelectedItem="{Binding ManagerSelectedNode, Mode=TwoWay}"
+                              Background="Transparent" BorderThickness="0"
+                              Padding="4" FontSize="12"
+                              ContextRequested="OnTreeContextRequested"
+                              DoubleTapped="OnTreeDoubleTapped">
+                        <TreeView.ItemContainerTheme>
+                            <ControlTheme TargetType="TreeViewItem"
+                                          BasedOn="{StaticResource {x:Type TreeViewItem}}">
+                                <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                            </ControlTheme>
+                        </TreeView.ItemContainerTheme>
+                    </TreeView>
                 </Grid>
             </Border>
 
@@ -241,18 +198,18 @@
                                             <Grid ColumnDefinitions="Auto,*,120,*,Auto"
                                                   Margin="0,2">
                                                 <!-- Logical op (AND/OR) -->
-                                                <ComboBox Grid.Column="0"
+                                                <controls:SearchableComboBox Grid.Column="0"
                                                           ItemsSource="{x:Static models:TableFilter.LogicalOps}"
                                                           SelectedItem="{Binding LogicalOp, Mode=TwoWay}"
                                                           Width="65" FontSize="11" Margin="0,0,4,0" />
                                                 <!-- Column name -->
-                                                <ComboBox Grid.Column="1"
+                                                <controls:SearchableComboBox Grid.Column="1"
                                                           ItemsSource="{Binding $parent[Window].DataContext.TableColumnNames}"
                                                           SelectedItem="{Binding ColumnName, Mode=TwoWay}"
                                                           PlaceholderText="Select Column" FontSize="11"
                                                           Margin="0,0,4,0" HorizontalAlignment="Stretch" />
                                                 <!-- Operator -->
-                                                <ComboBox Grid.Column="2"
+                                                <controls:SearchableComboBox Grid.Column="2"
                                                           ItemsSource="{x:Static models:TableFilter.Operators}"
                                                           SelectedItem="{Binding Operator, Mode=TwoWay}"
                                                           FontSize="11" Margin="0,0,4,0" />
@@ -301,7 +258,7 @@
                                     </Button>
                                     <Rectangle Width="1" Fill="{StaticResource CardBorder}" Margin="4,0" />
                                     <TextBlock Text="Limit:" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" />
-                                    <ComboBox ItemsSource="{x:Static vm:DbManagerViewModel.TopNOptions}"
+                                    <controls:SearchableComboBox ItemsSource="{x:Static vm:DbManagerViewModel.TopNOptions}"
                                               SelectedItem="{Binding TopNRows}"
                                               Width="80" FontSize="11">
                                         <ComboBox.ItemTemplate>
@@ -309,7 +266,7 @@
                                                 <TextBlock Text="{Binding, StringFormat='{}{0} rows', FallbackValue='ALL rows'}" />
                                             </DataTemplate>
                                         </ComboBox.ItemTemplate>
-                                    </ComboBox>
+                                    </controls:SearchableComboBox>
                                     <Border Background="{StaticResource InputBackground}" CornerRadius="4" Padding="8,3"
                                             Margin="8,0,0,0" VerticalAlignment="Center" IsVisible="{Binding HasRowCountInfo}">
                                         <TextBlock Text="{Binding DataStatusText}" FontSize="11" FontWeight="SemiBold"

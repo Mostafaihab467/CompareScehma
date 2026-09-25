@@ -26,6 +26,28 @@ public partial class QueryTab : ObservableObject
     public bool HasLintIssues => !string.IsNullOrEmpty(LintSummary);
     partial void OnLintSummaryChanged(string value) => OnPropertyChanged(nameof(HasLintIssues));
 
+    /// <summary>Actual execution plan captured with the last run (🧭 Plan toggle on).</summary>
+    [ObservableProperty] private ExecutionPlan? _plan;
+    public bool HasPlan => Plan != null;
+
+    /// <summary>Results-pane view: false = grids, true = plan diagram.</summary>
+    [ObservableProperty] private bool _showPlanView;
+
+    public bool ShowResultsGrid => HasResults && !ShowPlanView;
+    public bool ShowEmptyState => !HasResults && !ShowPlanView;
+    public bool ShowPlanDiagram => HasPlan && ShowPlanView;
+
+    partial void OnPlanChanged(ExecutionPlan? value) => OnPropertyChanged(nameof(HasPlan));
+    partial void OnShowPlanViewChanged(bool value) => RaiseViewFlags();
+    partial void OnHasResultsChanged(bool value) => RaiseViewFlags();
+
+    private void RaiseViewFlags()
+    {
+        OnPropertyChanged(nameof(ShowResultsGrid));
+        OnPropertyChanged(nameof(ShowEmptyState));
+        OnPropertyChanged(nameof(ShowPlanDiagram));
+    }
+
     public ObservableCollection<QueryResultTable> Results { get; } = [];
     public ObservableCollection<string> Messages { get; } = [];
 

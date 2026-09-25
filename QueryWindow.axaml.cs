@@ -4,6 +4,7 @@ using Avalonia.Data;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
+using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 using AvaloniaEdit;
 using AvaloniaEdit.Editing;
@@ -41,6 +42,19 @@ public partial class QueryWindow : Window
         };
 
         DataContext = _vm;
+        _vm.ShowKeywordExplainer = keyword => _ = AggregationExplainerDialog.ShowAsync(this, keyword);
+        _vm.ShowQueryExplanation = sql => _ = QueryExplainDialog.ShowAsync(this, sql);
+    _vm.PickSavePathAsync = async suggested =>
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save Results As CSV",
+            SuggestedFileName = suggested,
+            DefaultExtension = "csv",
+            FileTypeChoices = [new FilePickerFileType("CSV files") { Patterns = ["*.csv"] }]
+        });
+        return file?.Path.LocalPath;
+    };
         ClipboardGuard.Attach(this, message =>
         {
             if (_vm != null)
@@ -444,6 +458,12 @@ public partial class QueryWindow : Window
                 e.Handled = true;
                 return;
             }
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.L)
+            {
+                _vm.EstimatedPlanCommand.Execute(tab);
+                e.Handled = true;
+                return;
+            }
             if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.W)
             {
                 _vm.CloseTabCommand.Execute(tab);
@@ -466,5 +486,31 @@ public partial class QueryWindow : Window
         {
             return string.Empty;
         }
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // Query Constructor dialog launcher
+    // ────────────────────────────────────────────────────────────────────
+    private QueryBuilderWindow? _builderWindow;
+
+    private void OnOpenQueryBuilderClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    {
+        if (_vm == null) return;
+        if (_builderWindow is { IsVisible: true })
+        {
+            _builderWindow.Activate();
+            return;
+        }
+        var builderVm = new QueryBuilderViewModel(_vm);
+        _builderWindow = new QueryBuilderWindow(builderVm);
+        _builderWindow.Closed += (_, _) =>
+        {
+            _builderWindow = null;
+            // After the dialog applies, re-sync the (possibly new) active tab's
+            // SQL into the editor control — the tab selection may have changed
+            // inside NewTab()/ReplaceActiveTabSql() during the apply.
+            SyncActiveEditorText();
+        };
+        _builderWindow.Show(this);
     }
 }

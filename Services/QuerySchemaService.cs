@@ -13,6 +13,7 @@ public sealed class QuerySchemaService
     {
         public string FullName => $"[{Schema}].[{Name}]";
         public string ShortName => $"{Schema}.{Name}";
+        public string DisplayName => $"{Schema}.{Name}";
     }
 
     public async Task<List<TableInfo>> GetTablesAsync(ConnectionInfo info, CancellationToken ct = default)
@@ -64,3 +65,4 @@ public sealed class QuerySchemaService
         return map;
     }
 }
+

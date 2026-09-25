@@ -109,6 +109,14 @@ public partial class DbHealthViewModel : ObservableObject
     public ObservableCollection<HealthFileIoRow> FileIo { get; } = [];
     [ObservableProperty] private string _fileIoSummaryText = "";
     [ObservableProperty] private string? _fileIoDatabaseFilter;
+    private List<HealthMissingIndexRow> _missingRaw = [];
+    public ObservableCollection<HealthMissingIndexRow> MissingIndexes { get; } = [];
+    [ObservableProperty] private string _missingSummaryText = "";
+    [ObservableProperty] private string? _missingDatabaseFilter;
+    [ObservableProperty] private HealthMissingIndexRow? _selectedMissingIndex;
+    public bool HasSelectedMissingIndex => SelectedMissingIndex != null;
+    partial void OnSelectedMissingIndexChanged(HealthMissingIndexRow? value) =>
+        OnPropertyChanged(nameof(HasSelectedMissingIndex));
     [ObservableProperty] private string _warningsText = "";
 
     public ICommand ConnectCommand { get; }
@@ -116,6 +124,7 @@ public partial class DbHealthViewModel : ObservableObject
     public ICommand TogglePauseCommand { get; }
     public ICommand RefreshDeadlocksCommand { get; }
     public ICommand CopyErrorCommand { get; }
+    public ICommand CopyMissingIndexScriptCommand { get; }
 
     /// <summary>Set by the view to enable copying the error text.</summary>
     public Func<string, Task<bool>>? CopyToClipboardAsync { get; set; }
@@ -127,6 +136,7 @@ public partial class DbHealthViewModel : ObservableObject
         TogglePauseCommand = new RelayCommand(() => IsPaused = !IsPaused);
         RefreshDeadlocksCommand = new AsyncRelayCommand(RefreshDeadlocksAsync);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);
+        CopyMissingIndexScriptCommand = new AsyncRelayCommand(CopyMissingIndexScriptAsync);
 
         foreach (var c in _savedService.Load())
             SavedConnections.Add(c);
@@ -305,6 +315,11 @@ public partial class DbHealthViewModel : ObservableObject
                 _fileIoRaw = snap.FileIo;
                 RebuildFileIo();
             }
+            if (snap.MissingIndexes != null)
+            {
+                _missingRaw = snap.MissingIndexes;
+                RebuildMissing();
+            }
             if (snap.Deadlocks != null)
             {
                 var keep = SelectedDeadlock;
@@ -441,6 +456,36 @@ public partial class DbHealthViewModel : ObservableObject
         FileIoSummaryText = $"{FileIo.Count} file(s), heaviest total I/O stalls first.";
     }
 
+    partial void OnMissingDatabaseFilterChanged(string? value) => RebuildMissing();
+
+    private void RebuildMissing()
+    {
+        MissingIndexes.Clear();
+        var want = MissingDatabaseFilter;
+        foreach (var m in _missingRaw)
+        {
+            if (want is not (null or "(All databases)") && !string.Equals(m.Database, want, StringComparison.OrdinalIgnoreCase))
+                continue;
+            MissingIndexes.Add(m);
+        }
+        MissingSummaryText = MissingIndexes.Count == 0
+            ? "No missing-index recommendations (DMVs reset on restart)."
+            : $"{MissingIndexes.Count} recommendation(s), most effective first — impact × uses (SSMS details-report ranking).";
+    }
+
+    private async Task CopyMissingIndexScriptAsync()
+    {
+        if (SelectedMissingIndex is not { } row || CopyToClipboardAsync is null)
+            return;
+        if (string.IsNullOrEmpty(row.CreateScript))
+        {
+            StatusMessage = "No script for this recommendation.";
+            return;
+        }
+        await CopyToClipboardAsync(row.CreateScript);
+        StatusMessage = $"CREATE INDEX script copied — {row.Table} ({row.ImpactText} impact).";
+    }
+
     private void ClearHistory()
     {
         Processes.Clear();
@@ -449,9 +494,11 @@ public partial class DbHealthViewModel : ObservableObject
         ExpensiveQueries.Clear();
         Deadlocks.Clear();
         FileIo.Clear();
+        MissingIndexes.Clear();
         _waitsRaw = [];
         _expensiveRaw = [];
         _fileIoRaw = [];
+        _missingRaw = [];
         _cpuLive.Clear(); _memCommitted.Clear(); _memTarget.Clear(); _batchRates.Clear();
         _waitingTasks.Clear(); _runnableTasks.Clear(); _pageSplits.Clear();
         _ple.Clear(); _cacheHit.Clear(); _deadlockRate.Clear(); _lockWaits.Clear();

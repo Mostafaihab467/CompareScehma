@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:SchemaCompare.ViewModels"
         xmlns:models="clr-namespace:SchemaCompare.Models"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
         x:Class="SchemaCompare.DiagramWindow"
         x:Name="DiagramRoot"
         Title="DB Diagram" Width="1280" Height="820" MinWidth="700" MinHeight="480"
@@ -39,7 +40,7 @@
         <Border Grid.Row="1" Classes="card" Margin="16,12,16,0" Padding="14">
             <StackPanel Spacing="8">
                 <Grid ColumnDefinitions="2*,*,*,Auto">
-                    <ComboBox ItemsSource="{Binding SavedConnections}"
+                    <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
                               SelectedItem="{Binding SelectedSaved}"
                               PlaceholderText="Saved connection…"
                               HorizontalAlignment="Stretch">
@@ -48,7 +49,7 @@
                                 <TextBlock Text="{Binding DisplayName}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
-                    </ComboBox>
+                    </controls:SearchableComboBox>
                     <TextBox Grid.Column="1" Text="{Binding Server}" PlaceholderText="Server" Margin="8,0,0,0" />
                     <TextBox Grid.Column="2" Text="{Binding Database}" PlaceholderText="Database" Margin="8,0,0,0" />
                     <StackPanel Grid.Column="3" Orientation="Horizontal" Margin="8,0,0,0">

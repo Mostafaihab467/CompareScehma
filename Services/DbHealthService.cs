@@ -36,6 +36,7 @@ public sealed class DbHealthService : IDisposable
         List<HealthExpensiveQueryRow>? expensive = null;
         List<HealthDeadlockReport>? deadlocks = null;
         List<HealthFileIoRow>? fileIo = null;
+        List<HealthMissingIndexRow>? missing = null;
 
         Run("server info", onSection, () => serverInfo = ReadServerInfo(conn, ct), warnings, ct);
         Run("cpu ring buffer", onSection, () => cpuHistory = ReadCpuHistory(conn, ct), warnings, ct);
@@ -52,6 +53,7 @@ public sealed class DbHealthService : IDisposable
             Run("expensive queries", onSection, () => expensive = ReadExpensiveQueries(conn, ct), warnings, ct);
             Run("deadlocks", onSection, () => deadlocks = ReadDeadlocks(conn, ct), warnings, ct);
             Run("file I/O", onSection, () => fileIo = ReadFileIo(conn, ct), warnings, ct);
+            Run("missing indexes", onSection, () => missing = ReadMissingIndexes(conn, ct), warnings, ct);
         }
 
         ct.ThrowIfCancellationRequested();
@@ -77,6 +79,7 @@ public sealed class DbHealthService : IDisposable
             ExpensiveQueries = expensive,
             Deadlocks = deadlocks,
             FileIo = fileIo,
+            MissingIndexes = missing,
             Databases = databases,
             Warnings = warnings
         };
@@ -648,6 +651,88 @@ public sealed class DbHealthService : IDisposable
             WriteStallSec = GetDouble(r, "write_stall_s"),
             AvgStallMs = GetDouble(r, "avg_stall_ms")
         }, ct);
+    }
+
+    /// <summary>Missing-index recommendations, ranked like the SSMS
+    /// "Missing Indexes Details" report: impact × (seeks + scans). The
+    /// optimizer DMVs reset on server restart and only cover user databases.</summary>
+    private static List<HealthMissingIndexRow> ReadMissingIndexes(SqlConnection conn, CancellationToken ct)
+    {
+        using var cmd = Cmd(conn, """
+            SELECT TOP (50)
+                   ISNULL(DB_NAME(d.database_id), N'') AS db_name,
+                   ISNULL(OBJECT_SCHEMA_NAME(d.object_id, d.database_id), N'') AS schema_name,
+                   ISNULL(OBJECT_NAME(d.object_id, d.database_id), N'') AS table_name,
+                   ISNULL(d.equality_columns, N'') AS equality_columns,
+                   ISNULL(d.inequality_columns, N'') AS inequality_columns,
+                   ISNULL(d.included_columns, N'') AS included_columns,
+                   gs.unique_compiles,
+                   gs.user_seeks,
+                   gs.user_scans,
+                   gs.avg_total_user_cost AS avg_user_cost,
+                   gs.avg_user_impact,
+                   gs.last_user_seek
+            FROM sys.dm_db_missing_index_details AS d
+            JOIN sys.dm_db_missing_index_groups AS g ON g.index_handle = d.index_handle
+            JOIN sys.dm_db_missing_index_group_stats AS gs ON gs.group_handle = g.index_group_handle
+            WHERE d.database_id > 4
+              AND d.object_id IS NOT NULL
+              AND OBJECT_NAME(d.object_id, d.database_id) IS NOT NULL
+            ORDER BY gs.avg_user_impact * (gs.user_seeks + gs.user_scans) DESC
+            """, ct, 20);
+        return ReadList(cmd, r =>
+        {
+            var db = GetString(r, "db_name");
+            var schema = GetString(r, "schema_name");
+            var table = GetString(r, "table_name");
+            // Some versions return bracket-wrapped names ([id]) — normalize.
+            static string[] ColNames(string csv) =>
+                csv.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                   .Select(c => c.Trim('[', ']').Trim())
+                   .Where(c => c.Length > 0)
+                   .ToArray();
+            var eqCols = ColNames(GetString(r, "equality_columns"));
+            var ineqCols = ColNames(GetString(r, "inequality_columns"));
+            var inclCols = ColNames(GetString(r, "included_columns"));
+            return new HealthMissingIndexRow
+            {
+                Database = db,
+                Schema = schema,
+                Table = table,
+                KeyColumns = string.Join(", ", eqCols.Concat(ineqCols)),
+                IncludedColumns = string.Join(", ", inclCols),
+                UniqueCompiles = GetInt64(r, "unique_compiles"),
+                UserSeeks = GetInt64(r, "user_seeks"),
+                UserScans = GetInt64(r, "user_scans"),
+                AvgUserCost = GetDouble(r, "avg_user_cost"),
+                AvgUserImpact = GetDouble(r, "avg_user_impact"),
+                LastUserSeekUtc = GetDateTime(r, "last_user_seek")?.ToUniversalTime(),
+                CreateScript = BuildCreateIndexScript(db, schema, table, eqCols, ineqCols, inclCols)
+            };
+        }, ct);
+    }
+
+    /// <summary>SSMS-details-report style CREATE NONCLUSTERED INDEX script.</summary>
+    private static string BuildCreateIndexScript(string db, string schema, string table,
+        string[] eqCols, string[] ineqCols, string[] inclCols)
+    {
+        static string Q(string col) => "[" + col.Replace("]", "]]") + "]";
+
+        var keyCols = eqCols.Concat(ineqCols).Select(Q).ToArray();
+        if (keyCols.Length == 0)
+            return "";
+
+        static string Safe(string s) => s.Replace("]", "]]");
+
+        var name = $"IX_{Safe(table)}_{string.Join("_", eqCols.Concat(ineqCols))}";
+        if (name.Length > 128) name = name[..128];
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine($"USE [{Safe(db)}];");
+        sb.Append($"CREATE NONCLUSTERED INDEX [{name}] ON [{Safe(schema)}].[{Safe(table)}] ({string.Join(", ", keyCols)})");
+        if (inclCols.Length > 0)
+            sb.Append($"\n    INCLUDE ({string.Join(", ", inclCols.Select(Q))})");
+        return sb.ToString();
     }
 
     private static string Truncate(string text, int max) =>

@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:models="clr-namespace:SchemaCompare.Models"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
         x:Class="SchemaCompare.MoveDataWindow"
         Title="Move Data" Width="1100" Height="760" MinWidth="640" MinHeight="420"
         CanResize="True" SizeToContent="Manual"
@@ -26,9 +27,9 @@
                         <Border Classes="card" Padding="16">
                             <StackPanel Spacing="7">
                                 <TextBlock Text="SOURCE DATABASE" FontWeight="Bold" Foreground="{StaticResource Primary500}" />
-                                <ComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSavedSource}" PlaceholderText="Saved connection">
+                                <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSavedSource}" PlaceholderText="Saved connection">
                                     <ComboBox.ItemTemplate><DataTemplate DataType="models:SavedConnection"><TextBlock Text="{Binding DisplayName}" /></DataTemplate></ComboBox.ItemTemplate>
-                                </ComboBox>
+                                </controls:SearchableComboBox>
                                 <TextBox Text="{Binding SourceServer}" PlaceholderText="Server" />
                                 <TextBox Text="{Binding SourceDatabase}" PlaceholderText="Database" />
                                 <StackPanel Orientation="Horizontal">
@@ -44,9 +45,9 @@
                         <Border Grid.Column="2" Classes="card" Padding="16">
                             <StackPanel Spacing="7">
                                 <TextBlock Text="TARGET DATABASE" FontWeight="Bold" Foreground="{StaticResource Amber}" />
-                                <ComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSavedTarget}" PlaceholderText="Saved connection">
+                                <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSavedTarget}" PlaceholderText="Saved connection">
                                     <ComboBox.ItemTemplate><DataTemplate DataType="models:SavedConnection"><TextBlock Text="{Binding DisplayName}" /></DataTemplate></ComboBox.ItemTemplate>
-                                </ComboBox>
+                                </controls:SearchableComboBox>
                                 <TextBox Text="{Binding TargetServer}" PlaceholderText="Server" />
                                 <TextBox Text="{Binding TargetDatabase}" PlaceholderText="Database" />
                                 <StackPanel Orientation="Horizontal">

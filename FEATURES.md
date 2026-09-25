@@ -5,7 +5,7 @@ competitors (SSMS, DBeaver, DataGrip, Redgate SQL Prompt/Schema Compare) are wea
 Our unique base: **schema compare + SQL query + DB manager + data move** in one
 lightweight tool.
 
-Legend: 🏆 exclusive (hard to copy) · ⚡ fast win · 🧭 bigger bet later
+Legend: 🏆 exclusive (hard to copy) · ⚡ fast win · 🧭 bigger bet later · ✅ shipped
 
 ---
 
@@ -13,6 +13,7 @@ Legend: 🏆 exclusive (hard to copy) · ⚡ fast win · 🧭 bigger bet later
 
 ### 1. Schema-Aware Query Intelligence (beyond SSMS IntelliSense)
 We already load schema metadata + FKs (`QuerySchemaService`, `DataMoveService` FK ordering). Extend it:
+- ✅ **Visual Query Constructor** (`QueryBuilderWindow` + `SqlBuilder`): pick tables/columns/JOINs/WHERE/GROUP BY/ORDER BY from dropdowns, see the generated T-SQL live, push it into the active query tab or open a new tab and select it. Auto-suggests JOIN ON columns from `sys.foreign_key_columns`.
 - **Auto-JOIN**: type `FROM Orders o JOIN` → suggest `ON o.CustomerId = c.Id` from real FK metadata
 - **Inline query linting**: red squiggle on columns that don't exist in referenced tables *before* executing (SSMS can't)
 - **"Explain my query" panel**: parse the SELECT, show which tables/columns it touches — click a column → jump to definition

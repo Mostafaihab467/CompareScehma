@@ -132,6 +132,90 @@ public sealed class HealthDeadlockReport
         Processes.FirstOrDefault(p => p.IsVictim)?.InputBuf ?? Processes.FirstOrDefault()?.InputBuf ?? "";
 }
 
+/// <summary>One missing-index recommendation from the optimizer DMVs — the same
+/// numbers SSMS shows in the "Missing Indexes Details" standard report.
+/// <see cref="EffectiveScore"/> (impact × uses) is how the list is ranked.</summary>
+public sealed class HealthMissingIndexRow
+{
+    public string Database { get; init; } = "";
+    public string Schema { get; init; } = "";
+    public string Table { get; init; } = "";
+    /// <summary>Equality + inequality key columns, comma-separated.</summary>
+    public string KeyColumns { get; init; } = "";
+    /// <summary>INCLUDE columns, comma-separated ("" when none).</summary>
+    public string IncludedColumns { get; init; } = "";
+    public long UniqueCompiles { get; init; }
+    public long UserSeeks { get; init; }
+    public long UserScans { get; init; }
+    public double AvgUserCost { get; init; }
+    public double AvgUserImpact { get; init; }
+    public DateTime? LastUserSeekUtc { get; init; }
+    public string CreateScript { get; init; } = "";
+
+    /// <summary>SSMS-style effectiveness: avg_user_impact × (user_seeks + user_scans).</summary>
+    public double EffectiveScore => AvgUserImpact * (UserSeeks + UserScans);
+    public string ImpactText => $"{AvgUserImpact:0.#}%";
+    public string EffectiveText => EffectiveScore.ToString("N0");
+    public string ObjectText => $"{Database}.{Schema}.{Table}";
+    public IBrush ImpactBrush => AvgUserImpact >= 80
+        ? new SolidColorBrush(Color.Parse("#EF6B73"))
+        : AvgUserImpact >= 50
+            ? new SolidColorBrush(Color.Parse("#E5B567"))
+            : Brushes.Transparent;
+}
+
+/// <summary>One file of the database (used by the DB Manager properties dialog).</summary>
+public sealed class DbFileInfo
+{
+    public string Name { get; init; } = "";
+    public string TypeDesc { get; init; } = "";
+    public double SizeMb { get; init; }
+    public double UsedMb { get; init; }
+    public string PhysicalName { get; init; } = "";
+    public string GrowthText { get; init; } = "";
+    public string StateDesc { get; init; } = "";
+    public string FreeText => $"{Math.Max(0, SizeMb - UsedMb):N1} MB";
+}
+
+/// <summary>Snapshot of one database's core properties (SSMS Properties dialog).</summary>
+public sealed class DatabaseProperties
+{
+    public string Name { get; init; } = "";
+    public DateTime? CreatedUtc { get; init; }
+    public string CompatibilityLevel { get; init; } = "";
+    public string Collation { get; init; } = "";
+    public string RecoveryModel { get; init; } = "";
+    public string State { get; init; } = "";
+    public string UserAccess { get; init; } = "";
+    public string LogReuseWait { get; init; } = "";
+    public bool IsRcsi { get; init; }
+    public List<DbFileInfo> Files { get; init; } = [];
+    public double LogTotalMb { get; init; }
+    public double LogUsedMb { get; init; }
+    public double DataSizeMb => Files.Where(f => f.TypeDesc == "ROWS").Sum(f => f.SizeMb);
+    public double DataUsedMb => Files.Where(f => f.TypeDesc == "ROWS").Sum(f => f.UsedMb);
+    public string CreatedText => CreatedUtc?.ToString("yyyy-MM-dd HH:mm") ?? "—";
+    public string DataSizeText => $"{DataSizeMb:N1} MB";
+    public string DataFreeText => $"{Math.Max(0, DataSizeMb - DataUsedMb):N1} MB";
+    public string LogText => $"{LogUsedMb:N1} / {LogTotalMb:N1} MB";
+    public string RcsiText => IsRcsi ? "ON" : "OFF";
+}
+
+/// <summary>One database user or role (read-only, Security folder in DB Manager).</summary>
+public sealed class DbPrincipalRow
+{
+    public string Name { get; init; } = "";
+    public string TypeDesc { get; init; } = "";
+    public string DefaultSchema { get; init; } = "";
+    public DateTime? CreatedUtc { get; init; }
+    public bool IsFixedRole { get; init; }
+    public string Owner { get; init; } = "";
+    public string Detail =>
+        IsFixedRole ? "fixed role"
+        : TypeDesc.Contains("ROLE") ? $"role, owned by {Owner}"
+        : $"default schema: {DefaultSchema}";
+}
+
 /// <summary>Everything one refresh pass produced. Slow sections (waits, expensive
 /// queries, deadlocks, file I/O) may be null when the refresh was a fast pass.</summary>
 public sealed class DbHealthSnapshot
@@ -155,6 +239,7 @@ public sealed class DbHealthSnapshot
     public List<HealthExpensiveQueryRow>? ExpensiveQueries { get; init; }
     public List<HealthDeadlockReport>? Deadlocks { get; init; }
     public List<HealthFileIoRow>? FileIo { get; init; }
+    public List<HealthMissingIndexRow>? MissingIndexes { get; init; }
     public List<string>? Databases { get; init; }
     /// <summary>Sections that could not be read (permissions / Azure limits).</summary>
     public List<string> Warnings { get; init; } = [];

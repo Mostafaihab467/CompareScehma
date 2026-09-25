@@ -78,6 +78,50 @@
     <Style Selector="Button.link:pointerover">
         <Setter Property="Foreground" Value="#D6C6FF" />
     </Style>
+    <Style Selector="Button.planToggle">
+        <Setter Property="Background" Value="{StaticResource InputBackground}" />
+        <Setter Property="Foreground" Value="{StaticResource OnSurfaceVariant}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.planToggle:pointerover /template/ ContentPresenter">
+        <Setter Property="Foreground" Value="{StaticResource Primary500}" />
+    </Style>
+    <!-- ✨ legendary: game-rarity gold gradient with warm glow -->
+    <Style Selector="Button.legendary">
+        <Setter Property="Background">
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#F7D774" Offset="0" />
+                <GradientStop Color="#E8A93D" Offset="0.55" />
+                <GradientStop Color="#C97F1B" Offset="1" />
+            </LinearGradientBrush>
+        </Setter>
+        <Setter Property="Foreground" Value="#2B1D06" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="BorderBrush" Value="#FFE9A8" />
+        <Setter Property="BorderThickness" Value="1.5" />
+        <Setter Property="Cursor" Value="Hand" />
+    </Style>
+    <Style Selector="Button.legendary:pointerover /template/ ContentPresenter">
+        <Setter Property="Background">
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#FFE79A" Offset="0" />
+                <GradientStop Color="#F2B94E" Offset="0.55" />
+                <GradientStop Color="#D98F22" Offset="1" />
+            </LinearGradientBrush>
+        </Setter>
+    </Style>
+    <Style Selector="Button.legendary:pressed /template/ ContentPresenter">
+        <Setter Property="Background">
+            <LinearGradientBrush StartPoint="0%,0%" EndPoint="0%,100%">
+                <GradientStop Color="#E8C463" Offset="0" />
+                <GradientStop Color="#CE9430" Offset="0.55" />
+                <GradientStop Color="#B26F14" Offset="1" />
+            </LinearGradientBrush>
+        </Setter>
+    </Style>
     <Style Selector="Border.card">
         <Setter Property="Background" Value="{StaticResource CardBackground}" />
         <Setter Property="CornerRadius" Value="12" />

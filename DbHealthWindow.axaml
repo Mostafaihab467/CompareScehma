@@ -23,7 +23,7 @@
                         <TextBlock Text="🩺 DB Health" FontSize="20" FontWeight="Bold" Foreground="White" />
                         <TextBlock Text="{Binding ServerTitle}" FontSize="12" Foreground="#E0D4FF" Margin="0,2,0,0" />
                     </StackPanel>
-                    <ComboBox Grid.Column="2" Width="240" VerticalAlignment="Center" Margin="0,0,8,0"
+                    <controls:SearchableComboBox Grid.Column="2" Width="240" VerticalAlignment="Center" Margin="0,0,8,0"
                               ItemsSource="{Binding SavedConnections}"
                               SelectedItem="{Binding SelectedConnection}"
                               PlaceholderText="Select connection…">
@@ -32,19 +32,19 @@
                                 <TextBlock Text="{Binding DisplayName}" />
                             </DataTemplate>
                         </ComboBox.ItemTemplate>
-                    </ComboBox>
+                    </controls:SearchableComboBox>
                     <Button Grid.Column="3" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="12,7"
                             VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
                             Command="{Binding ConnectCommand}" ToolTip.Tip="Connect and start monitoring">
                         <TextBlock Text="Connect" />
                     </Button>
-                    <ComboBox Grid.Column="4" Width="104" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
+                    <controls:SearchableComboBox Grid.Column="4" Width="104" VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12"
                               ItemsSource="{Binding IntervalOptions}" SelectedItem="{Binding IntervalSeconds}"
                               ToolTip.Tip="Refresh interval">
                         <ComboBox.ItemTemplate>
                             <DataTemplate><TextBlock Text="{Binding StringFormat='{}{0} s'}" /></DataTemplate>
                         </ComboBox.ItemTemplate>
-                    </ComboBox>
+                    </controls:SearchableComboBox>
                     <Button Grid.Column="5" Background="#40FFFFFF" Foreground="White" CornerRadius="8" Padding="12,7"
                             VerticalAlignment="Center" Margin="0,0,8,0" FontSize="12" FontWeight="SemiBold" Cursor="Hand"
                             Command="{Binding TogglePauseCommand}"
@@ -255,7 +255,7 @@
                         <Border Classes="card" Padding="10,6" Margin="4">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <TextBlock Text="Top" VerticalAlignment="Center" FontSize="12" />
-                                <ComboBox Width="90" ItemsSource="{Binding WaitTopOptions}" SelectedItem="{Binding WaitTop}" />
+                                <controls:SearchableComboBox Width="90" ItemsSource="{Binding WaitTopOptions}" SelectedItem="{Binding WaitTop}" />
                                 <TextBlock Text="{Binding WaitsSummaryText}" FontSize="11"
                                            Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" />
                             </StackPanel>
@@ -293,9 +293,9 @@
                         <Border Classes="card" Padding="10,6" Margin="4">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <TextBlock Text="Rank by" VerticalAlignment="Center" FontSize="12" />
-                                <ComboBox MinWidth="150" ItemsSource="{Binding ExpensiveSortOptions}" SelectedIndex="{Binding ExpensiveSortIndex}" />
+                                <controls:SearchableComboBox MinWidth="150" ItemsSource="{Binding ExpensiveSortOptions}" SelectedIndex="{Binding ExpensiveSortIndex}" />
                                 <TextBlock Text="Top" VerticalAlignment="Center" FontSize="12" />
-                                <ComboBox Width="90" ItemsSource="{Binding ExpensiveTopOptions}" SelectedItem="{Binding ExpensiveTop}" />
+                                <controls:SearchableComboBox Width="90" ItemsSource="{Binding ExpensiveTopOptions}" SelectedItem="{Binding ExpensiveTop}" />
                                 <TextBlock Text="{Binding ExpensiveSummaryText}" FontSize="11"
                                            Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" />
                             </StackPanel>
@@ -391,7 +391,7 @@
                         <Border Classes="card" Padding="10,6" Margin="4">
                             <StackPanel Orientation="Horizontal" Spacing="12">
                                 <TextBlock Text="Database" VerticalAlignment="Center" FontSize="12" />
-                                <ComboBox MinWidth="200" ItemsSource="{Binding DatabaseOptions}" SelectedItem="{Binding FileIoDatabaseFilter}" />
+                                <controls:SearchableComboBox MinWidth="200" ItemsSource="{Binding DatabaseOptions}" SelectedItem="{Binding FileIoDatabaseFilter}" />
                                 <TextBlock Text="{Binding FileIoSummaryText}" FontSize="11"
                                            Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" />
                             </StackPanel>
@@ -409,6 +409,51 @@
                                 <DataGridTextColumn Header="Read Stall (s)" Binding="{Binding ReadStallSec, StringFormat='{}{0:N0}'}" Width="110" />
                                 <DataGridTextColumn Header="Write Stall (s)" Binding="{Binding WriteStallSec, StringFormat='{}{0:N0}'}" Width="110" />
                                 <DataGridTextColumn Header="Avg Stall ms" Binding="{Binding AvgStallMs, StringFormat='{}{0:0.#}'}" Width="110" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </Grid>
+                </TabItem>
+
+                <!-- ══ MISSING INDEXES ══ -->
+                <TabItem Header="Missing Indexes">
+                    <Grid Margin="4" RowDefinitions="Auto,*">
+                        <Border Classes="card" Padding="10,6" Margin="4">
+                            <StackPanel Orientation="Horizontal" Spacing="12">
+                                <TextBlock Text="Database" VerticalAlignment="Center" FontSize="12" />
+                                <controls:SearchableComboBox MinWidth="200" ItemsSource="{Binding DatabaseOptions}" SelectedItem="{Binding MissingDatabaseFilter}" />
+                                <Button Classes="secondary" Command="{Binding CopyMissingIndexScriptCommand}" Padding="12,5" FontSize="12"
+                                        IsVisible="{Binding HasSelectedMissingIndex}"
+                                        ToolTip.Tip="Copy a CREATE NONCLUSTERED INDEX script for the selected recommendation">
+                                    <TextBlock Text="⧉ Copy CREATE INDEX script" />
+                                </Button>
+                                <TextBlock Text="{Binding MissingSummaryText}" FontSize="11"
+                                           Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" />
+                            </StackPanel>
+                        </Border>
+                        <DataGrid Grid.Row="1" Margin="4,0,4,4" ItemsSource="{Binding MissingIndexes}"
+                                  AutoGenerateColumns="False" CanUserReorderColumns="True" CanUserResizeColumns="True"
+                                  IsReadOnly="True" GridLinesVisibility="All" FontSize="12"
+                                  SelectionMode="Single" SelectedItem="{Binding SelectedMissingIndex}">
+                            <DataGrid.Columns>
+                                <DataGridTemplateColumn Header="Impact" Width="80">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding ImpactText}" Foreground="{Binding ImpactBrush}"
+                                                       FontWeight="SemiBold" VerticalAlignment="Center" Margin="4,0" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="Effective Score" Binding="{Binding EffectiveText}" Width="130" />
+                                <DataGridTextColumn Header="DB" Binding="{Binding Database}" Width="130" />
+                                <DataGridTextColumn Header="Schema" Binding="{Binding Schema}" Width="90" />
+                                <DataGridTextColumn Header="Table" Binding="{Binding Table}" Width="180" />
+                                <DataGridTextColumn Header="Key Columns" Binding="{Binding KeyColumns}" Width="260" />
+                                <DataGridTextColumn Header="Include Columns" Binding="{Binding IncludedColumns}" Width="220" />
+                                <DataGridTextColumn Header="Seeks" Binding="{Binding UserSeeks, StringFormat='{}{0:N0}'}" Width="90" />
+                                <DataGridTextColumn Header="Scans" Binding="{Binding UserScans, StringFormat='{}{0:N0}'}" Width="90" />
+                                <DataGridTextColumn Header="Compiles" Binding="{Binding UniqueCompiles, StringFormat='{}{0:N0}'}" Width="90" />
+                                <DataGridTextColumn Header="Avg Cost" Binding="{Binding AvgUserCost, StringFormat='{}{0:N0}'}" Width="100" />
+                                <DataGridTextColumn Header="Last Seek" Binding="{Binding LastUserSeekUtc, StringFormat='{}{0:MM-dd HH:mm}'}" Width="120" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </Grid>

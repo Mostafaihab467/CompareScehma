@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Data;
 using System.Text;
 using Microsoft.Data.SqlClient;
@@ -32,31 +33,56 @@ public sealed class QueryExecutionService
     /// Optional progress callback ("Connecting...", "Sending batch 1/2...",
     /// "Receiving rows..."). Invoked on the caller's synchronization context.
     /// </param>
+    /// <param name="onMessage">
+    /// Optional sink for informational server messages (SET STATISTICS IO/TIME
+    /// output, prints). Invoked on the caller's synchronization context.
+    /// </param>
+    /// <param name="captureClientStats">
+    /// When true, SqlClient connection statistics are diffed across the run and
+    /// one summary line (roundtrips, bytes, execution time) is emitted to
+    /// <paramref name="onMessage"/>.
+    /// </param>
     public async Task<IReadOnlyList<QueryResultTable>> ExecuteAsync(
         ConnectionInfo info,
         string sql,
         int timeoutSeconds = DefaultCommandTimeoutSeconds,
         CancellationToken ct = default,
-        Action<string>? onStatus = null)
+        Action<string>? onStatus = null,
+        Action<string>? onMessage = null,
+        bool captureClientStats = false)
     {
         var batches = SplitBatches(sql);
         var results = new List<QueryResultTable>();
         var index = 0;
         var callerContext = SynchronizationContext.Current;
 
-        void Status(string message)
+        void Raise(Action<string> sink, string message)
         {
-            if (onStatus == null) return;
+            if (sink == null) return;
             if (callerContext == null || callerContext == SynchronizationContext.Current)
-                onStatus(message);
+                sink(message);
             else
-                callerContext.Post(_ => onStatus(message), null);
+                callerContext.Post(_ => sink(message), null);
         }
+
+        void Status(string message) => Raise(onStatus, message);
 
         Status($"Connecting to {info.Server}/{info.Database}...");
         await Task.Run(async () =>
         {
             await using var conn = new SqlConnection(info.ConnectionString);
+            IDictionary? statsStart = null;
+            if (captureClientStats)
+            {
+                conn.StatisticsEnabled = true;
+                statsStart = conn.RetrieveStatistics();
+            }
+            if (onMessage != null)
+                conn.InfoMessage += (_, e) =>
+                {
+                    foreach (SqlError error in e.Errors)
+                        Raise(onMessage, error.Message);
+                };
             await conn.OpenAsync(ct);
             var target = string.IsNullOrWhiteSpace(conn.DataSource) ? info.Server : conn.DataSource;
 
@@ -67,9 +93,34 @@ public sealed class QueryExecutionService
                 Status($"Sending batch {index}/{batches.Count} to {target}/{info.Database}...");
                 await ExecuteSingleBatchAsync(conn, batch, index, batches.Count, results, timeoutSeconds, target, ct, Status);
             }
+
+            if (captureClientStats && statsStart != null)
+            {
+                var end = conn.RetrieveStatistics();
+                foreach (var line in ClientStatsLines(statsStart, end))
+                    Raise(onMessage!, line);
+            }
         }, ct).ConfigureAwait(false);
 
         return results;
+    }
+
+    /// <summary>Diffs two SqlClient statistics snapshots into SSMS-style lines.</summary>
+    private static IEnumerable<string> ClientStatsLines(IDictionary start, IDictionary end)
+    {
+        long Diff(string key) =>
+            end.Contains(key) && end[key] is long vEnd
+                ? vEnd - (start.Contains(key) && start[key] is long vStart ? vStart : 0)
+                : 0;
+
+        var roundtrips = Diff("ServerRoundtrips");
+        var sent = Diff("BytesSent");
+        var received = Diff("BytesReceived");
+        var executionMs = Diff("ExecutionTime");
+        var rows = Diff("SelectRows");
+
+        yield return $"Client statistics: server roundtrips {roundtrips:N0}, sent {sent / 1024.0:0.#} KB, received {received / 1024.0:0.#} KB.";
+        yield return $"Client statistics: execution time {executionMs:N0} ms (client + server wait), rows received {rows:N0}.";
     }
 
     private static async Task ExecuteSingleBatchAsync(
