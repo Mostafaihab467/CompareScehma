@@ -3,17 +3,20 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Input;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Threading;
 using SchemaCompare.Models;
 
 namespace SchemaCompare.Controls;
 
 /// <summary>
-/// Draws an execution plan as a top-down SSMS-style operator diagram: each
-/// <see cref="PlanNode"/> becomes a box (operator, object, estimated rows, cost %)
-/// connected by elbow lines. Clicking a box opens a details strip under the
-/// diagram (costs, I/O/CPU split, predicates, warnings); missing-index hints
-/// appear as a banner with a ready CREATE INDEX script. Scrollable both ways.
+/// Draws an execution plan as a left-to-right SSMS-style operator diagram: each
+/// <see cref="PlanNode"/> becomes an icon-bearing box (operator, object, estimated
+/// rows, cost %) connected by elbow lines, statements stacked in vertical bands.
+/// Clicking a box opens a details strip under the diagram; missing-index hints
+/// appear as a banner with a ready CREATE INDEX script. Ctrl + wheel zooms.
 /// </summary>
 public sealed class PlanDiagramControl : ContentControl
 {
@@ -26,16 +29,23 @@ public sealed class PlanDiagramControl : ContentControl
         set => SetValue(PlanProperty, value);
     }
 
-    private const double BoxWidth = 178;
-    private const double BoxHeight = 60;
-    private const double HGap = 26;
-    private const double VGap = 62;
+    private const double BoxWidth = 186;
+    private const double BoxHeight = 62;
+    /// <summary>Gap between depth columns (left to right).</summary>
+    private const double HGap = 48;
+    /// <summary>Gap between sibling rows.</summary>
+    private const double VGap = 20;
     private const double Edge = 16;
+    private const double MinZoom = 0.4;
+    private const double MaxZoom = 2.5;
 
     private PlanNode? _selected;
     private ScrollViewer? _scroll;
+    private LayoutTransformControl? _zoomHost;
     private Border? _detailsPanel;
     private Border? _missingIndexPanel;
+    private Point? _pointerPos;
+    private double _zoom = 1.0;
 
     public PlanDiagramControl()
     {
@@ -47,6 +57,19 @@ public sealed class PlanDiagramControl : ContentControl
             VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
             Padding = new Thickness(0)
         };
+        _zoomHost = new LayoutTransformControl
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            VerticalAlignment = VerticalAlignment.Top,
+            LayoutTransform = new ScaleTransform(_zoom, _zoom)
+        };
+        _scroll.Content = _zoomHost;
+
+        // Tunnel so Ctrl+wheel is consumed before the ScrollViewer scrolls the canvas.
+        _scroll.AddHandler(InputElement.PointerWheelChangedEvent,
+            new EventHandler<PointerWheelEventArgs>(OnPointerWheelChanged), RoutingStrategies.Tunnel);
+        _scroll.PointerMoved += (_, e) => _pointerPos = e.GetPosition(_scroll);
+
         var grid = new Grid();
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
         grid.RowDefinitions.Add(new RowDefinition(GridLength.Star));
@@ -67,6 +90,8 @@ public sealed class PlanDiagramControl : ContentControl
         if (change.Property == PlanProperty)
         {
             _selected = null;
+            _zoom = 1.0;
+            if (_zoomHost != null) _zoomHost.LayoutTransform = new ScaleTransform(_zoom, _zoom);
             Rebuild();
         }
     }
@@ -98,15 +123,59 @@ public sealed class PlanDiagramControl : ContentControl
         };
     }
 
+    // ─── Zoom ───────────────────────────────────────────────────────────────
+
+    private void OnPointerWheelChanged(object? sender, PointerWheelEventArgs e)
+    {
+        if (_scroll == null || e.Delta.Y == 0) return;
+        if (!e.KeyModifiers.HasFlag(KeyModifiers.Control)) return;
+
+        e.Handled = true;
+        // Anchor on the pointer when known so zoomed content stays under the cursor.
+        var anchor = _pointerPos ?? e.GetPosition(_scroll);
+        ZoomAt(anchor, _zoom * (e.Delta.Y > 0 ? 1.12 : 1 / 1.12));
+    }
+
+    private void ZoomAt(Point? viewportAnchor, double newZoom)
+    {
+        var scroll = _scroll;
+        var host = _zoomHost;
+        if (scroll == null || host == null) return;
+
+        newZoom = Math.Clamp(Math.Round(newZoom, 3), MinZoom, MaxZoom);
+        var oldZoom = _zoom;
+        if (newZoom == oldZoom) return;
+
+        var anchor = viewportAnchor ?? new Point(
+            scroll.Viewport.Width > 0 ? scroll.Viewport.Width / 2 : scroll.Bounds.Width / 2,
+            scroll.Viewport.Height > 0 ? scroll.Viewport.Height / 2 : scroll.Bounds.Height / 2);
+        var contentX = (scroll.Offset.X + anchor.X) / oldZoom;
+        var contentY = (scroll.Offset.Y + anchor.Y) / oldZoom;
+
+        _zoom = newZoom;
+        host.LayoutTransform = new ScaleTransform(newZoom, newZoom);
+
+        // Re-anchor once layout has caught up with the new scale.
+        Dispatcher.UIThread.Post(() =>
+        {
+            scroll.Offset = new Vector(
+                Math.Max(0, contentX * newZoom - anchor.X),
+                Math.Max(0, contentY * newZoom - anchor.Y));
+        }, DispatcherPriority.Background);
+    }
+
+    // ─── Layout ──────────────────────────────────────────────────────────────
+
     private void Rebuild()
     {
         var details = _detailsPanel;
         var banner = _missingIndexPanel;
         var scroll = _scroll;
-        if (details == null || banner == null || scroll == null) return;
+        var host = _zoomHost;
+        if (details == null || banner == null || scroll == null || host == null) return;
 
         var canvas = new Canvas();
-        scroll.Content = canvas;
+        host.Child = canvas;
 
         if (Plan == null || Plan.Statements.Count == 0)
         {
@@ -119,6 +188,8 @@ public sealed class PlanDiagramControl : ContentControl
                 Opacity = 0.7,
                 FontSize = 12
             });
+            canvas.Width = 500;
+            canvas.Height = 60;
             return;
         }
 
@@ -155,8 +226,10 @@ public sealed class PlanDiagramControl : ContentControl
             banner.IsVisible = false;
         }
 
+        // Horizontal tree: depth runs left→right, siblings stack top→bottom, and
+        // each statement gets its own vertical band.
         var y = Edge;
-        var nextLeaf = 0;
+        var widestBand = 0.0;
         foreach (var stmt in Plan.Statements)
         {
             var header = new TextBlock
@@ -165,7 +238,6 @@ public sealed class PlanDiagramControl : ContentControl
                 FontSize = 11,
                 FontWeight = FontWeight.SemiBold,
                 Foreground = ResourceBrush("Primary500", "#7C6FF0"),
-                Margin = new Thickness(Edge, y, Edge, 6),
                 MaxWidth = 1100,
                 TextTrimming = TextTrimming.CharacterEllipsis
             };
@@ -186,15 +258,18 @@ public sealed class PlanDiagramControl : ContentControl
                 continue;
             }
 
-            var positions = new Dictionary<PlanNode, Point>();
+            var top = y;
+            var nextLeaf = 0;
             var maxDepth = 0;
-            AssignPositions(stmt.Root, 0, ref nextLeaf, ref maxDepth, positions, y);
+            var positions = new Dictionary<PlanNode, Point>();
+            AssignPositions(stmt.Root, 0, ref nextLeaf, ref maxDepth, positions, Edge, top);
             foreach (var (node, pos) in positions)
                 DrawNode(canvas, node, pos);
             foreach (var (node, pos) in positions)
                 DrawConnectors(canvas, node, positions);
 
-            y = maxDepth * (BoxHeight + VGap) + y + BoxHeight + 34;
+            widestBand = Math.Max(widestBand, (maxDepth + 1) * (BoxWidth + HGap) - HGap + Edge * 2);
+            y = top + nextLeaf * (BoxHeight + VGap) - VGap + 30;
         }
 
         // Legend.
@@ -204,7 +279,7 @@ public sealed class PlanDiagramControl : ContentControl
             Opacity = 0.75,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(Edge, 4, Edge, 12),
-            Text = "Cost % = operator's share of the total estimated plan cost (box color: green cheap → red expensive). ⚠ = optimizer warning. Click any box for full details. Rows are optimizer estimates, not actual counts.",
+            Text = "Data flows left → right. Cost % = operator's share of the total estimated plan cost (box color: green cheap → red expensive). ⚠ = optimizer warning. Click any box for full details; Ctrl + scroll to zoom. Rows are optimizer estimates, not actual counts.",
             Foreground = ResourceBrush("OnSurfaceVariant", "#98A0B3")
         };
         Canvas.SetTop(legend, y);
@@ -212,7 +287,7 @@ public sealed class PlanDiagramControl : ContentControl
         canvas.Children.Add(legend);
         y += 42;
 
-        canvas.Width = Math.Max(nextLeaf * (BoxWidth + HGap) - HGap + Edge * 2, 500);
+        canvas.Width = Math.Max(widestBand, 500);
         canvas.Height = y;
 
         if (_selected != null && ContainsNode(Plan, _selected))
@@ -227,23 +302,25 @@ public sealed class PlanDiagramControl : ContentControl
     private static bool ContainsNode(ExecutionPlan plan, PlanNode node) =>
         plan.Statements.Any(s => s.Root != null && s.Root.SelfAndDescendants().Contains(node));
 
+    /// <summary>Positions are box centers: depth drives X, sibling order drives Y.</summary>
     private void AssignPositions(PlanNode node, int depth, ref int nextLeaf, ref int maxDepth,
-        Dictionary<PlanNode, Point> positions, double top)
+        Dictionary<PlanNode, Point> positions, double left, double top)
     {
         if (depth > maxDepth) maxDepth = depth;
-        double x;
+        var x = left + depth * (BoxWidth + HGap) + BoxWidth / 2;
+        double y;
         if (node.Children.Count == 0)
         {
-            x = Edge + nextLeaf * (BoxWidth + HGap) + BoxWidth / 2;
+            y = top + nextLeaf * (BoxHeight + VGap) + BoxHeight / 2;
             nextLeaf++;
         }
         else
         {
             foreach (var child in node.Children)
-                AssignPositions(child, depth + 1, ref nextLeaf, ref maxDepth, positions, top);
-            x = (positions[node.Children[0]].X + positions[node.Children[^1]].X) / 2;
+                AssignPositions(child, depth + 1, ref nextLeaf, ref maxDepth, positions, left, top);
+            y = (positions[node.Children[0]].Y + positions[node.Children[^1]].Y) / 2;
         }
-        positions[node] = new Point(x, top + depth * (BoxHeight + VGap));
+        positions[node] = new Point(x, y);
     }
 
     private void DrawConnectors(Canvas canvas, PlanNode node, Dictionary<PlanNode, Point> positions)
@@ -252,13 +329,13 @@ public sealed class PlanDiagramControl : ContentControl
         foreach (var child in node.Children)
         {
             if (!positions.TryGetValue(child, out var pos)) continue;
-            var midY = parent.Y + BoxHeight + VGap / 2;
+            var midX = parent.X + BoxWidth / 2 + HGap / 2;
             var points = new List<Point>
             {
-                new(parent.X, parent.Y + BoxHeight),
-                new(parent.X, midY),
-                new(pos.X, midY),
-                new(pos.X, pos.Y)
+                new(parent.X + BoxWidth / 2, parent.Y),
+                new(midX, parent.Y),
+                new(midX, pos.Y),
+                new(pos.X - BoxWidth / 2, pos.Y)
             };
             canvas.Children.Add(new Polyline
             {
@@ -277,6 +354,27 @@ public sealed class PlanDiagramControl : ContentControl
         var borderBrush = isSelected ? Solid("#FFFFFF") : hasWarnings ? Solid("#D0A93F") : brush.Border;
         var title = (node.IsParallel ? "∥ " : "") + (hasWarnings ? "⚠ " : "") + node.Label;
 
+        var titleRow = new StackPanel
+        {
+            Orientation = Orientation.Horizontal,
+            Spacing = 5
+        };
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = OperatorIcon.IconFor(node),
+            FontSize = 13,
+            VerticalAlignment = VerticalAlignment.Center
+        });
+        titleRow.Children.Add(new TextBlock
+        {
+            Text = title,
+            FontSize = 12,
+            FontWeight = FontWeight.Bold,
+            Foreground = brush.Text,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        });
+
         var border = new Border
         {
             Width = BoxWidth,
@@ -289,17 +387,10 @@ public sealed class PlanDiagramControl : ContentControl
             Cursor = new Cursor(StandardCursorType.Hand),
             Child = new StackPanel
             {
-                VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center,
                 Children =
                 {
-                    new TextBlock
-                    {
-                        Text = title,
-                        FontSize = 12,
-                        FontWeight = FontWeight.Bold,
-                        Foreground = brush.Text,
-                        TextTrimming = TextTrimming.CharacterEllipsis
-                    },
+                    titleRow,
                     new TextBlock
                     {
                         Text = node.ObjectName ?? node.LogicalOp,
@@ -320,7 +411,7 @@ public sealed class PlanDiagramControl : ContentControl
             }
         };
         Canvas.SetLeft(border, pos.X - BoxWidth / 2);
-        Canvas.SetTop(border, pos.Y);
+        Canvas.SetTop(border, pos.Y - BoxHeight / 2);
         ToolTip.SetTip(border, BuildTooltip(node));
         border.PointerPressed += (_, _) =>
         {
@@ -357,7 +448,7 @@ public sealed class PlanDiagramControl : ContentControl
         var details = _detailsPanel!;
         var rows = new List<(string Label, string Value)>
         {
-            ("Operator", $"{node.PhysicalOp}  (logical: {node.LogicalOp})"),
+            ("Operator", $"{OperatorIcon.IconFor(node)}  {node.PhysicalOp}  (logical: {node.LogicalOp})"),
         };
         if (!string.IsNullOrEmpty(node.ObjectName)) rows.Add(("Object", node.ObjectName));
         if (!string.IsNullOrEmpty(node.Predicate)) rows.Add(("Predicate", node.Predicate));
@@ -436,4 +527,69 @@ public sealed class PlanDiagramControl : ContentControl
         Application.Current?.TryGetResource(key, null, out var value) == true && value is IBrush b
             ? b
             : Solid(fallback);
+}
+
+/// <summary>
+/// One glyph per operator family, SSMS-style. Matching ignores spaces/case so it
+/// works on both "Clustered Index Scan" and "ClusteredIndexScan" spellings; the
+/// first rule that matches wins, so specific families come before generic ones.
+/// </summary>
+public static class OperatorIcon
+{
+    private static readonly (string Fragment, string Icon)[] Rules =
+    [
+        // DML actions first — the verb matters more than the access path.
+        ("bulkinsert", "📥"), ("bcp", "📥"),
+        ("insert", "➕"), ("update", "✏️"), ("delete", "🗑"),
+        // Index / table access shapes.
+        ("columnstore", "📚"),
+        ("clustered", "🍇"),
+        ("spool", "📦"),
+        ("agg", "🧮"),
+        ("assert", "⚖️"),
+        ("filter", "✅"),
+        ("seek", "🔎"),
+        ("indexscan", "🗂"),
+        ("index", "🗃"),
+        ("tablescan", "🧾"), ("table", "🧾"),
+        ("constant", "🧊"),
+        // Joins.
+        ("nestedloops", "🪆"), ("loops", "🪆"),
+        ("mergejoin", "🔀"),
+        ("hash", "#️⃣"),
+        ("join", "🔗"),
+        // Flow control.
+        ("sort", "🔢"),
+        ("top", "🔝"),
+        ("segment", "🧩"),
+        ("distinct", "🏷"),
+        ("window", "🪟"),
+        ("scalar", "✳️"),
+        // Parallelism / exchange.
+        ("gatherstreams", "📡"),
+        ("repartition", "🌀"), ("exchange", "🌀"), ("parallelism", "🌀"),
+        // Misc.
+        ("rowcount", "➖"),
+        ("fetch", "🪝"),
+        ("remote", "🌐"),
+        ("bif", "🔮"), ("fulltext", "🔮"),
+        ("select", "📤"),
+        ("declare", "💬"), ("stmt", "💬"), ("execute", "💬"),
+        ("sequence", "🎞"),
+    ];
+
+    public static string IconFor(PlanNode node)
+    {
+        var op = Normalize(node.PhysicalOp);
+        if (op.Length == 0) op = Normalize(node.LogicalOp);
+        // "Non Clustered …" must not inherit the clustered glyph.
+        op = op.Replace("nonclustered", "");
+        foreach (var (fragment, icon) in Rules)
+            if (op.Contains(fragment, StringComparison.Ordinal))
+                return icon;
+        return "⚙️";
+    }
+
+    private static string Normalize(string s) =>
+        new string(s.Where(char.IsLetterOrDigit).ToArray()).ToLowerInvariant();
 }

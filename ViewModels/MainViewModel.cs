@@ -18,17 +18,24 @@ public partial class MainViewModel : ObservableObject
     private bool _applyingProfile;
     private bool _applyingSettings;
 
-    [ObservableProperty] private string _sourceServer = "localhost";
-    [ObservableProperty] private string _sourceDatabase = "EgyptMart";
+    [ObservableProperty] private string _sourceServer = "";
+    [ObservableProperty] private string _sourceDatabase = "";
     [ObservableProperty] private bool _sourceUseWindowsAuth = true;
     [ObservableProperty] private string _sourceUsername = "";
     [ObservableProperty] private string _sourcePassword = "";
 
-    [ObservableProperty] private string _targetServer = "192.168.1.161";
-    [ObservableProperty] private string _targetDatabase = "EgyptMart";
-    [ObservableProperty] private bool _targetUseWindowsAuth = false;
-    [ObservableProperty] private string _targetUsername = "eta";
-    [ObservableProperty] private string _targetPassword = "500600";
+    [ObservableProperty] private string _targetServer = "";
+    [ObservableProperty] private string _targetDatabase = "";
+    [ObservableProperty] private bool _targetUseWindowsAuth = true;
+    [ObservableProperty] private string _targetUsername = "";
+    [ObservableProperty] private string _targetPassword = "";
+
+    // Per-connection TLS posture (see ConnectionInfo). TrustServerCertificate stays
+    // on by default so local instances without a trusted cert keep working.
+    [ObservableProperty] private bool _sourceEncryptConnection;
+    [ObservableProperty] private bool _sourceTrustServerCertificate = true;
+    [ObservableProperty] private bool _targetEncryptConnection;
+    [ObservableProperty] private bool _targetTrustServerCertificate = true;
 
     [ObservableProperty] private bool _isComparing;
     [ObservableProperty] private string _statusMessage = "Enter connection details and click Compare";
@@ -154,6 +161,7 @@ public partial class MainViewModel : ObservableObject
     public ICommand OpenDbManagerCommand { get; }
     public ICommand OpenQueryCommand { get; }
     public ICommand OpenDbHealthCommand { get; }
+    public ICommand OpenAboutCommand { get; }
     public ICommand ExportBackupCommand { get; }
     public ICommand ToggleSidebarCommand { get; }
     public ICommand CopyErrorCommand { get; }
@@ -170,6 +178,10 @@ public partial class MainViewModel : ObservableObject
     public Action? OpenDbManagerWindowAction { get; set; }
     public Action? OpenQueryWindowAction { get; set; }
     public Action? OpenDbHealthWindowAction { get; set; }
+    public Action? OpenAboutWindowAction { get; set; }
+
+    /// <summary>Version line shown under the header title and in the About window.</summary>
+    public string AppVersionText => $"v{AppInfo.VersionText}";
 
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
@@ -201,6 +213,7 @@ public partial class MainViewModel : ObservableObject
         OpenDbManagerCommand = new RelayCommand(() => OpenDbManagerWindowAction?.Invoke());
         OpenQueryCommand = new RelayCommand(() => OpenQueryWindowAction?.Invoke());
         OpenDbHealthCommand = new RelayCommand(() => OpenDbHealthWindowAction?.Invoke());
+        OpenAboutCommand = new RelayCommand(() => OpenAboutWindowAction?.Invoke());
         ExportBackupCommand = new AsyncRelayCommand(ExportBackupAsync, () => !IsBackingUp && !string.IsNullOrWhiteSpace(BackupDestinationPath));
         ToggleSidebarCommand = new RelayCommand(() => IsSidebarOpen = !IsSidebarOpen);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);
@@ -317,7 +330,12 @@ public partial class MainViewModel : ObservableObject
         }
         AppSettingsService.ApplyToResources(UiScale, CodeFontSize);
         try { _settingsService.Save(new AppSettings { UiScale = UiScale, CodeFontSize = CodeFontSize }); }
-        catch { /* settings must never crash the app */ }
+        catch (Exception ex)
+        {
+            // The sizes still apply for this session; only saving them for next time failed.
+            AppLog.Error("MainViewModel", ex, "UI settings could not be saved to disk");
+            StatusMessage = "⚠ Text sizes apply now but could not be saved to disk.";
+        }
     }
 
     private void ResetTextSettings()
@@ -368,6 +386,8 @@ public partial class MainViewModel : ObservableObject
                 SourceUseWindowsAuth = profile.UseWindowsAuth;
                 SourceUsername = profile.Username;
                 SourcePassword = profile.Password;
+                SourceEncryptConnection = profile.EncryptConnection;
+                SourceTrustServerCertificate = profile.TrustServerCertificate;
                 SourceHasConnectionResult = false;
             }
             else
@@ -377,6 +397,8 @@ public partial class MainViewModel : ObservableObject
                 TargetUseWindowsAuth = profile.UseWindowsAuth;
                 TargetUsername = profile.Username;
                 TargetPassword = profile.Password;
+                TargetEncryptConnection = profile.EncryptConnection;
+                TargetTrustServerCertificate = profile.TrustServerCertificate;
                 TargetHasConnectionResult = false;
             }
         }
@@ -395,6 +417,8 @@ public partial class MainViewModel : ObservableObject
         var useWinAuth = isSource ? SourceUseWindowsAuth : TargetUseWindowsAuth;
         var username = isSource ? SourceUsername : TargetUsername;
         var password = isSource ? SourcePassword : TargetPassword;
+        var encrypt = isSource ? SourceEncryptConnection : TargetEncryptConnection;
+        var trustCert = isSource ? SourceTrustServerCertificate : TargetTrustServerCertificate;
         var side = isSource ? "Source" : "Target";
 
         if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database))
@@ -415,6 +439,8 @@ public partial class MainViewModel : ObservableObject
                 existing.UseWindowsAuth = useWinAuth;
                 existing.Username = username?.Trim() ?? string.Empty;
                 existing.Password = password ?? string.Empty;
+                existing.EncryptConnection = encrypt;
+                existing.TrustServerCertificate = trustCert;
             }
             finally { _applyingProfile = false; }
             PersistSavedConnections();
@@ -437,6 +463,8 @@ public partial class MainViewModel : ObservableObject
                 UseWindowsAuth = useWinAuth,
                 Username = username?.Trim() ?? string.Empty,
                 Password = password ?? string.Empty,
+                EncryptConnection = encrypt,
+                TrustServerCertificate = trustCert,
             };
             SavedConnections.Add(profile);
             PersistSavedConnections();
@@ -467,7 +495,15 @@ public partial class MainViewModel : ObservableObject
 
     private void PersistSavedConnections()
     {
-        try { _savedService.Save(SavedConnections); }
+        try
+        {
+            _savedService.Save(SavedConnections);
+            if (_savedService.LastWarning is { } warning)
+            {
+                StatusMessage = "⚠ " + warning;
+                AppendLog("WARNING: " + warning);
+            }
+        }
         catch (Exception ex) { AppendLog($"WARNING: could not persist saved credentials: {ex.Message}"); }
     }
 
@@ -653,6 +689,9 @@ public partial class MainViewModel : ObservableObject
 
         IsComparing = true; StatusMessage = $"Applying {includedItems.Count} selected changes...";
         AppendLog($"--- Apply started: {includedItems.Count} item(s) selected ---");
+        // Deploy audit trail: what was pushed where, and which safety rails were off.
+        AppLog.Info($"Apply started → target {TargetAuditLabel()}, source {SourceAuditLabel()}, " +
+                    $"unsafeDrops={AllowUnsafeDrops}, unsafeChanges={AllowUnsafeChanges}, items={includedItems.Count}");
         try
         {
             var p = new Progress<string>(m => { ProgressText = m; StatusMessage = m; AppendLog(m); });
@@ -660,10 +699,21 @@ public partial class MainViewModel : ObservableObject
             FullDeployScript = script; HasFullScript = true;
             StatusMessage = "Changes applied successfully.";
             AppendLog("--- Apply finished successfully ---");
+            AppLog.Info($"Apply succeeded → target {TargetAuditLabel()}, script {script.Length:N0} chars");
         }
-        catch (Exception ex) { StatusMessage = $"Error applying changes: {ex.Message}"; AppendLog($"Apply ERROR: {ex.Message}"); }
+        catch (Exception ex)
+        {
+            AppLog.Error("Apply", ex, $"Apply aborted → target {TargetAuditLabel()}");
+            StatusMessage = $"Error applying changes: {ex.Message}";
+            AppendLog($"Apply ERROR: {ex.Message}");
+        }
         finally { IsComparing = false; }
     }
+
+    /// <summary>Server/database only — audit lines must never carry credentials.</summary>
+    private string SourceAuditLabel() => $"{SourceServer?.Trim()}/{SourceDatabase?.Trim()} (WinAuth={SourceUseWindowsAuth})";
+
+    private string TargetAuditLabel() => $"{TargetServer?.Trim()}/{TargetDatabase?.Trim()} (WinAuth={TargetUseWindowsAuth})";
 
     private void InvalidateDataMovePlan()
     {
@@ -816,12 +866,14 @@ public partial class MainViewModel : ObservableObject
     private ConnectionInfo GetSourceInfo() => new()
     {
         Server = SourceServer, Database = SourceDatabase, UseWindowsAuth = SourceUseWindowsAuth,
-        Username = SourceUsername, Password = SourcePassword
+        Username = SourceUsername, Password = SourcePassword,
+        EncryptConnection = SourceEncryptConnection, TrustServerCertificate = SourceTrustServerCertificate
     };
 
     private ConnectionInfo GetTargetInfo() => new()
     {
         Server = TargetServer, Database = TargetDatabase, UseWindowsAuth = TargetUseWindowsAuth,
-        Username = TargetUsername, Password = TargetPassword
+        Username = TargetUsername, Password = TargetPassword,
+        EncryptConnection = TargetEncryptConnection, TrustServerCertificate = TargetTrustServerCertificate
     };
 }

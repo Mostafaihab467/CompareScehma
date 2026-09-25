@@ -6,6 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
+    <Version>1.5.0</Version>
+    <AssemblyVersion>1.5.0.0</AssemblyVersion>
+    <FileVersion>1.5.0.0</FileVersion>
+    <Product>Schema Compare</Product>
+    <AssemblyTitle>Schema Compare</AssemblyTitle>
+    <Description>Compare, sync and manage SQL Server databases.</Description>
+    <Company>Ihab</Company>
+    <Copyright>Copyright © 2026</Copyright>
   </PropertyGroup>
 
   <ItemGroup>

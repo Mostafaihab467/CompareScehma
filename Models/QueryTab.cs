@@ -26,6 +26,30 @@ public partial class QueryTab : ObservableObject
     public bool HasLintIssues => !string.IsNullOrEmpty(LintSummary);
     partial void OnLintSummaryChanged(string value) => OnPropertyChanged(nameof(HasLintIssues));
 
+    /// <summary>.sql file this tab was loaded from or last saved to; null when never saved.</summary>
+    [ObservableProperty] private string? _filePath;
+
+    /// <summary>Editor text changed since the last open/save — shown as * in the tab header.</summary>
+    [ObservableProperty] private bool _isDirty;
+
+    partial void OnSqlTextChanged(string value)
+    {
+        if (!IsReloadingFromFile) IsDirty = true;
+    }
+
+    partial void OnIsDirtyChanged(bool value) => OnPropertyChanged(nameof(Header));
+
+    /// <summary>Set while the view-model pushes file contents in, so a load does not look like an edit.</summary>
+    public bool IsReloadingFromFile { get; set; }
+
+    /// <summary>Marks the tab as matching <paramref name="path"/> on disk.</summary>
+    public void MarkSavedAt(string path)
+    {
+        FilePath = path;
+        Title = Path.GetFileName(path);
+        IsDirty = false;
+    }
+
     /// <summary>Actual execution plan captured with the last run (🧭 Plan toggle on).</summary>
     [ObservableProperty] private ExecutionPlan? _plan;
     public bool HasPlan => Plan != null;
@@ -54,7 +78,7 @@ public partial class QueryTab : ObservableObject
     /// <summary>Cancellation for the in-flight execution, owned by the view-model.</summary>
     internal CancellationTokenSource? ExecutionCts { get; set; }
 
-    public string Header => IsExecuting ? $"▶ {Title}" : Title;
+    public string Header => (IsExecuting ? "▶ " : "") + Title + (IsDirty ? " *" : "");
 
     partial void OnIsExecutingChanged(bool value) => OnPropertyChanged(nameof(Header));
     partial void OnTitleChanged(string value) => OnPropertyChanged(nameof(Header));

@@ -622,8 +622,7 @@ public partial class DbManagerViewModel : ObservableObject
         var script = ManagerScriptBuilder.CreateIndex(spec);
         if (spec.ExecuteNow)
         {
-            if (ShowScriptConfirmAsync != null &&
-                !await ShowScriptConfirmAsync("Create index",
+            if (!await ConfirmAsync("Create index",
                     $"Creates index {spec.IndexName} on {schema}.{table}.", script))
                 return;
             await RunSafeAsync(async ct =>
@@ -658,8 +657,7 @@ public partial class DbManagerViewModel : ObservableObject
         var script = ManagerScriptBuilder.CreatePartition(spec);
         if (spec.ExecuteNow)
         {
-            if (ShowScriptConfirmAsync != null &&
-                !await ShowScriptConfirmAsync("Create partition",
+            if (!await ConfirmAsync("Create partition",
                     $"Creates partition function {spec.FunctionName} and scheme {spec.SchemeName}" +
                     (spec.AlignClusteredIndex ? ", then aligns the table onto it." : "."),
                     script))
@@ -844,6 +842,13 @@ public partial class DbManagerViewModel : ObservableObject
     private static List<string> KeyColumnsOf(TableMetadata meta) =>
         meta.Columns.Where(c => c.IsPrimaryKey).Select(c => c.Name).ToList();
 
+    /// <summary>
+    /// Confirms a script with the host dialog. Fails CLOSED: with no dialog wired
+    /// the action is refused rather than executed unprompted.
+    /// </summary>
+    private async Task<bool> ConfirmAsync(string title, string warning, string script) =>
+        ShowScriptConfirmAsync != null && await ShowScriptConfirmAsync(title, warning, script);
+
     private async Task RunIndexActionAsync(ManagerNode? node, string title, string warning,
         Func<string, string, string, string> build)
     {
@@ -852,7 +857,7 @@ public partial class DbManagerViewModel : ObservableObject
         if (owner == null) return;
 
         var script = build(owner.Schema, owner.Name, node.Name);
-        if (ShowScriptConfirmAsync != null && !await ShowScriptConfirmAsync(title, warning, script))
+        if (!await ConfirmAsync(title, warning, script))
             return;
 
         await RunSafeAsync(async ct =>
@@ -874,8 +879,7 @@ public partial class DbManagerViewModel : ObservableObject
             ? ManagerScriptBuilder.UpdateStatistics(owner.Schema, owner.Name, node.Name)
             : ManagerScriptBuilder.UpdateStatistics(owner.Schema, owner.Name);
 
-        if (ShowScriptConfirmAsync != null &&
-            !await ShowScriptConfirmAsync("Update statistics", "Refreshes query-optimizer statistics (fast, online).", script))
+        if (!await ConfirmAsync("Update statistics", "Refreshes query-optimizer statistics (fast, online).", script))
             return;
 
         await RunSafeAsync(async ct =>
@@ -911,7 +915,7 @@ public partial class DbManagerViewModel : ObservableObject
         if (node == null || _connInfo == null || !node.CanShrink) return;
         var db = _connInfo.Database;
         var script = ManagerScriptBuilder.ShrinkDatabase(db);
-        if (ShowScriptConfirmAsync != null && !await ShowScriptConfirmAsync(
+        if (!await ConfirmAsync(
                 "Shrink database",
                 "Reclaims unused space. Shrinking causes index fragmentation — run it only after large deletions, then consider rebuilding indexes.",
                 script))
@@ -937,9 +941,10 @@ public partial class DbManagerViewModel : ObservableObject
 
         var db = _connInfo.Database;
         var script = ManagerScriptBuilder.RestoreDatabase(db, backupPath);
-        if (ShowScriptConfirmAsync != null && !await ShowScriptConfirmAsync(
+        if (!await ConfirmAsync(
                 "Restore database",
-                $"⚠ {db} will be OVERWRITTEN from the backup file. Anything not in the backup is lost; other connections are disconnected first.",
+                $"⚠ {db} will be OVERWRITTEN from the backup file. Anything not in the backup is lost; other connections are disconnected first." +
+                " Take a fresh backup of the current state first if you may need to roll back.",
                 script))
             return;
         await RunSafeAsync(async ct =>
@@ -1181,6 +1186,15 @@ public partial class DbManagerViewModel : ObservableObject
             }
 
             int saved = 0;
+            var pendingCells = _pendingRowEdits.Sum(e => e.Value.Count);
+            var changePreview = string.Join("\n", _pendingRowEdits.Select(e =>
+                $"-- {obj.DisplayName}: {string.Join(", ", e.Value.Keys)}"));
+            if (!await ConfirmAsync("Save grid changes",
+                    $"Writes {pendingCells} cell change(s) across {_pendingRowEdits.Count} row(s) to {obj.DisplayName}," +
+                    " matched on the original primary keys. This cannot be undone.",
+                    changePreview))
+                return;
+
             foreach (var (row, changes) in _pendingRowEdits.ToList())
             {
                 if (!_originalRowValues.TryGetValue(row, out var original)) continue;
@@ -1254,8 +1268,14 @@ public partial class DbManagerViewModel : ObservableObject
                 pkValues[pk] = ConvertForDb(cols, pk, v);
             }
 
-            await _service.DeleteRowAsync(info, obj.Schema, obj.Name, pkValues, ct);
-            _pendingRowEdits.Remove(row);
+            var where = string.Join(" AND ", pkValues.Select(kv =>
+                $"[{kv.Key}] = {(kv.Value is string s ? "N'" + s.Replace("'", "''") + "'" : kv.Value)}"));
+            if (!await ConfirmAsync("Delete row",
+                    $"Deletes 1 row from {obj.DisplayName}. This cannot be undone.",
+                    $"DELETE FROM [{obj.Schema}].[{obj.Name}] WHERE {where};"))
+                return;
+
+            await _service.DeleteRowAsync(info, obj.Schema, obj.Name, pkValues, ct);            _pendingRowEdits.Remove(row);
             _originalRowValues.Remove(row);
 
             StatusMessage = $"✓ Row deleted from {obj.DisplayName}. Reloading…";

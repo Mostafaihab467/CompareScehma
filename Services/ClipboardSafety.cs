@@ -37,7 +37,10 @@ public static class ClipboardSafety
             {
                 Debug.WriteLine($"[ClipboardSafety] Copy attempt {attempt}/{maxAttempts} failed ({ex.GetType().Name}): {ex.Message}");
                 if (attempt >= maxAttempts)
+                {
+                    AppLog.Error("ClipboardSafety", ex, $"Clipboard copy failed after {maxAttempts} attempts");
                     return false;
+                }
                 try { await Task.Delay(delayMs); } catch { }
             }
         }
@@ -65,7 +68,7 @@ public static class ClipboardSafety
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[ClipboardSafety] Clear-selection failed ({ex.GetType().Name}): {ex.Message}");
+            AppLog.Error("ClipboardSafety", ex, "Cut cleared the selection but the delete step failed");
             return false;
         }
     }
@@ -90,7 +93,10 @@ public static class ClipboardSafety
             {
                 Debug.WriteLine($"[ClipboardSafety] Paste attempt {attempt}/{maxAttempts} failed ({ex.GetType().Name}): {ex.Message}");
                 if (attempt >= maxAttempts)
+                {
+                    AppLog.Error("ClipboardSafety", ex, $"Clipboard read failed after {maxAttempts} attempts");
                     return (false, null);
+                }
                 try { await Task.Delay(delayMs); } catch { }
             }
         }

@@ -36,7 +36,7 @@ public partial class DbManagerWindow : Window
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DbManagerWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
+                AppLog.Error("DbManagerWindow", ex, "Copy failed");
             }
         };
 

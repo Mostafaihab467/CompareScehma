@@ -58,7 +58,7 @@ public sealed class QueryBuilderService
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryBuilder] FK lookup failed: {ex.Message}");
+            AppLog.Warn($"[QueryBuilder] FK lookup failed: {ex.Message}");
         }
         return list;
     }

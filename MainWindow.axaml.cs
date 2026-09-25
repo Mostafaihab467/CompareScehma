@@ -24,7 +24,7 @@ public partial class MainWindow : Window
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
+                AppLog.Error("MainWindow", ex, "Copy failed");
                 vm.StatusMessage = "Copy failed: the system clipboard is currently unavailable.";
             }
         };
@@ -110,6 +110,17 @@ public partial class MainWindow : Window
             _dbHealthWindow.Closed += (_, _) => _dbHealthWindow = null;
             _dbHealthWindow.Show(this);
         };
+        vm.OpenAboutWindowAction = () =>
+        {
+            if (_aboutWindow is { IsVisible: true })
+            {
+                _aboutWindow.Activate();
+                return;
+            }
+            _aboutWindow = new AboutWindow();
+            _aboutWindow.Closed += (_, _) => _aboutWindow = null;
+            _aboutWindow.Show(this);
+        };
     }
 
     private MoveDataWindow? _moveDataWindow;
@@ -118,6 +129,7 @@ public partial class MainWindow : Window
     private DbManagerWindow? _dbManagerWindow;
     private QueryWindow? _queryWindow;
     private DbHealthWindow? _dbHealthWindow;
+    private AboutWindow? _aboutWindow;
 
     private async void CopyScript_Click(object? sender, RoutedEventArgs e)
     {
@@ -129,7 +141,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
+            AppLog.Error("MainWindow", ex, "Copy failed");
             if (DataContext is MainViewModel vm)
                 vm.StatusMessage = "Copy failed: the system clipboard is currently unavailable.";
         }
@@ -144,7 +156,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[MainWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
+            AppLog.Error("MainWindow", ex, "Copy failed");
             if (DataContext is MainViewModel vm)
                 vm.StatusMessage = "Copy failed: the system clipboard is currently unavailable.";
         }

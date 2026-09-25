@@ -20,6 +20,7 @@ namespace SchemaCompare;
 public partial class QueryWindow : Window
 {
     private QueryViewModel? _vm;
+    private QueryHistoryWindow? _historyWindow;
 
     public QueryWindow()
     {
@@ -36,7 +37,7 @@ public partial class QueryWindow : Window
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[QueryWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
+                AppLog.Warn($"[QueryWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
             }
             return false;
         };
@@ -55,6 +56,57 @@ public partial class QueryWindow : Window
         });
         return file?.Path.LocalPath;
     };
+    _vm.PickOpenSqlPathAsync = async () =>
+    {
+        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
+        {
+            Title = "Open SQL Script",
+            AllowMultiple = false,
+            FileTypeFilter =
+            [
+                new FilePickerFileType("SQL scripts") { Patterns = ["*.sql", "*.txt"] },
+                new FilePickerFileType("All files") { Patterns = ["*"] }
+            ]
+        });
+        return files.Count > 0 ? files[0].Path.LocalPath : null;
+    };
+    _vm.PickSaveSqlPathAsync = async suggested =>
+    {
+        var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = "Save Script As",
+            SuggestedFileName = suggested,
+            DefaultExtension = "sql",
+            FileTypeChoices = [new FilePickerFileType("SQL scripts") { Patterns = ["*.sql"] }]
+        });
+        return file?.Path.LocalPath;
+    };
+
+    // Dropping a .sql file from Explorer opens it in a tab.
+    AddHandler(DragDrop.DragOverEvent, (_, e) => e.DragEffects = FirstDroppedSqlFile(e) == null ? DragDropEffects.None : DragDropEffects.Copy);
+    AddHandler(DragDrop.DropEvent, OnDroppedFile);
+
+    // Query history window + "insert at caret" back into the active editor.
+    _vm.OpenHistoryWindowAction = () =>
+    {
+        if (_historyWindow is { IsVisible: true })
+        {
+            _historyWindow.Activate();
+            return;
+        }
+        _historyWindow = new QueryHistoryWindow(_vm);
+        _historyWindow.Closed += (_, _) => _historyWindow = null;
+        _historyWindow.Show(this);
+    };
+    _vm.InsertSqlAtCaret = sql =>
+    {
+        var editor = this.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault();
+        if (editor?.Document == null) return;
+        var offset = Math.Clamp(editor.CaretOffset, 0, editor.Document.TextLength);
+        editor.Document.Insert(offset, sql);
+        editor.Focus();
+    };
+
         ClipboardGuard.Attach(this, message =>
         {
             if (_vm != null)
@@ -186,7 +238,7 @@ public partial class QueryWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryWindow] Editor clipboard failed ({ex.GetType().Name}): {ex.Message}");
+            AppLog.Warn($"[QueryWindow] Editor clipboard failed ({ex.GetType().Name}): {ex.Message}");
         }
     }
 
@@ -215,7 +267,7 @@ public partial class QueryWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryWindow] Editor sync failed: {ex.Message}");
+            AppLog.Warn($"[QueryWindow] Editor sync failed: {ex.Message}");
         }
     }
 
@@ -228,7 +280,7 @@ public partial class QueryWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryWindow] Editor read failed: {ex.Message}");
+            AppLog.Warn($"[QueryWindow] Editor read failed: {ex.Message}");
         }
     }
 
@@ -243,7 +295,7 @@ public partial class QueryWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryWindow] SQL highlighting unavailable: {ex.Message}");
+            AppLog.Warn($"[QueryWindow] SQL highlighting unavailable: {ex.Message}");
         }
     }
 
@@ -263,7 +315,7 @@ public partial class QueryWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryWindow] TSQL.xshd load failed: {ex.Message}");
+            AppLog.Warn($"[QueryWindow] TSQL.xshd load failed: {ex.Message}");
         }
         return HighlightingManager.Instance.GetDefinition("SQL");
     }
@@ -436,13 +488,30 @@ public partial class QueryWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[QueryWindow] Cell inspect failed: {ex.Message}");
+            AppLog.Warn($"[QueryWindow] Cell inspect failed: {ex.Message}");
         }
     }
 
-    // -- Keyboard shortcuts: F5/Ctrl+Enter execute, Ctrl+T new tab, Ctrl+W close --
+    // -- Keyboard shortcuts: F5/Ctrl+Enter execute, Ctrl+T new tab, Ctrl+W close,
+    //    Ctrl+O / Ctrl+S / Ctrl+Shift+S for .sql files --
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        if (_vm != null && e.KeyModifiers.HasFlag(KeyModifiers.Control))
+        {
+            if (e.Key == Key.O)
+            {
+                _vm.OpenFileCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+            if (e.Key == Key.S)
+            {
+                if (e.KeyModifiers.HasFlag(KeyModifiers.Shift)) _vm.SaveFileAsCommand.Execute(null);
+                else _vm.SaveFileCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
+        }
         if (_vm?.ActiveTab is { } tab)
         {
             if (e.Key == Key.F5 || (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Enter))
@@ -472,6 +541,35 @@ public partial class QueryWindow : Window
             }
         }
         base.OnKeyDown(e);
+    }
+
+    private void OnDroppedFile(object? sender, DragEventArgs e)
+    {
+        var path = FirstDroppedSqlFile(e);
+        if (path != null) _vm?.OpenSqlFile(path);
+    }
+
+    /// <summary>First dropped file that looks like a script; null when the drag holds none.</summary>
+    private static string? FirstDroppedSqlFile(DragEventArgs e)
+    {
+        try
+        {
+            var files = e.DataTransfer.TryGetFiles();
+            if (files == null) return null;
+            foreach (var file in files)
+            {
+                var path = file.Path.LocalPath;
+                if (path.EndsWith(".sql", StringComparison.OrdinalIgnoreCase) ||
+                    path.EndsWith(".txt", StringComparison.OrdinalIgnoreCase))
+                    return path;
+            }
+            return null;
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"[QueryWindow] Dropped items unreadable ({ex.GetType().Name}): {ex.Message}");
+            return null;
+        }
     }
 
     /// <summary>Selected text of the active tab's editor (empty when nothing selected).</summary>

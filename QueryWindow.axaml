@@ -55,11 +55,30 @@
                     <TextBlock Text="🧩 Query Constructor" />
                 </Button>
 
-                <Button Grid.Column="5" Classes="secondary" Command="{Binding NewTabCommand}"
-                        Padding="14,8" FontSize="13"
-                        ToolTip.Tip="Open a new query tab (Ctrl+T)">
-                    <TextBlock Text="+ New Tab" />
-                </Button>
+                <StackPanel Grid.Column="5" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Classes="secondary" Command="{Binding OpenFileCommand}" Padding="14,8" FontSize="13"
+                            ToolTip.Tip="Open a .sql file (Ctrl+O) — or drop one anywhere in this window">
+                        <TextBlock Text="📂 Open" />
+                    </Button>
+                    <Button Classes="secondary" Command="{Binding SaveFileCommand}" Padding="14,8" FontSize="13"
+                            ToolTip.Tip="Save the tab to its .sql file (Ctrl+S) · Ctrl+Shift+S saves as">
+                        <TextBlock Text="💾 Save" />
+                    </Button>
+                    <controls:SearchableComboBox ItemsSource="{Binding RecentSqlFiles}"
+                                                 SelectedItem="{Binding SelectedRecentFile}"
+                                                 PlaceholderText="Recent" MinWidth="150" MaxWidth="230"
+                                                 ToolTip.Tip="Recently opened scripts">
+                        <ComboBox.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Text="{Binding}" FontSize="11" TextTrimming="CharacterEllipsis" ToolTip.Tip="{Binding}" />
+                            </DataTemplate>
+                        </ComboBox.ItemTemplate>
+                    </controls:SearchableComboBox>
+                    <Button Classes="secondary" Command="{Binding NewTabCommand}" Padding="14,8" FontSize="13"
+                            ToolTip.Tip="Open a new query tab (Ctrl+T)">
+                        <TextBlock Text="+ New Tab" />
+                    </Button>
+                </StackPanel>
             </Grid>
         </Border>
 
@@ -166,10 +185,21 @@
                                                                MinHeight="160"
                                                                HorizontalAlignment="Stretch"
                                                                VerticalAlignment="Stretch" />
-                                <TextBlock Grid.Row="1" Text="{Binding LintSummary}" FontSize="11"
-                                           Foreground="{StaticResource Error}" Padding="8,4"
-                                           TextTrimming="CharacterEllipsis"
-                                           IsVisible="{Binding HasLintIssues}" />
+                                <Grid Grid.Row="1" ColumnDefinitions="*,Auto">
+                                    <TextBlock Text="{Binding LintSummary}" FontSize="11"
+                                               Foreground="{StaticResource Error}" Padding="8,4"
+                                               TextTrimming="CharacterEllipsis"
+                                               IsVisible="{Binding HasLintIssues}" />
+                                    <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10">
+                                        <TextBlock Text="Ctrl+F find · Ctrl+H replace · F3 next · Ctrl+O open · Ctrl+S save"
+                                                   FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                                                   VerticalAlignment="Center" />
+                                        <Button Classes="link" Command="{Binding OpenHistoryCommand}" Padding="6,2" FontSize="11"
+                                                ToolTip.Tip="Search previously executed queries (history survives restarts)">
+                                            <TextBlock Text="🕘 History" />
+                                        </Button>
+                                    </StackPanel>
+                                </Grid>
                             </Grid>
                         </Border>
                         <GridSplitter Grid.Row="2" Height="6" ResizeDirection="Rows" Margin="0,6" />

@@ -1,4 +1,5 @@
 using Avalonia;
+using SchemaCompare.Services;
 
 namespace SchemaCompare;
 
@@ -18,25 +19,21 @@ sealed class Program
             WriteCrashLog("TaskScheduler.UnobservedTaskException", e.Exception, false);
             e.SetObserved();
         };
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
-    }
-
-    private static void WriteCrashLog(string source, Exception? exception, bool isTerminating)
-    {
+        AppLog.Info($"Startup | {AppInfo.VersionText} | {AppInfo.OsText}");
         try
         {
-            var dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-                "SchemaCompare");
-            Directory.CreateDirectory(dir);
-            var entry =
-                $"=== {DateTime.Now:yyyy-MM-dd HH:mm:ss} | {source} | terminating={isTerminating}" +
-                $" | memory={Environment.WorkingSet / (1024 * 1024)} MB ===" +
-                Environment.NewLine + exception + Environment.NewLine + Environment.NewLine;
-            File.AppendAllText(Path.Combine(dir, "crash_log.txt"), entry);
+            BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
-        catch { /* never let logging crash the crash handler */ }
+        finally
+        {
+            AppLog.Info("Shutdown");
+        }
     }
+
+    private static void WriteCrashLog(string source, Exception? exception, bool isTerminating) =>
+        // Never let logging crash the crash handler: AppLog swallows its own failures.
+        AppLog.Fatal(source, exception,
+            $"terminating={isTerminating} | memory={Environment.WorkingSet / (1024 * 1024)} MB");
 
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<App>().UsePlatformDetect().WithInterFont().LogToTrace();

@@ -792,7 +792,7 @@ public partial class DiagramViewModel : ObservableObject
                 _persistence.Save(BuildState());
             }
             catch (OperationCanceledException) { }
-            catch { /* auto-save must never interrupt diagram work */ }
+            catch (Exception ex) { ReportAutoSaveFailure(ex); }
         }).ConfigureAwait(false);
     }
 
@@ -800,6 +800,14 @@ public partial class DiagramViewModel : ObservableObject
     {
         if (!HasSchema) return;
         try { _persistence.Save(BuildState()); }
-        catch { /* auto-save must never interrupt diagram work */ }
+        catch (Exception ex) { ReportAutoSaveFailure(ex); }
+    }
+
+    /// <summary>A failed auto-save must not interrupt diagram work, but it must not vanish either.</summary>
+    private void ReportAutoSaveFailure(Exception ex)
+    {
+        AppLog.Error("DiagramViewModel", ex, "Diagram auto-save failed; the stored layout is out of date");
+        Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            StatusMessage = "⚠ Diagram layout could not be saved — check folder permissions and move a box to retry.");
     }
 }

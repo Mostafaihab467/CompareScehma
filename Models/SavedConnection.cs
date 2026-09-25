@@ -17,6 +17,12 @@ public partial class SavedConnection : ObservableObject
     [ObservableProperty] private string _username = string.Empty;
     [ObservableProperty] private string _password = string.Empty;
 
+    /// <summary>Force TLS (Encrypt=True) when connecting with this profile.</summary>
+    [ObservableProperty] private bool _encryptConnection;
+
+    /// <summary>Accept an untrusted server certificate. On by default for local/lab servers.</summary>
+    [ObservableProperty] private bool _trustServerCertificate = true;
+
     /// <summary>Short label shown in the dropdowns.</summary>
     public string DisplayName => string.IsNullOrWhiteSpace(Name)
         ? BuildDefaultName()
@@ -50,6 +56,8 @@ public partial class SavedConnection : ObservableObject
         Database       = Database,
         UseWindowsAuth = UseWindowsAuth,
         Username       = Username,
-        Password       = Password
+        Password       = Password,
+        EncryptConnection = EncryptConnection,
+        TrustServerCertificate = TrustServerCertificate
     };
 }

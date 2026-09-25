@@ -21,3 +21,5 @@ Thumbs.db
 .buildverify/
 build-out/
 verify-out/
+harnessbuild/
+build-verify/

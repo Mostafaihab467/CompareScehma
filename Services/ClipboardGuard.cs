@@ -143,7 +143,7 @@ public static class ClipboardGuard
         }
         catch (Exception ex)
         {
-            Debug.WriteLine($"[ClipboardGuard] Paste-apply failed ({ex.GetType().Name}): {ex.Message}");
+            AppLog.Error("ClipboardGuard", ex, "Pasted text could not be inserted");
             ReportFailure(reportFailure, "Paste");
         }
     }

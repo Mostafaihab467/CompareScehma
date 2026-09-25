@@ -9,8 +9,8 @@ namespace SchemaCompare.Services;
 /// <summary>
 /// Persists saved DB credential profiles to %AppData%/SchemaCompare/saved_connections.json.
 /// Passwords are encrypted with Windows DPAPI (CurrentUser scope) so they can only be
-/// decrypted by the same Windows user on this machine. Falls back to Base64 obfuscation
-/// on non-Windows platforms.
+/// decrypted by the same Windows user on this machine. When a secret cannot be protected
+/// it is not saved at all — never written as plaintext; see <see cref="LastWarning"/>.
 /// </summary>
 public sealed class SavedConnectionsService
 {
@@ -23,6 +23,12 @@ public sealed class SavedConnectionsService
 
     public string FilePath => StorePath;
 
+    /// <summary>
+    /// Set by the last Load/Save when secrets could not be protected (or were stored
+    /// unencrypted by an older build). The UI surfaces this instead of failing quietly.
+    /// </summary>
+    public string? LastWarning { get; private set; }
+
     public List<SavedConnection> Load()
     {
         try
@@ -31,7 +37,8 @@ public sealed class SavedConnectionsService
                 return [];
             var json = File.ReadAllText(StorePath);
             var dtos = JsonSerializer.Deserialize<List<SavedConnectionDto>>(json, JsonOptions) ?? [];
-            return dtos.Select(d => new SavedConnection
+            LastWarning = null;
+            var list = dtos.Select(d => new SavedConnection
             {
                 Id = string.IsNullOrWhiteSpace(d.Id) ? Guid.NewGuid().ToString("N") : d.Id,
                 Name = d.Name ?? string.Empty,
@@ -40,7 +47,13 @@ public sealed class SavedConnectionsService
                 UseWindowsAuth = d.UseWindowsAuth,
                 Username = d.Username ?? string.Empty,
                 Password = Decrypt(d.EncryptedPassword ?? string.Empty),
+                EncryptConnection = d.EncryptConnection,
+                TrustServerCertificate = d.TrustServerCertificate ?? true,
             }).ToList();
+            if (_sawLegacyPlaintext)
+                LastWarning = "saved_connections.json holds password(s) written unencrypted by an older version. " +
+                              "Re-enter and re-save them so they are protected.";
+            return list;
         }
         catch
         {
@@ -52,34 +65,57 @@ public sealed class SavedConnectionsService
     public void Save(IEnumerable<SavedConnection> connections)
     {
         Directory.CreateDirectory(StoreDir);
-        var dtos = connections.Select(c => new SavedConnectionDto
+        var unprotectable = 0;
+        var dtos = connections.Select(c =>
         {
-            Id = c.Id,
-            Name = string.IsNullOrWhiteSpace(c.Name) ? c.BuildDefaultName() : c.Name,
-            Server = c.Server,
-            Database = c.Database,
-            UseWindowsAuth = c.UseWindowsAuth,
-            Username = c.Username,
-            EncryptedPassword = Encrypt(c.Password ?? string.Empty),
+            var secret = Protect(c.Password ?? string.Empty);
+            if (secret == null)
+            {
+                // Fail closed: never write a password this machine cannot protect.
+                unprotectable++;
+                secret = string.Empty;
+            }
+            return new SavedConnectionDto
+            {
+                Id = c.Id,
+                Name = string.IsNullOrWhiteSpace(c.Name) ? c.BuildDefaultName() : c.Name,
+                Server = c.Server,
+                Database = c.Database,
+                UseWindowsAuth = c.UseWindowsAuth,
+                Username = c.Username,
+                EncryptedPassword = secret,
+                EncryptConnection = c.EncryptConnection,
+                TrustServerCertificate = c.TrustServerCertificate,
+            };
         }).ToList();
         var json = JsonSerializer.Serialize(dtos, JsonOptions);
         File.WriteAllText(StorePath, json, Encoding.UTF8);
+        LastWarning = unprotectable > 0
+            ? $"{unprotectable} password(s) could not be encrypted on this machine (Windows DPAPI unavailable), " +
+              "so they were NOT saved — re-enter them when connecting."
+            : null;
     }
 
-    private static string Encrypt(string plainText)
+    /// <summary>DPAPI-protected Base64, or null when the secret cannot be protected.</summary>
+    private static string? Protect(string plainText)
     {
         if (string.IsNullOrEmpty(plainText))
             return string.Empty;
+        if (!OperatingSystem.IsWindows())
+            return null;
         try
         {
-            if (OperatingSystem.IsWindows())
-                return Convert.ToBase64String(DpapiHelper.Protect(Encoding.UTF8.GetBytes(plainText)));
+            return Convert.ToBase64String(DpapiHelper.Protect(Encoding.UTF8.GetBytes(plainText)));
         }
-        catch { /* fall through to obfuscation */ }
-        return Convert.ToBase64String(Encoding.UTF8.GetBytes(plainText));
+        catch
+        {
+            return null;
+        }
     }
 
-    private static string Decrypt(string stored)
+    private bool _sawLegacyPlaintext;
+
+    private string Decrypt(string stored)
     {
         if (string.IsNullOrEmpty(stored))
             return string.Empty;
@@ -89,8 +125,9 @@ public sealed class SavedConnectionsService
             if (OperatingSystem.IsWindows())
             {
                 try { return Encoding.UTF8.GetString(DpapiHelper.Unprotect(bytes)); }
-                catch { /* may be plain Base64 written on another OS — try that below */ }
+                catch { /* may be plain Base64 written by an older version — decode below */ }
             }
+            _sawLegacyPlaintext = true;
             return Encoding.UTF8.GetString(bytes);
         }
         catch
@@ -108,6 +145,8 @@ public sealed class SavedConnectionsService
         public bool UseWindowsAuth { get; set; } = true;
         public string Username { get; set; } = string.Empty;
         public string EncryptedPassword { get; set; } = string.Empty;
+        public bool EncryptConnection { get; set; }
+        public bool? TrustServerCertificate { get; set; }
     }
 
     /// <summary>Minimal DPAPI wrapper (Crypt32) — no NuGet dependency required.</summary>

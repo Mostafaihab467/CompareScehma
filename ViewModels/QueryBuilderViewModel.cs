@@ -355,7 +355,7 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[QueryBuilder] FK auto-fill failed: {ex.Message}");
+                AppLog.Warn($"[QueryBuilder] FK auto-fill failed: {ex.Message}");
             }
         }
     }

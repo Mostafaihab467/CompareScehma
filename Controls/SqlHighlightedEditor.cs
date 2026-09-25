@@ -44,6 +44,7 @@ public sealed class SqlHighlightedEditor : UserControl
     private readonly TextEditor _editor = new();
     private readonly SqlSquiggleRenderer _squiggles = new();
     private readonly SqlLineHighlightRenderer _lines = new();
+    private readonly EditorFindBar _findBar;
     private readonly DispatcherTimer _lintTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly Popup _lintTip;
     private readonly TextBlock _lintTipText = new() { TextWrapping = TextWrapping.Wrap, FontSize = 11, MaxWidth = 420 };
@@ -93,11 +94,15 @@ public sealed class SqlHighlightedEditor : UserControl
 
     public TextEditor InnerEditor => _editor;
 
+    /// <summary>Find &amp; replace strip shared by every SQL surface.</summary>
+    public EditorFindBar FindBar => _findBar;
+
     public SqlHighlightedEditor()
     {
         TsqlHighlighting.Apply(_editor);
         _editor.TextArea.TextView.BackgroundRenderers.Add(_lines);
         _editor.TextArea.TextView.BackgroundRenderers.Add(_squiggles);
+        _findBar = new EditorFindBar(_editor);
 
         // Dedicated hover popup for lint squiggles. A ToolTip forced open via
         // SetIsOpen on every PointerMoved sticks/flickers because it re-shows
@@ -119,7 +124,7 @@ public sealed class SqlHighlightedEditor : UserControl
         _lintTipText.Foreground = ResolveBrush("ErrorPanelText", Color.Parse("#FCA5A5"));
 
         // Popup must live in the tree to resolve its TopLevel for positioning.
-        Content = new Panel { Children = { _editor, _lintTip } };
+        Content = new Panel { Children = { _editor, _lintTip, _findBar.Host } };
 
         _editor.TextChanged += (_, _) =>
         {
@@ -130,6 +135,7 @@ public sealed class SqlHighlightedEditor : UserControl
             HideLintTip();
             ScheduleLint();
             RefreshDiff();
+            if (_findBar.IsOpen) _findBar.Rebuild();
         };
 
         _lintTimer.Tick += (_, _) =>
@@ -148,6 +154,12 @@ public sealed class SqlHighlightedEditor : UserControl
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
     {
+        // The completion popup owns Escape/F3 while it is open.
+        if (!SqlCompletionProvider.IsPopupOpen && _findBar.HandleKeyDown(e))
+        {
+            e.Handled = true;
+            return;
+        }
         if (!EnableIntelliSense) return;
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Space)
         {
@@ -189,6 +201,7 @@ public sealed class SqlHighlightedEditor : UserControl
             }
             ScheduleLint();
             RefreshDiff();
+            if (_findBar.IsOpen) _findBar.Rebuild();
         }
         else if (change.Property == IsReadOnlyProperty)
         {

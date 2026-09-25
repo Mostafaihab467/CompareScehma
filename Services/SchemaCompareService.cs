@@ -198,7 +198,7 @@ public class SchemaCompareService
                 throw new InvalidOperationException(scriptResult.Message ?? scriptResult.Exception?.Message ?? "Script generation failed");
 
             var reorderedScript = ReorderScriptBatches(scriptResult.Script, targetInfo.Database);
-            var batches = ExtractExecutableBatches(reorderedScript);
+            var batches = ExtractExecutableBatches(reorderedScript, allowDataLoss: allowUnsafeChanges);
 
             progress?.Report($"Applying {batches.Count} changes to target database...");
 
@@ -338,9 +338,11 @@ public class SchemaCompareService
 
     /// <summary>
     /// Cleans and extracts executable T-SQL batches from a deployment script for ADO.NET execution.
-    /// Strips SQLCMD directives (:setvar, :on error) and skips client-side validation guards.
+    /// Strips SQLCMD directives (:setvar, :on error) and client-only guards. DacFx's data-loss
+    /// abort guards are kept — so the deploy stops on its own — unless the caller explicitly
+    /// allows data loss, which is what the "Allow unsafe changes" checkbox means.
     /// </summary>
-    public static List<string> ExtractExecutableBatches(string reorderedScript)
+    public static List<string> ExtractExecutableBatches(string reorderedScript, bool allowDataLoss = false)
     {
         var rawBatches = Regex.Split(reorderedScript, @"(?<=[\r\n])\s*GO\s*(?=[\r\n]|$)", RegexOptions.IgnoreCase);
         var executableBatches = new List<string>();
@@ -363,16 +365,19 @@ public class SchemaCompareService
                 continue;
             }
 
-            // Skip data-loss abort guards (e.g. IF EXISTS (...) RAISERROR (N'Rows were detected. The schema update is terminating because data loss might occur...'))
-            if (Regex.IsMatch(cleaned, @"The\s+schema\s+update\s+is\s+terminating\s+because\s+data\s+loss\s+might\s+occur", RegexOptions.IgnoreCase) ||
-                Regex.IsMatch(cleaned, @"Rows\s+were\s+detected\.\s*The\s+schema\s+update\s+is\s+terminating", RegexOptions.IgnoreCase))
+            if (allowDataLoss)
             {
-                continue;
-            }
+                // Skip data-loss abort guards (e.g. IF EXISTS (...) RAISERROR (N'Rows were detected. The schema update is terminating because data loss might occur...'))
+                if (Regex.IsMatch(cleaned, @"The\s+schema\s+update\s+is\s+terminating\s+because\s+data\s+loss\s+might\s+occur", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(cleaned, @"Rows\s+were\s+detected\.\s*The\s+schema\s+update\s+is\s+terminating", RegexOptions.IgnoreCase))
+                {
+                    continue;
+                }
 
-            // Also strip any inline data-loss check statement if mixed with other DDL in the same batch
-            cleaned = Regex.Replace(cleaned, @"IF\s+EXISTS\s*\([^)]*\)\s*RAISERROR\s*\([^;]*\)(?:\s*WITH\s+NOWAIT)?;?", "", RegexOptions.IgnoreCase | RegexOptions.Singleline).Trim();
-            if (string.IsNullOrWhiteSpace(cleaned)) continue;
+                // Also strip any inline data-loss check statement if mixed with other DDL in the same batch
+                cleaned = Regex.Replace(cleaned, @"IF\s+EXISTS\s*\([^)]*\)\s*RAISERROR\s*\([^;]*\)(?:\s*WITH\s+NOWAIT)?;?", "", RegexOptions.IgnoreCase | RegexOptions.Singleline).Trim();
+                if (string.IsNullOrWhiteSpace(cleaned)) continue;
+            }
 
             executableBatches.Add(cleaned);
         }

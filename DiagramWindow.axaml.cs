@@ -446,7 +446,7 @@ public partial class DiagramWindow : Window
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[DiagramWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
+            AppLog.Warn($"[DiagramWindow] Copy failed ({ex.GetType().Name}): {ex.Message}");
             if (DataContext is DiagramViewModel vm)
                 vm.StatusMessage = "Copy failed: the system clipboard is currently unavailable.";
         }

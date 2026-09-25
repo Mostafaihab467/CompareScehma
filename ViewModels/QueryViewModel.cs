@@ -17,6 +17,8 @@ public partial class QueryViewModel : ObservableObject
     private readonly QueryExecutionService _service = new();
     private readonly SavedConnectionsService _savedService = new();
     private readonly QuerySchemaService _schemaService = new();
+    private readonly RecentFilesService _recentService = new();
+    private readonly QueryHistoryService _historyService = new();
     private int _tabCounter;
 
     public ObservableCollection<SavedConnection> SavedConnections { get; } = [];
@@ -70,6 +72,46 @@ public partial class QueryViewModel : ObservableObject
     /// Returns null when cancelled or unavailable.</summary>
     public Func<string, Task<string?>>? PickSavePathAsync { get; set; }
 
+    /// <summary>Set by the view — asks for a .sql file to open. Null when cancelled.</summary>
+    public Func<Task<string?>>? PickOpenSqlPathAsync { get; set; }
+
+    /// <summary>Set by the view — asks for a .sql save path from a suggested name. Null when cancelled.</summary>
+    public Func<string, Task<string?>>? PickSaveSqlPathAsync { get; set; }
+
+    public ICommand OpenFileCommand { get; }
+    public ICommand SaveFileCommand { get; }
+    public ICommand SaveFileAsCommand { get; }
+    public ICommand OpenHistoryCommand { get; }
+    public ICommand InsertHistoryCommand { get; }
+    public ICommand CopyHistoryCommand { get; }
+    public ICommand ClearHistoryCommand { get; }
+
+    /// <summary>Set by the view — pushes history text into the focused SQL editor.</summary>
+    public Action<string>? InsertSqlAtCaret { get; set; }
+
+    /// <summary>All recorded runs, newest first (unfiltered).</summary>
+    public ObservableCollection<QueryHistoryEntry> History { get; } = [];
+
+    /// <summary>History rows matching <see cref="HistoryFilter"/>.</summary>
+    public ObservableCollection<QueryHistoryEntry> FilteredHistory { get; } = [];
+
+    [ObservableProperty] private string _historyFilter = string.Empty;
+    [ObservableProperty] private QueryHistoryEntry? _selectedHistoryEntry;
+
+    partial void OnHistoryFilterChanged(string value) => ApplyHistoryFilter();
+
+    /// <summary>Recently opened/saved .sql paths, newest first.</summary>
+    public ObservableCollection<string> RecentSqlFiles { get; } = [];
+
+    [ObservableProperty] private string? _selectedRecentFile;
+
+    partial void OnSelectedRecentFileChanged(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return;
+        OpenSqlFile(value);
+        SelectedRecentFile = null;   // allow picking the same entry again
+    }
+
     public ICommand ConnectCommand { get; }
     public ICommand NewTabCommand { get; }
     public ICommand CloseTabCommand { get; }
@@ -100,6 +142,9 @@ public partial class QueryViewModel : ObservableObject
     /// can be wired without re-tearing down the view-model on every close.
     /// </summary>
     public Action? OpenQueryBuilderAction { get; set; }
+
+    /// <summary>Set by the view — opens the searchable query-history window.</summary>
+    public Action? OpenHistoryWindowAction { get; set; }
 
     /// <summary>
     /// Replaces the SQL text of the currently active tab. Called by the Query
@@ -138,8 +183,41 @@ public partial class QueryViewModel : ObservableObject
         EstimatedPlanCommand = new AsyncRelayCommand<QueryTab?>(t => EstimatedPlanAsync(t ?? ActiveTab));
         ShowResultsViewCommand = new RelayCommand(() => { if (ActiveTab != null) ActiveTab.ShowPlanView = false; });
         ShowPlanViewCommand = new RelayCommand(() => { if (ActiveTab != null) ActiveTab.ShowPlanView = true; });
+        OpenFileCommand    = new AsyncRelayCommand(OpenSqlFileAsync);
+        SaveFileCommand    = new AsyncRelayCommand(() => SaveSqlFileAsync(saveAs: false));
+        SaveFileAsCommand  = new AsyncRelayCommand(() => SaveSqlFileAsync(saveAs: true));
+        OpenHistoryCommand = new RelayCommand(() => OpenHistoryWindowAction?.Invoke());
+        InsertHistoryCommand = new RelayCommand(() =>
+        {
+            if (SelectedHistoryEntry == null) return;
+            if (InsertSqlAtCaret == null)
+            {
+                StatusMessage = "The SQL editor is not open, so nothing could be inserted.";
+                return;
+            }
+            InsertSqlAtCaret(SelectedHistoryEntry.Sql);
+            StatusMessage = $"Inserted query from {SelectedHistoryEntry.TimeText} into the editor.";
+        });
+        CopyHistoryCommand = new AsyncRelayCommand(async () =>
+        {
+            if (SelectedHistoryEntry == null) return;
+            if (CopyToClipboardAsync != null && await CopyToClipboardAsync(SelectedHistoryEntry.Sql))
+                StatusMessage = "Copied the history query to the clipboard.";
+            else StatusMessage = "Copy failed: the system clipboard is unavailable.";
+        });
+        ClearHistoryCommand = new RelayCommand(() =>
+        {
+            _historyService.Clear();
+            History.Clear();
+            FilteredHistory.Clear();
+            StatusMessage = "Query history cleared.";
+        });
 
         LoadSavedConnections();
+        _recentService.Load();
+        SyncRecentList();
+        foreach (var entry in _historyService.Load()) History.Add(entry);
+        ApplyHistoryFilter();
         NewTab();
     }
 
@@ -196,7 +274,7 @@ public partial class QueryViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[Query] Schema cache failed: {ex.Message}");
+            AppLog.Warn($"[Query] Schema cache failed: {ex.Message}");
             StatusMessage = $"Connected to {ConnectedDatabaseLabel}. (Schema IntelliSense unavailable.) Press F5 to execute.";
         }
     }
@@ -209,6 +287,7 @@ public partial class QueryViewModel : ObservableObject
             Title = $"Query {_tabCounter}",
             SqlText = sql ?? "SELECT TOP 100 *\r\nFROM dbo.TableName;\r\n"
         };
+        tab.IsDirty = false;   // the initializer above counts as an edit
         Tabs.Add(tab);
         ActiveTab = tab;
         SelectedTabIndex = Tabs.Count - 1;
@@ -357,6 +436,7 @@ public partial class QueryViewModel : ObservableObject
             if (useStats)
                 tab.StatusMessage += " IO/Time + client statistics in Messages.";
             StatusMessage = $"{tab.Title}: {tab.StatusMessage}";
+            RecordHistory(tab, sql, elapsed, hasSelection, error: null);
         }
         catch (OperationCanceledException)
         {
@@ -373,6 +453,8 @@ public partial class QueryViewModel : ObservableObject
             ErrorMessage = ex.Message;
             ShowError = true;
             StatusMessage = $"{tab.Title}: error — {ex.Message.Split('\n')[0]}";
+            // Failed runs belong in history too — that is what the user wants to find again.
+            RecordHistory(tab, sql, DateTime.UtcNow - started, hasSelection, ex.Message.Split('\n')[0]);
         }
         finally
         {
@@ -586,6 +668,145 @@ public partial class QueryViewModel : ObservableObject
         catch (Exception ex)
         {
             if (tab != null) tab.StatusMessage = $"Save failed: {ex.Message}";
+        }
+    }
+
+    // ═══════════ .sql files: open / save / recents ═══════════
+
+    private async Task OpenSqlFileAsync()
+    {
+        if (PickOpenSqlPathAsync == null)
+        {
+            StatusMessage = "Opening a file needs the system file picker.";
+            return;
+        }
+        var path = await PickOpenSqlPathAsync();
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            StatusMessage = "Open cancelled.";
+            return;
+        }
+        OpenSqlFile(path);
+    }
+
+    /// <summary>
+    /// Loads a .sql file into a tab — reuses the tab that already holds the file.
+    /// Also the entry point for drag-and-drop from Explorer.
+    /// </summary>
+    public void OpenSqlFile(string path)
+    {
+        try
+        {
+            var content = File.ReadAllText(path);
+            var tab = Tabs.FirstOrDefault(t => string.Equals(t.FilePath, path, StringComparison.OrdinalIgnoreCase));
+            if (tab == null)
+                tab = NewTab();          // NewTab selects it and clears the dirty flag below
+            else
+            {
+                ActiveTab = tab;
+                SelectedTabIndex = Tabs.IndexOf(tab);
+            }
+
+            tab.IsReloadingFromFile = true;
+            try { tab.SqlText = content; }
+            finally { tab.IsReloadingFromFile = false; }
+            tab.MarkSavedAt(path);
+            tab.StatusMessage = $"Opened {path} ({content.Length:N0} characters).";
+            StatusMessage = $"Opened {Path.GetFileName(path)}.";
+            _recentService.Touch(path);
+            SyncRecentList();
+            AppLog.Info($"Opened SQL file {path}");
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(nameof(QueryViewModel), ex, $"Could not open {path}");
+            StatusMessage = $"Could not open {path}: {ex.Message}";
+        }
+    }
+
+    private async Task SaveSqlFileAsync(bool saveAs)
+    {
+        var tab = ActiveTab;
+        if (tab == null) return;
+        if (PickSaveSqlPathAsync == null)
+        {
+            tab.StatusMessage = "Saving needs the system file picker.";
+            return;
+        }
+        var target = saveAs || string.IsNullOrWhiteSpace(tab.FilePath)
+            ? await PickSaveSqlPathAsync(SuggestedSqlName(tab))
+            : tab.FilePath;
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            tab.StatusMessage = "Save cancelled — nothing was written.";
+            return;
+        }
+        try
+        {
+            await File.WriteAllTextAsync(target, tab.SqlText, new System.Text.UTF8Encoding(true));
+            tab.MarkSavedAt(target);
+            _recentService.Touch(target);
+            SyncRecentList();
+            tab.StatusMessage = $"Saved {target}";
+            StatusMessage = $"{tab.Title}: saved.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(nameof(QueryViewModel), ex, $"Could not save to {target}");
+            tab.StatusMessage = $"Save failed: {ex.Message}";
+        }
+    }
+
+    private static string SuggestedSqlName(QueryTab tab)
+    {
+        var stem = Path.GetFileNameWithoutExtension(tab.FilePath ?? tab.Title);
+        var safe = new string(stem.Where(c => !Path.GetInvalidFileNameChars().Contains(c)).ToArray());
+        return string.IsNullOrWhiteSpace(safe) ? $"query_{DateTime.Now:yyyyMMdd_HHmmss}.sql" : safe + ".sql";
+    }
+
+    public void SyncRecentList()
+    {
+        RecentSqlFiles.Clear();
+        foreach (var path in _recentService.Paths)
+            RecentSqlFiles.Add(path);
+    }
+
+    // ═══════════ query history ═══════════
+
+    /// <summary>Rebuilds the filtered view the history window binds to.</summary>
+    public void ApplyHistoryFilter()
+    {
+        FilteredHistory.Clear();
+        foreach (var entry in History.Where(e => e.Matches(HistoryFilter)))
+            FilteredHistory.Add(entry);
+        SelectedHistoryEntry = FilteredHistory.FirstOrDefault();
+    }
+
+    private void RecordHistory(QueryTab tab, string sql, TimeSpan elapsed, bool fromSelection, string? error)
+    {
+        var entry = new QueryHistoryEntry
+        {
+            Sql = sql,
+            ExecutedAt = DateTime.Now,
+            Server = SelectedConnection?.Server ?? string.Empty,
+            Database = SelectedConnection?.Database ?? string.Empty,
+            DurationSeconds = elapsed.TotalSeconds,
+            Scope = fromSelection ? "selection" : "script",
+            Error = error,
+            ResultSets = error == null ? tab.Results.Count : 0,
+            TotalRows = error == null ? tab.Results.Sum(r => r.Rows.Count) : 0
+        };
+        try
+        {
+            _historyService.Add(entry);
+            History.Insert(0, entry);
+            while (History.Count > QueryHistoryService.MaxEntries)
+                History.RemoveAt(History.Count - 1);
+            ApplyHistoryFilter();
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error(nameof(QueryViewModel), ex, "Query history could not be recorded");
         }
     }
 }
