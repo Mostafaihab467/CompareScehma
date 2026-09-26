@@ -1,6 +1,6 @@
 # `Views/QueryWindow.axaml.cs`
 
-**Purpose:** Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, session restore on close.
+**Purpose:** Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G/Ctrl+Shift+P), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, the palette host that returns the chosen row, session restore on close.
 
 **Namespace:** `SchemaCompare.Views`
 
@@ -17,4 +17,4 @@
 - `Views/MainWindow.axaml.cs`
 - `Views/QueryWindow.axaml`
 
-**Size:** 642 lines
+**Size:** 664 lines

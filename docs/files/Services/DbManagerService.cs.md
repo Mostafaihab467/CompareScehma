@@ -17,6 +17,7 @@
 - `Models/ManagerTreeModels.cs`
 - `Models/ServerBrowserModels.cs`
 - `Models/TablePropertiesModels.cs`
+- `Services/CommandCatalogService.cs`
 - `ViewModels/DbManagerViewModel.cs`
 
-**Size:** 1945 lines
+**Size:** 1954 lines

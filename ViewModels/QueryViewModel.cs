@@ -138,6 +138,9 @@ public partial class QueryViewModel : ObservableObject
     public ICommand ShowResultsViewCommand { get; }
     public ICommand ShowPlanViewCommand { get; }
 
+    /// <summary>Ctrl+Shift+P — the command palette. Not Ctrl+K: that chord is bookmark-next in the editor.</summary>
+    public ICommand OpenPaletteCommand { get; }
+
     public string PlanToggleText => ShowExecutionPlan ? "🧭 Plan ON" : "🧭 Plan";
 
     public string IoTimeToggleText => ShowIoTimeStats ? "📊 IO/Time ON" : "📊 IO/Time";
@@ -219,6 +222,118 @@ public partial class QueryViewModel : ObservableObject
         StatusMessage = $"Replaced SQL in '{ActiveTab.Title}'.";
     }
 
+    // ─── Command palette (Ctrl+Shift+P) ───────────────────────────────────────
+
+    private readonly CommandCatalogService _paletteService = new();
+
+    /// <summary>
+    /// Set by the view — shows the palette over this window and returns the row the operator
+    /// chose, or null when it was dismissed. With no view attached the shortcut refuses itself
+    /// instead of acting on a row nobody looked at.
+    /// </summary>
+    public Func<IReadOnlyList<PaletteItem>, Task<PaletteItem?>>? ShowPaletteAsync { get; set; }
+
+    private async Task OpenPaletteAsync()
+    {
+        if (SelectedConnection == null)
+        {
+            StatusMessage = "The palette names the tables, views and procedures of a database — select a connection first.";
+            return;
+        }
+        if (ShowPaletteAsync == null)
+        {
+            StatusMessage = "Ctrl+Shift+P: no window is attached to show the palette — nothing was inserted.";
+            return;
+        }
+
+        // Read fresh every time, like the object tree: a cached palette is a palette that still
+        // does not know about the table created a minute ago.
+        var info = SelectedConnection.ToConnectionInfo();
+        IReadOnlyList<PaletteItem> objects;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var found = await _paletteService.GetObjectsAsync(info, cts.Token);
+            objects = _paletteService.RowsFor(found, info, Controls.SqlCompletionProvider.ColumnsByTable);
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"[Palette] Catalog read failed: {ex.Message}");
+            StatusMessage = $"The palette could not read the catalog of {ConnectedDatabaseLabel}: {ex.Message}";
+            return;
+        }
+
+        var items = PaletteCommandRows().Concat(objects).ToList();
+        var chosen = await ShowPaletteAsync(items);
+        if (chosen != null) await ApplyPaletteChoiceAsync(chosen);
+    }
+
+    /// <summary>Object rows plus the window's own commands, with the commands on top.</summary>
+    /// <summary>
+    /// The window's own verbs as palette rows. Deliberately no Execute, no Ctrl+Enter and no
+    /// estimated plan: the palette is a box you type one letter at a time into, and it should
+    /// not also be a button that sends text to the server. F5 stays the only way to run
+    /// anything, and F5 goes through the guard.
+    /// </summary>
+    private IReadOnlyList<PaletteItem> PaletteCommandRows() => new List<PaletteItem>
+    {
+        CommandRow("New query tab", "Ctrl+T", NewTabCommand),
+        CommandRow("Close this tab", "Ctrl+W", CloseTabCommand),
+        CommandRow("Open a .sql file", "Ctrl+O", OpenFileCommand),
+        CommandRow("Save this script", "Ctrl+S", SaveFileCommand),
+        CommandRow("Save this script as", "Ctrl+Shift+S", SaveFileAsCommand),
+        CommandRow("Format document", "Ctrl+Shift+F", FormatSqlCommand),
+        CommandRow("Explain this query in plain English", "", ExplainCommand),
+        CommandRow("Query history", "", OpenHistoryCommand),
+        CommandRow("Query constructor", "", new RelayCommand(() => OpenQueryBuilderAction?.Invoke())),
+        CommandRow("Clear the results", "", ClearResultsCommand),
+        CommandRow("Show or hide the execution plan tab", "", TogglePlanCommand),
+        CommandRow("Show or hide IO/Time statistics", "", ToggleIoTimeCommand),
+        CommandRow("Stop the running query", "", CancelCommand)
+    };
+
+    private static PaletteItem CommandRow(string title, string chord, ICommand command) => new()
+    {
+        Title = title,
+        Detail = chord.Length == 0 ? "command" : $"command · {chord}",
+        Group = PaletteGroup.Command,
+        Command = command
+    };
+
+    private async Task ApplyPaletteChoiceAsync(PaletteItem item)
+    {
+        if (item.Command != null)
+        {
+            item.Command.Execute(null);   // the same command the toolbar button runs
+            return;
+        }
+
+        if (item.BuildScriptAsync == null)
+        {
+            StatusMessage = $"{item.Title}: this row neither runs a command nor writes a script.";
+            return;
+        }
+
+        if (InsertSqlAtCaret == null)
+        {
+            StatusMessage = $"{item.Title}: no editor is attached to receive the script — nothing was inserted.";
+            return;
+        }
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            var script = await item.BuildScriptAsync(cts.Token);
+            InsertSqlAtCaret(script);
+            StatusMessage = $"{item.Title} — {item.Detail}. Nothing has run; press F5 to execute it.";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Warn($"[Palette] Script for {item.Title} failed: {ex.Message}");
+            StatusMessage = $"Could not script {item.Title}: {ex.Message}";
+        }
+    }
+
     public QueryViewModel()
     {
         ConnectCommand    = new AsyncRelayCommand(ConnectAsync);
@@ -248,6 +363,7 @@ public partial class QueryViewModel : ObservableObject
         EstimatedPlanCommand = new AsyncRelayCommand<QueryTab?>(t => EstimatedPlanAsync(t ?? ActiveTab));
         ShowResultsViewCommand = new RelayCommand(() => { if (ActiveTab != null) ActiveTab.ShowPlanView = false; });
         ShowPlanViewCommand = new RelayCommand(() => { if (ActiveTab != null) ActiveTab.ShowPlanView = true; });
+        OpenPaletteCommand = new AsyncRelayCommand(OpenPaletteAsync);
         OpenFileCommand    = new AsyncRelayCommand(OpenSqlFileAsync);
         SaveFileCommand    = new AsyncRelayCommand(() => SaveSqlFileAsync(saveAs: false));
         SaveFileAsCommand  = new AsyncRelayCommand(() => SaveSqlFileAsync(saveAs: true));

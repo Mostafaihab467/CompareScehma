@@ -21,6 +21,7 @@ public partial class QueryWindow : Window
 {
     private QueryViewModel? _vm;
     private QueryHistoryWindow? _historyWindow;
+    private CommandPaletteWindow? _paletteWindow;
 
     public QueryWindow()
     {
@@ -107,6 +108,20 @@ public partial class QueryWindow : Window
         var offset = Math.Clamp(editor.CaretOffset, 0, editor.Document.TextLength);
         editor.Document.Insert(offset, sql);
         editor.Focus();
+    };
+
+    // The command palette: this window shows it, the view-model decides what the chosen row means.
+    _vm.ShowPaletteAsync = items =>
+    {
+        _paletteWindow?.Close();          // one palette per query window; the newest wins
+        var palette = new CommandPaletteWindow(items);
+        _paletteWindow = palette;
+        palette.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_paletteWindow, palette)) _paletteWindow = null;
+        };
+        palette.Show(this);
+        return palette.Completed;
     };
 
         ClipboardGuard.Attach(this, message =>
@@ -501,7 +516,7 @@ public partial class QueryWindow : Window
     }
 
     // -- Keyboard shortcuts: F5/Ctrl+Enter execute, Ctrl+T new tab, Ctrl+W close,
-    //    Ctrl+O / Ctrl+S / Ctrl+Shift+S for .sql files --
+    //    Ctrl+O / Ctrl+S / Ctrl+Shift+S for .sql files, Ctrl+Shift+P the command palette --
     protected override void OnKeyDown(KeyEventArgs e)
     {
         // Ctrl+M folding, Ctrl+B/K bookmarks, Ctrl+G goto line: consumed by the
@@ -519,6 +534,13 @@ public partial class QueryWindow : Window
         }
         if (_vm != null && e.KeyModifiers.HasFlag(KeyModifiers.Control))
         {
+            if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+            {
+                // Not Ctrl+K: the editor already spends that chord on bookmark-next.
+                _vm.OpenPaletteCommand.Execute(null);
+                e.Handled = true;
+                return;
+            }
             if (e.Key == Key.O)
             {
                 _vm.OpenFileCommand.Execute(null);

@@ -61,7 +61,7 @@ another connection/database with FK-order handling. SSMS requires manual scripti
 | 6 | **Query history** | Every executed query stored locally, searchable, per connection, with row counts + duration (SSMS history is useless) |
 | 7 | **Tab sessions** | Persist open tabs + connections to `%AppData%`, restore on restart |
 | 8 | **Multi-connection execution** | Run one query against N servers side-by-side, diff the results (huge for multi-tenant shops) |
-| 9 | **Command palette (Ctrl+K)** | Fuzzy-jump to any table/view/proc, generate SELECT/INSERT/DROP script |
+| 9 | ✅ **Command palette (Ctrl+Shift+P)** | Fuzzy-jump to any table/view/proc and write its SELECT / INSERT / EXEC at the caret — `FuzzySearch` + `CommandCatalogService` + `CommandPaletteWindow`. Not Ctrl+K: the editor spends that chord on bookmark-next. *No* DROP row and no run verbs: one Enter on a highlighted row must never destroy a table or reach the server, so F5 stays the only path to it (through the guard). |
 | 10 | **Snippets with schema context** | `s sel * from` expands using real table columns; snippets saved to JSON |
 
 ---

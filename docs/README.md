@@ -66,6 +66,7 @@ Three conventions that matter when you change behaviour:
 | Tabs, session restore, history, recent files | `ViewModels/QueryViewModel.cs`, `Services/TabSessionService.cs`, `QueryHistoryService.cs`, `RecentFilesService.cs` |
 | Auto-JOIN: the ON clause a JOIN is reaching for | `Services/JoinSuggestionService.cs` (`Between`), `Models/JoinSuggestion.cs` (`ForeignKeyRef`, `JoinSide`), `Controls/SqlCompletionProvider.cs` (`SuggestJoins`, `JoinTailRegex`, `ForeignKeys`, the space trigger in `OnTextEntered`), `Services/QuerySchemaService.cs` (`GetForeignKeysAsync`), `ViewModels/QueryViewModel.cs` (`RefreshSchemaCacheAsync`) |
 | "What will this script destroy?" guard | `Services/QueryGuardService.cs` (`Analyze`, `Statements`, `FilterOf` / `CteFilter`), `Models/QueryGuard.cs` (`GuardReport`, `GuardFinding`, `GuardLevel`), `ViewModels/QueryViewModel.cs` (`ClearedToRunAsync`, `ReportToMessages`, `GuardAsksBeforeDangerousScripts`), `Views/QueryWindow.axaml.cs` (`ConfirmDangerousScriptAsync` → `ScriptActionDialog`), `Views/QueryWindow.axaml` (status-bar switch) |
+| Ctrl+Shift+P command palette: fuzzy-jump to an object and write its script | `Services/FuzzySearch.cs` (`Score`, `Order`), `Models/PaletteItem.cs`, `Services/CommandCatalogService.cs` (`GetObjectsAsync`, `RowsFor`), `ViewModels/CommandPaletteViewModel.cs`, `Views/CommandPaletteWindow.axaml(.cs)`, `ViewModels/QueryViewModel.cs` (`OpenPaletteAsync`, `PaletteCommandRows`, `ApplyPaletteChoiceAsync`, `ShowPaletteAsync`), `Views/QueryWindow.axaml.cs` (the chord and the palette host) |
 | Health views, blocking chain, KILL, error log | `Services/DbHealthService.cs`, `ViewModels/DbHealthViewModel.cs`, `Models/DbHealthModels.cs`, `Models/HealthActionsModels.cs` |
 | Query Store: option state, regressed and top queries, force / unforce a plan | `Views/DbHealthWindow.axaml` (Query Store tab), `ViewModels/DbHealthViewModel.cs` (`LoadQueryStoreAsync`, `ForcePlanAsync`), `Services/DbHealthService.cs` (`GetQueryStoreStateAsync`, `GetRegressedQueriesAsync`, `GetTopQueriesAsync`, `GetQueryPlansAsync`), `Services/ManagerScriptBuilder.cs` (`ForceQueryPlan`, `UnforceQueryPlan`, `EnableQueryStore`) |
 | Server-level Object Explorer (databases, logins, Agent jobs, linked servers) and switching the working database | `Models/ServerBrowserModels.cs`, `DbManagerService.GetDatabasesAsync` / `GetServerSecurityAsync` / `GetAgentJobsAsync` / `GetLinkedServersAsync`, `DbManagerViewModel.Make*Folder`, `ManagerScriptBuilder.StartAgentJob` |
@@ -90,7 +91,8 @@ The app is proven by a headless harness, not by eyeballing: `ReproSsms` in the
 scratch working directory drives real windows and dialogs through Avalonia's
 headless lifetime and writes PNGs with `RenderTargetBitmap`.
 
-- 1018 assertions cover Tier 1, the five Tier 2 rounds, the Tier 3 rounds — rollback, snapshots,
+- 1068 assertions cover Tier 1, the five Tier 2 rounds and its command palette, the Tier 3 rounds —
+  rollback, snapshots,
   drift, the baseline library and saved comparisons — the round-8
   plan and lint fixes, the round-11 destructive-script guard and the round-12 auto-JOIN end to
   end, against the local instance (EgyptMart) and a snapshot database of it. Objects the
@@ -104,7 +106,9 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   pairing rebuilt from one pick and compared again (`50_saved_comparison.png`), and the query guard
   against a `__sc25_guard` table it seeds, is refused on, confirms, truncates and counts (`51_query_guard.png`), and the
   auto-JOIN against the keys EgyptMart really enforces plus a composite one built and dropped in
-  `tempdb` (`52_auto_join.png`)
+  `tempdb` (`52_auto_join.png`), and the palette through its own chord over the live catalog, with
+  a procedure created in `tempdb` mid-run to prove the catalog is never cached
+  (`53_command_palette.png`)
   — every file the run
   writes is deleted again.
 - It performs a live `COPY_ONLY` backup and reads it back; it never restores, never

@@ -16,6 +16,7 @@
 
 - `Models/SavedConnection.cs`
 - `Models/SchemaSource.cs`
+- `Services/CommandCatalogService.cs`
 - `Services/CsvImportService.cs`
 - `Services/DataCompareService.cs`
 - `Services/DataMoveService.cs`

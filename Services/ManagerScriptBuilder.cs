@@ -161,7 +161,10 @@ public static class ManagerScriptBuilder
     {
         if (parameters.Count == 0)
             return $"EXEC {Qual(schema, proc)};";
-        var args = string.Join(", ", parameters.Select(p => $"@{p.Name} = /* {p.DataType} */ NULL"));
+        // sys.parameters hands back the name already carrying its '@'; a template that adds the
+        // sign must not double it, or the script asks for a parameter named "@@Days".
+        var args = string.Join(", ",
+            parameters.Select(p => $"@{p.Name.TrimStart('@')} = /* {p.DataType} */ NULL"));
         return $"EXEC {Qual(schema, proc)} {args};";
     }
 

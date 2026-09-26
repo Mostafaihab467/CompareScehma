@@ -17,7 +17,7 @@ file's folder is always its namespace. Start any session with:
 - [`AGENTS.md`](AGENTS.md) — build command, conventions, non-negotiable test rules.
 - [`docs/README.md`](docs/README.md) — module map plus a "where to look for a
   feature" table.
-- [`docs/INDEX.md`](docs/INDEX.md) — all 133 source files, one line each;
+- [`docs/INDEX.md`](docs/INDEX.md) — all 150 source files, one line each;
   `docs/files/<path>.md` gives that file's purpose, types, public surface,
   named controls and who references it. Regenerate with `python docs/build_docs.py`
   after moving or renaming code (purpose lines live in `docs/purposes.py`).
@@ -47,9 +47,10 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-1018 assertions, 0 failures — Tier 1, all five Tier 2 rounds, the Tier 3 rounds (rollback,
-snapshots, drift, the baseline library, saved comparisons), the round-8 plan/lint fixes and
-the round-11 destructive-script guard —
+1068 assertions, 0 failures — Tier 1, all five Tier 2 rounds and its command palette, the
+Tier 3 rounds (rollback,
+snapshots, drift, the baseline library, saved comparisons), the round-8 plan/lint fixes,
+the round-11 destructive-script guard and the round-12 auto-JOIN —
 including a live
 `COPY_ONLY` backup of EgyptMart read
 back through `RESTORE HEADERONLY` / `FILELISTONLY` (the probe file is deleted
@@ -70,7 +71,9 @@ query through both plan buttons so the estimated diagram and the measured one ar
 compared side by side (`47_estimated_plan_only.png`, `48_actual_plan_metrics.png`), and the
 guard asked to stop an unfiltered `DELETE` in a real query window against a probe database it
 seeds, works and drops again (`51_query_guard.png`), and the join suggestion accepted into a real
-editor against the keys EgyptMart actually enforces (`52_auto_join.png`). No restore,
+editor against the keys EgyptMart actually enforces (`52_auto_join.png`), and the command palette
+opened by its own chord over the live catalog, where the accepted row leaves a script in the editor
+and an empty results grid (`53_command_palette.png`). No restore,
 no `KILL` and no Agent job is ever executed — all three are asserted up to the
 confirmation and declined, and a DOWN script is never executed at all: it is
 previewed, toggled against the UP text, copied and saved, and both probe databases
@@ -592,6 +595,53 @@ as a defect in the feature. (Part 25 also leaves the shared schema cache pointin
 `__sc25_guard` probe database, which has no keys in it; part 26 connects its own window and waits
 for the cache to repopulate rather than trusting what an earlier round loaded.)
 
+## Round 13 (Tier 2 §9) — the command palette writes scripts, not results
+
+FEATURES.md asked for a fuzzy jump to any table, view or procedure that generates its script — the
+roadmap's own shortlist included a DROP script, and that is the row this palette does not have: a
+box you type one letter at a time, whose highlighted row is one Enter away, is not the place to
+offer a table's destruction. So it landed with two restraints the harness enforces, and both are the
+feature rather than its caveats. Ctrl+**Shift**+P,
+not the Ctrl+K the roadmap named — the editor already spends Ctrl+K on bookmark-next, and taking a
+chord twice means one of them silently stops working.
+
+- **Ranking is the whole product.** `Services/FuzzySearch.cs` scores one point per matched
+  character and subtracts only when a run break *does not* land on a word start — a `.`, `_`, `-`,
+  a space, a bracket or a camel hump. That single rule is what lets `cl` find
+  `dbo.CustomerList` above `dbo.Catalog` while `ord` still finds `dbo.Order` above
+  `dbo.OrderDetails`, and it was tuned by a 36-triple probe, not by eye.
+- **Nothing in the palette reaches the server.** Its command rows are the very `ICommand` objects
+  the window's own buttons use — asserted by `ReferenceEquals`, so the palette cannot drift into a
+  second, slightly different implementation of formatting — and it deliberately offers no
+  Execute / Execute-selection / Estimated-plan row. F5 stays the only path to the engine, and
+  round 11's guard is on it. A chosen object row puts its SELECT / INSERT / EXEC at the caret and
+  the status line ends with “Nothing has run; press F5 to execute it.”
+- **No DROP row, at all.** A table's destruction is not one Enter from a typed letter.
+- **The catalog is read fresh every open,** with a 30-second cancellation, because a cached palette
+  is a palette that still does not know about the table created a minute ago. The harness proves it
+  by creating a procedure and a table in tempdb *after* the IntelliSense cache exists, and asking
+  for the procedure — whose `EXEC` row then carries the parameters the server actually has.
+- **A row is offered only when the app can honour it.** An `INSERT` needs the column list, and a
+  column cache that belongs to another database is refused rather than borrowed — the tempdb table
+  in the run above gets a SELECT row and no INSERT row for exactly that reason.
+- **Without a host it fails closed.** A bare `QueryViewModel` with no window attached refuses the
+  chord — “Ctrl+Shift+P: no window is attached to show the palette - nothing was inserted.” — and a
+  bare row accepted with no editor to receive it says
+  “dbo.__sc27_proc: no editor is attached to receive the script - nothing was inserted.” Neither
+  touches a document.
+
+| Feature | State | Notes |
+|---|---|---|
+| Command palette (Ctrl+Shift+P) | **Done, verified** | `Services/FuzzySearch.cs` (pure matcher: subsequence DP, word-start breaks free, `−length/8`, stable ties) + `Models/PaletteItem.cs` (a row is a command *or* a script builder; a title match beats a detail match) + `Services/CommandCatalogService.cs` (one `sys.objects` read of user tables/views/procedures → SELECT / INSERT / EXEC rows, a procedure's parameters fetched lazily when its row is chosen) + `ViewModels/CommandPaletteViewModel.cs` + `Views/CommandPaletteWindow.axaml(.cs)`, wired through `QueryViewModel.OpenPaletteCommand` / `ShowPaletteAsync` and `Views/QueryWindow.axaml.cs` (`53_command_palette.png`) |
+
+Two server facts came out of the round, both of them defects in code that was already shipping.
+`sys.parameters.name` **already carries the leading `@`**, so the EXEC template that prefixed
+another one produced `@@Days` — in the Object Explorer's own Script As → EXECUTE, which had been
+doing that since it was written; the strip now happens once, in `ManagerScriptBuilder.ExecTemplate`.
+And that template's type comment was `TYPE_NAME(...)`, which for a `nvarchar(40)` parameter says
+only `nvarchar` — an operator filling the template cannot tell 40 from 4000, so the size and
+precision are composed in the query now, the way the import wizard already inferred them.
+
 ## Already production-grade
 
 Security and data-safety from the hardening pass (verified by the same harness):
@@ -631,3 +681,11 @@ would otherwise assume the tiers covered:
 - **Execution-plan graphics for a snapshot**: plans need a live engine, so a card reading from a
   `.dacpac` has no plan to show. Nothing claims otherwise; it is listed here so nobody files it
   as a bug in the snapshot work.
+- **The palette scripts and commands; it never runs and never destroys.** FEATURES.md §9 listed a
+  DROP script among what to generate, and round 13 left it out on purpose — the same reasoning that
+  keeps `KILL` and `sp_start_job` behind a confirmation, applied to a box whose whole interface is
+  one highlighted row and Enter. It also has no Execute row: F5 is the only path to the server, so
+  one keystroke cannot both search and post a query.
+- **Tier 2 items 8 and 10 are still open**: multi-connection execution (one script against N
+  servers, results diffed) and snippets that expand with real column context. Item 5's per-column
+  filter boxes and instant pivot, and item 10's JSON snippet store, are the other named gaps.

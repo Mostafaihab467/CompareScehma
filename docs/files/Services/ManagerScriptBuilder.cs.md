@@ -1,6 +1,6 @@
 # `Services/ManagerScriptBuilder.cs`
 
-**Purpose:** Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.
+**Purpose:** Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls, the Query Store force/unforce/enable scripts and the EXEC template — preview equals execution, an invalid definition or id throws a one-line reason instead of emitting broken DDL, and a parameter name already carrying its '@' is not given a second one.
 
 **Namespace:** `SchemaCompare.Services`
 
@@ -18,6 +18,7 @@
 
 - `Models/ObjectDesignerModels.cs`
 - `Models/RestoreModels.cs`
+- `Services/CommandCatalogService.cs`
 - `Services/DatabaseBackupService.cs`
 - `Services/DbHealthService.cs`
 - `Services/DbManagerService.cs`
@@ -29,4 +30,4 @@
 - `Views/ObjectDesignerDialog.axaml.cs`
 - `Views/RestoreDatabaseDialog.axaml.cs`
 
-**Size:** 506 lines
+**Size:** 509 lines

@@ -16,7 +16,7 @@ PURPOSES = {
     "Views/MainWindow.axaml": "Layout of the launcher window: the saved-comparisons card, source and target cards that are each a live database or a snapshot file with a remembered-baseline picker, compare, the one script pane that toggles UP/DOWN, buttons into every other window.",
     "Views/MainWindow.axaml.cs": "Launcher window code-behind: opens saved connections, copies and saves whichever script the pane shows, the snapshot file pickers both directions, and every other window from the menu.",
     "Views/QueryWindow.axaml": "Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes, and the status-bar switch that asks before a destructive script runs.",
-    "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, session restore on close.",
+    "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G/Ctrl+Shift+P), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, the palette host that returns the chosen row, session restore on close.",
     "Views/DbManagerWindow.axaml": "Layout of Object Explorer: server/database tree, filter bar, and the Data/Structure/Definition/Execute tabs.",
     "Views/DbManagerWindow.axaml.cs": "Object Explorer code-behind: tree context menus, Script-As, dialog hosts (restore, backup, properties, script confirm), filter UI wiring.",
     "Views/DbHealthWindow.axaml": "Layout of the DB Health window: CPU/waits/processes/missing-indexes/query-store/error-log tabs, Activity Monitor style.",
@@ -73,7 +73,7 @@ PURPOSES = {
 
     # ── ViewModels ──
     "ViewModels/MainViewModel.cs": "Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the named pairings of those two sides that save and re-apply as references, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
-    "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — and the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook.",
+    "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook, and the Ctrl+Shift+P palette that reads the catalog fresh and hands a chosen script to the caret without running it.",
     "ViewModels/DbManagerViewModel.cs": "Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.",
     "ViewModels/DbHealthViewModel.cs": "DB Health view-model: polling, samples, blocking chain, KILL, error log tail and the Query Store tab (state banner, regressed and top queries, plan list, force/unforce behind the confirmation host).",
     "ViewModels/DiagramViewModel.cs": "Diagram view-model: schema load, table search, layout, persistence.",
@@ -116,7 +116,7 @@ PURPOSES = {
 
     # ── Services ──
     "Services/DbManagerService.cs": "Data access for Object Explorer: object and server-level browsing (databases, logins, linked servers, Agent jobs), object scripting, restore media reads, table/database properties.",
-    "Services/ManagerScriptBuilder.cs": "Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.",
+    "Services/ManagerScriptBuilder.cs": "Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls, the Query Store force/unforce/enable scripts and the EXEC template — preview equals execution, an invalid definition or id throws a one-line reason instead of emitting broken DDL, and a parameter name already carrying its '@' is not given a second one.",
     "Services/DataCompareService.cs": "Row-level key comparison: table discovery with shared keys, the streamed row diff with its literal key pairing, value equality by type, and the review-first insert/update/delete script it writes without ever executing SQL against the target.",
     "Services/DatabaseBackupService.cs": "Native BACKUP DATABASE/LOG plus VERIFYONLY, and the older DacFx BACPAC export; its SQL71562 detection is shared with the snapshot capture.",
     "Services/DbHealthService.cs": "DMV reads for health, blocking chain walk, KILL, the xp_readerrorlog tail, and the Query Store reads (version-tolerant options, regressed halves, ranked top queries, plans per query).",
@@ -139,6 +139,14 @@ PURPOSES = {
     "Services/LineDiffer.cs": "Line-level LCS diff used to colour source-only and target-only lines.",
     "Services/ResultsExportService.cs": "Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script.",
     "Services/SqlFormatter.cs": "T-SQL beautifier behind Ctrl+Shift+F: tokenizes first, so only case, whitespace and line breaks change.",
+
+    # ── Tier 2 round 13: command palette ──
+    "Services/FuzzySearch.cs": "The palette's matcher: one point per matched character, a penalty for any run break that does not land on a word start (so an acronym scores as well as a prefix), a small length penalty, and NoMatch for anything that misses. Stable ordering, case-insensitive, pure.",
+    "Services/CommandCatalogService.cs": "What the palette offers: one live catalog read of user tables, views and procedures, turned into SELECT / INSERT / EXEC rows — an INSERT only for a table whose columns it actually has, and a procedure's parameter list fetched only when that row is chosen. No DROP row, by design.",
+    "Models/PaletteItem.cs": "One palette row: its group (command, table, view, procedure), the title and detail it shows, and either the command to run or the script to build — with the scoring rule that a title match beats a detail match.",
+    "ViewModels/CommandPaletteViewModel.cs": "The palette's list: re-filter and re-rank the whole pool on every keystroke, keep the first row selected so Enter always has a target, and refuse an accept that matches nothing or that nothing can receive.",
+    "Views/CommandPaletteWindow.axaml": "Command palette layout: one big search box, the ranked rows (monospace name over a grey what-happens-next line), and a footer saying the difference between this and running a query.",
+    "Views/CommandPaletteWindow.axaml.cs": "Command palette code-behind: Enter accepts, Escape closes, Up/Down move the selection, and the window resolves a Task so the query window awaits the choice rather than polling the popup.",
     "Services/QueryHistoryService.cs": "Persistent, capped query history store in the data folder.",
     "Services/TabSessionService.cs": "Saves and restores the open query tabs across runs.",
     "Services/RecentFilesService.cs": "Most-recently-opened .sql paths, stored without file contents.",

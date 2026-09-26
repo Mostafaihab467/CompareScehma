@@ -609,16 +609,25 @@ public class DbManagerService
     public async Task<List<StoredProcParam>> GetProcedureParamsAsync(
         ConnectionInfo info, string schema, string procName, CancellationToken ct = default)
     {
+        // The type carries its length or precision: "nvarchar" tells whoever fills the template
+        // nothing about how long the value may be, and a truncating EXEC is their problem.
         const string query = """
             SELECT
                 p.name,
-                TYPE_NAME(p.user_type_id),
+                ty.name + CASE
+                    WHEN ty.name IN ('nvarchar', 'nchar') AND p.max_length < 0 THEN '(max)'
+                    WHEN ty.name IN ('nvarchar', 'nchar') THEN '(' + CAST(p.max_length / 2 AS varchar(10)) + ')'
+                    WHEN ty.name IN ('varchar', 'char', 'varbinary') AND p.max_length < 0 THEN '(max)'
+                    WHEN ty.name IN ('varchar', 'char', 'varbinary') THEN '(' + CAST(p.max_length AS varchar(10)) + ')'
+                    WHEN ty.name IN ('decimal', 'numeric') THEN '(' + CAST(p.precision AS varchar(10)) + ',' + CAST(p.scale AS varchar(10)) + ')'
+                    ELSE '' END,
                 p.is_output,
                 p.has_default_value,
                 CAST(p.default_value AS NVARCHAR(256))
             FROM sys.parameters p
             JOIN sys.objects o ON p.object_id = o.object_id
             JOIN sys.schemas s ON o.schema_id = s.schema_id
+            JOIN sys.types ty ON ty.user_type_id = p.user_type_id
             WHERE s.name = @schema AND o.name = @proc
               AND p.parameter_id > 0
             ORDER BY p.parameter_id

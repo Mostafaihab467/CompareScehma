@@ -18,6 +18,8 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Views/BackupDatabaseDialog.axaml.cs`](files/Views/BackupDatabaseDialog.axaml.cs.md) — Backup dialog logic (BackupDraft): server-side default path, backup type, APPEND vs FORMAT, VERIFY ONLY, preview and OK gating.
 - [`Views/BackupWindow.axaml`](files/Views/BackupWindow.axaml.md) — Layout of the BACPAC export window (DacFx), separate from the native .bak backup dialog.
 - [`Views/BackupWindow.axaml.cs`](files/Views/BackupWindow.axaml.cs.md) — BACPAC export code-behind: picks a database, runs DatabaseBackupService, reports progress.
+- [`Views/CommandPaletteWindow.axaml`](files/Views/CommandPaletteWindow.axaml.md) — Command palette layout: one big search box, the ranked rows (monospace name over a grey what-happens-next line), and a footer saying the difference between this and running a query.
+- [`Views/CommandPaletteWindow.axaml.cs`](files/Views/CommandPaletteWindow.axaml.cs.md) — Command palette code-behind: Enter accepts, Escape closes, Up/Down move the selection, and the window resolves a Task so the query window awaits the choice rather than polling the popup.
 - [`Views/CreatePartitionDialog.axaml`](files/Views/CreatePartitionDialog.axaml.md) — Layout of the Create Partition dialog.
 - [`Views/CreatePartitionDialog.axaml.cs`](files/Views/CreatePartitionDialog.axaml.cs.md) — Create Partition dialog: collects a PartitionSpec and returns the partition function/scheme plus split script.
 - [`Views/DataCompareWindow.axaml`](files/Views/DataCompareWindow.axaml.md) — Layout of the data compare window: two connections, table list, differing rows, sync script.
@@ -49,7 +51,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Views/QueryHistoryWindow.axaml`](files/Views/QueryHistoryWindow.axaml.md) — Layout of the query history window: search box and entry list.
 - [`Views/QueryHistoryWindow.axaml.cs`](files/Views/QueryHistoryWindow.axaml.cs.md) — History window code-behind: filters persisted history and copies or reopens a chosen script.
 - [`Views/QueryWindow.axaml`](files/Views/QueryWindow.axaml.md) — Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes, and the status-bar switch that asks before a destructive script runs.
-- [`Views/QueryWindow.axaml.cs`](files/Views/QueryWindow.axaml.cs.md) — Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, session restore on close.
+- [`Views/QueryWindow.axaml.cs`](files/Views/QueryWindow.axaml.cs.md) — Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G/Ctrl+Shift+P), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, the palette host that returns the chosen row, session restore on close.
 - [`Views/RestoreDatabaseDialog.axaml`](files/Views/RestoreDatabaseDialog.axaml.md) — Layout of the safe restore dialog: media path, backup set picker, relocation grid, options, script preview.
 - [`Views/RestoreDatabaseDialog.axaml.cs`](files/Views/RestoreDatabaseDialog.axaml.cs.md) — Restore dialog logic (RestoreDraft, RestoreFileRow): STOPAT validation, relocation re-suggestions, REPLACE gating, warnings that block OK.
 - [`Views/ScriptActionDialog.axaml`](files/Views/ScriptActionDialog.axaml.md) — Layout of the run-or-copy script confirmation dialog.
@@ -73,6 +75,7 @@ One page per source file: purpose, declared types, public surface and who refere
 
 ## ViewModels
 
+- [`ViewModels/CommandPaletteViewModel.cs`](files/ViewModels/CommandPaletteViewModel.cs.md) — The palette's list: re-filter and re-rank the whole pool on every keystroke, keep the first row selected so Enter always has a target, and refuse an accept that matches nothing or that nothing can receive.
 - [`ViewModels/DataCompareViewModel.cs`](files/ViewModels/DataCompareViewModel.cs.md) — Data compare view-model: two connections, table discovery, the row-level comparison run, and the save/copy of the script it never executes.
 - [`ViewModels/DbHealthViewModel.cs`](files/ViewModels/DbHealthViewModel.cs.md) — DB Health view-model: polling, samples, blocking chain, KILL, error log tail and the Query Store tab (state banner, regressed and top queries, plan list, force/unforce behind the confirmation host).
 - [`ViewModels/DbManagerViewModel.cs`](files/ViewModels/DbManagerViewModel.cs.md) — Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.
@@ -80,7 +83,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`ViewModels/ImportWizardViewModel.cs`](files/ViewModels/ImportWizardViewModel.cs.md) — View-model of the import wizard: read file, review the mapping, match an existing table, then load — failing closed without a confirmation host.
 - [`ViewModels/MainViewModel.cs`](files/ViewModels/MainViewModel.cs.md) — Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the named pairings of those two sides that save and re-apply as references, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.
 - [`ViewModels/QueryBuilderViewModel.cs`](files/ViewModels/QueryBuilderViewModel.cs.md) — Query Constructor view-model: joins, filters, grouping, ordering, regeneration of the SQL on every change.
-- [`ViewModels/QueryViewModel.cs`](files/ViewModels/QueryViewModel.cs.md) — Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — and the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook.
+- [`ViewModels/QueryViewModel.cs`](files/ViewModels/QueryViewModel.cs.md) — Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook, and the Ctrl+Shift+P palette that reads the catalog fresh and hands a chosen script to the caret without running it.
 
 ## Models
 
@@ -101,6 +104,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Models/ManagerTreeModels.cs`](files/Models/ManagerTreeModels.cs.md) — Object Explorer node model: NodeKind for both the database and the server scope, ManagerNode with its lazy loader and context-menu flags, ExplorerQueryFilter and the index/key metadata records.
 - [`Models/ObjectDependencyModels.cs`](files/Models/ObjectDependencyModels.cs.md) — Object dependency graph: one Uses/Used-by edge with its sys type_desc translated for a DBA, and the whole set of neighbours around one catalog object.
 - [`Models/ObjectDesignerModels.cs`](files/Models/ObjectDesignerModels.cs.md) — DesignerKind (table, view, procedure), one DesignerColumn per table column and the DesignerSpec the designer hands back with its Execute-now choice.
+- [`Models/PaletteItem.cs`](files/Models/PaletteItem.cs.md) — One palette row: its group (command, table, view, procedure), the title and detail it shows, and either the command to run or the script to build — with the scoring rule that a title match beats a detail match.
 - [`Models/QueryBuilderModel.cs`](files/Models/QueryBuilderModel.cs.md) — Query Constructor state: aggregate functions, filter operators, join options.
 - [`Models/QueryGuard.cs`](files/Models/QueryGuard.cs.md) — What a script will destroy, as data: one finding (level, stable rule id, prose) and the report that says whether it needs a confirmation and what to lead a dialog with.
 - [`Models/QueryHistoryEntry.cs`](files/Models/QueryHistoryEntry.cs.md) — One persisted history entry: script, timing, server, database, outcome.
@@ -126,6 +130,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/AppSettingsService.cs`](files/Services/AppSettingsService.cs.md) — Loads/saves settings.json and applies UI scale and fonts to Application.Resources.
 - [`Services/ClipboardGuard.cs`](files/Services/ClipboardGuard.cs.md) — Routes an editor's Ctrl+C/X/V through ClipboardSafety so a locked clipboard cannot kill the app.
 - [`Services/ClipboardSafety.cs`](files/Services/ClipboardSafety.cs.md) — Never-throwing clipboard calls; the Avalonia cut/copy/paste crash workaround.
+- [`Services/CommandCatalogService.cs`](files/Services/CommandCatalogService.cs.md) — What the palette offers: one live catalog read of user tables, views and procedures, turned into SELECT / INSERT / EXEC rows — an INSERT only for a table whose columns it actually has, and a procedure's parameter list fetched only when that row is chosen. No DROP row, by design.
 - [`Services/CsvImportService.cs`](files/Services/CsvImportService.cs.md) — Reads a delimited file (RFC 4180 quoting), infers SQL types from a sample, builds the CREATE TABLE and bulk-loads rows in one transaction.
 - [`Services/DataCompareService.cs`](files/Services/DataCompareService.cs.md) — Row-level key comparison: table discovery with shared keys, the streamed row diff with its literal key pairing, value equality by type, and the review-first insert/update/delete script it writes without ever executing SQL against the target.
 - [`Services/DataMoveService.cs`](files/Services/DataMoveService.cs.md) — Row synchronization between two databases in safe dependency order.
@@ -136,9 +141,10 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/DiagramPersistenceService.cs`](files/Services/DiagramPersistenceService.cs.md) — Saves and loads diagram layouts as JSON.
 - [`Services/DiagramSchemaService.cs`](files/Services/DiagramSchemaService.cs.md) — Reads tables, columns and foreign keys of one database for the diagram.
 - [`Services/ExecutionPlanService.cs`](files/Services/ExecutionPlanService.cs.md) — Parses ShowPlanXML into the plan model: estimates for a compiled plan, and for a run one the RuntimeCounters under RunTimeInformation (rows and reads summed across threads, elapsed time taken as the maximum) plus a warning wherever the row estimate missed by 10x or more.
+- [`Services/FuzzySearch.cs`](files/Services/FuzzySearch.cs.md) — The palette's matcher: one point per matched character, a penalty for any run break that does not land on a word start (so an acronym scores as well as a prefix), a small length penalty, and NoMatch for anything that misses. Stable ordering, case-insensitive, pure.
 - [`Services/JoinSuggestionService.cs`](files/Services/JoinSuggestionService.cs.md) — Writes the ON clause a join needs from the keys the database enforces: either direction, a composite key offered whole, one offer per key when a pair has two, brackets only where the name needs them. Pure — it never connects, so the pairing rules hold without a server.
 - [`Services/LineDiffer.cs`](files/Services/LineDiffer.cs.md) — Line-level LCS diff used to colour source-only and target-only lines.
-- [`Services/ManagerScriptBuilder.cs`](files/Services/ManagerScriptBuilder.cs.md) — Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.
+- [`Services/ManagerScriptBuilder.cs`](files/Services/ManagerScriptBuilder.cs.md) — Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls, the Query Store force/unforce/enable scripts and the EXEC template — preview equals execution, an invalid definition or id throws a one-line reason instead of emitting broken DDL, and a parameter name already carrying its '@' is not given a second one.
 - [`Services/QueryBuilderService.cs`](files/Services/QueryBuilderService.cs.md) — Extras for the Constructor: FK-based join suggestions and per-table column lists.
 - [`Services/QueryExecutionService.cs`](files/Services/QueryExecutionService.cs.md) — Executes ad-hoc batches: GO splitting, cancellation, messages, result streaming, statistics and plan capture.
 - [`Services/QueryGuardService.cs`](files/Services/QueryGuardService.cs.md) — Reads a script's blast radius off the text before it reaches the server: DELETE/UPDATE with no outer filter (a sub-query's WHERE does not count, a CTE's does), WHERE 1=1, TRUNCATE, DROP TABLE/DATABASE, DROP COLUMN as Dangerous; DROP INDEX/PROCEDURE as Advisory. Works on string- and comment-masked text so a commented-out DELETE cannot start a warning.
@@ -176,4 +182,4 @@ One page per source file: purpose, declared types, public surface and who refere
 
 - [`Tools/DBPressureTest.ps1`](files/Tools/DBPressureTest.ps1.md) — PowerShell load generator used to exercise blocking, waits and CPU sampling.
 
-_144 pages. Regenerate after any code change with `python docs/build_docs.py`._
+_150 pages. Regenerate after any code change with `python docs/build_docs.py`._

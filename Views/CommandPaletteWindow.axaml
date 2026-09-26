@@ -1,0 +1,44 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        x:Class="SchemaCompare.Views.CommandPaletteWindow"
+        Title="Command palette"
+        Width="720" Height="460" MinWidth="480" MinHeight="300"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="12">
+
+        <Grid ColumnDefinitions="*,Auto">
+            <TextBox x:Name="SearchBox" KeyDown="SearchBox_KeyDown"
+                     PlaceholderText="Table, view, procedure or command…" FontSize="15" />
+            <TextBlock Grid.Column="1" Text="{Binding MatchCount, StringFormat='{}{0} match(es)'}"
+                       FontSize="11" VerticalAlignment="Center" Margin="12,0,0,0"
+                       Foreground="{StaticResource OnSurfaceVariant}" />
+        </Grid>
+
+        <Border Grid.Row="1" Classes="card" Padding="0" Margin="0,10,0,0">
+            <ListBox x:Name="ResultList" ItemsSource="{Binding Results}"
+                     SelectedItem="{Binding Selected, Mode=TwoWay}"
+                     DoubleTapped="ResultList_DoubleTapped"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListBox.ItemTemplate>
+                    <DataTemplate DataType="models:PaletteItem">
+                        <Grid ColumnDefinitions="*,Auto" Margin="2,4">
+                            <TextBlock Text="{Binding Title}" FontSize="13"
+                                       FontFamily="Consolas,Menlo,monospace"
+                                       TextTrimming="CharacterEllipsis" />
+                            <TextBlock Grid.Column="1" Text="{Binding Detail}" FontSize="11"
+                                       VerticalAlignment="Center" Margin="14,0,0,0"
+                                       Foreground="{StaticResource OnSurfaceVariant}" />
+                        </Grid>
+                    </DataTemplate>
+                </ListBox.ItemTemplate>
+            </ListBox>
+        </Border>
+
+        <TextBlock Grid.Row="2" Margin="2,8,0,0" FontSize="11"
+                   Foreground="{StaticResource OnSurfaceVariant}"
+                   Text="Enter writes the script at the caret · Escape closes · nothing here runs a query" />
+    </Grid>
+</Window>
