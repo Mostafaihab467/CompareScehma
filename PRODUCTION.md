@@ -47,7 +47,7 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-860 assertions, 0 failures — Tier 1, all five Tier 2 rounds, both Tier 3 rounds and the
+896 assertions, 0 failures — Tier 1, all five Tier 2 rounds, both Tier 3 rounds and the
 round-8 plan/lint fixes —
 including a live
 `COPY_ONLY` backup of EgyptMart read
@@ -316,7 +316,7 @@ Seven things came out of building it:
 | Rollback / DOWN script generation | **Done, verified** | `SchemaCompareService.GenerateRollbackScriptAsync` — the same diff with the endpoints swapped, headed at the deployed database. `Rollback` button in the compare toolbar, one script pane that toggles between UP and DOWN (`MainViewModel.ShowingRollbackScript`), Copy and Save always hand out whichever is shown. Preview and file only: the app never executes a DOWN script |
 | Schema snapshots as files, snapshot-vs-snapshot | **Done, verified** | `Services/SchemaSnapshotService.cs` writes a live database to a `.dacpac` (schema only, permissions ignored, extraction verified) and reads one back; `Models/SchemaSource.cs` makes *either* side of a comparison a database or a file, so live-vs-live, snapshot-vs-live and file-vs-file all run through the one `CompareAsync` / `GenerateScriptBetweenAsync` path. `Capture snapshot…` on a live card, `Compare against a snapshot file` + Browse on either |
 | Drift detection ("what changed since yesterday") | **Done, verified** | The same compare, pointed at a baseline: capture once, and every later run against that file answers what the database lost (`Added` — only the baseline has it), gained (`Deleted`) and widened or narrowed (`Changed`). The file carries its own provenance, so the card states `Captured from localhost/DB at … UTC` and `4 h ago` from the package, not from a sidecar the operator can lose |
-| Snapshot diff stored as a file the operator can keep | **Not done** | a capture is a file today; there is no "list my snapshots" view, and nothing remembers the last one used |
+| Snapshot diff stored as a file the operator can keep | **Done, verified** | Round 9 — see the table below |
 
 ## Round 8 — the two plan buttons stopped telling the same story
 
@@ -368,6 +368,46 @@ misspelled `dbo.Ordrs` is still caught.
 | 🧭 actual plan ≠ 🌩 estimated plan | **Done, verified** | Same script through both buttons in a live `QueryWindow`: the estimated one has no runtime stats anywhere and says so, the executed one reports measured rows/CPU/elapsed/logical-physical reads per operator, the statement clock, the 48× estimate miss as a ⚠, and boxes that read estimate → actual |
 | ShowPlanXML runtime counters | **Done, verified** | `RunTimeInformation` / `RunTimeCountersPerThread` parsed with sum-across-threads for rows and reads, max for time and executions; `AvgRowSize` for row size; `QueryTimeStats` for the statement clock. Harness fixtures use the captured shape, including a two-thread operator that proves the difference between the two |
 | Lint leaves catalog views alone | **Done, verified** | `sys.*`, `INFORMATION_SCHEMA.*` and their three-part forms are exempt from the unknown-table rule; real misspellings still flagged |
+
+## Round 9 — the app remembers the baselines it captured
+
+A `.dacpac` made the schema outlive the server. It did not outlive the file dialog: every
+later comparison meant finding the folder again and remembering which of twenty
+timestamped files was the one from before the deploy. `Services/SnapshotLibraryService.cs`
+is that memory — the last twenty baselines, newest first, in a `Recent snapshots` row on
+either compare card (`49_snapshot_library.png`).
+
+- **One recording point, three ways in.** `MainViewModel.DescribeSnapshot` is what every
+  path passes through — a capture, a Browse, a pick from the list — so it is where
+  `Remember` is called, and no route can add a file to a card without adding it to the
+  list. Picking a row sets that side to snapshot mode and fills the path; typing a path
+  selects the row. Neither duplicates the entry, and the two controls cannot end up
+  naming different files.
+- **The row is the provenance, not a re-read.** `Models/SnapshotEntry.cs` copies the
+  server, database and capture time out of the package once, so drawing twenty rows opens
+  no files. `SnapshotInfo.DescribeAge` is shared with the card, so "3 days ago" means the
+  same thing in both places, and a package from SSDT or a build pipeline says
+  `captured by another tool` rather than being given a capture date it never had.
+- **Forgetting is a record operation.** `Forget` drops the row and leaves the `.dacpac`
+  exactly where it is — the file is the operator's, and may be the baseline another
+  machine still compares against. With nothing picked the button says so instead of
+  guessing at a row. A row whose file has gone is dropped when the list loads: it is not a
+  choice, it is a dead end.
+- **Nothing sensitive is stored.** `snapshot_library.json` holds paths plus what the
+  package already said, and the harness reads the file to prove no connection string,
+  user name or password can appear in it.
+
+| Feature | State | Notes |
+|---|---|---|
+| Snapshot library (recent baselines) | **Done, verified** | `Services/SnapshotLibraryService.cs` + `Models/SnapshotEntry.cs`, `MainViewModel.SnapshotLibrary` / `SelectedSourceSnapshot` / `SelectedTargetSnapshot` / `Forget*SnapshotCommand` — newest-first, de-duped by path case-insensitively, capped at 20, persisted beside the other side-stores, pruned of missing files on load |
+| Pick a baseline from the compare card | **Done, verified** | `Views/MainWindow.axaml` — a searchable list plus **Forget** on both snapshot cards; picking switches the side to the file, typing the path back selects the row, and a second window opened later reads the same list |
+
+Two harness facts from the round: the library is a real side-store, so the run has to
+delete `snapshot_library.json` before the window checks — the offline rows above it live
+in the same file, and their counts would otherwise leak into the card's. And re-remembering
+the top row returns the *existing* entry rather than a fresh instance, which is what keeps a
+bound dropdown from losing its selection mid-interaction; the assertion that proves it has to
+compare against the instance the previous `Remember` returned, not the first one.
 
 ## Already production-grade
 

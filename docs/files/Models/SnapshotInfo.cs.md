@@ -10,12 +10,14 @@
 
 ## Public surface
 
-`SnapshotInfo`, `Path`, `FileName`, `CapturedDatabase`, `CapturedServer`, `CapturedAt`, `FileSizeBytes`, `Caption`, `AgeCaption`
+`SnapshotInfo`, `Path`, `FileName`, `CapturedDatabase`, `CapturedServer`, `CapturedAt`, `FileSizeBytes`, `Caption`, `DescribeAge()`
 
 ## Referenced by
 
 - `Models/SchemaSource.cs`
+- `Models/SnapshotEntry.cs`
 - `Services/SchemaSnapshotService.cs`
+- `Services/SnapshotLibraryService.cs`
 - `ViewModels/MainViewModel.cs`
 
-**Size:** 58 lines
+**Size:** 61 lines

@@ -42,17 +42,20 @@ public class SnapshotInfo
     }
 
     /// <summary>Age, so "compare against the baseline" never quietly means a two-year-old one.</summary>
-    public string AgeCaption
+    public string AgeCaption => DescribeAge(CapturedAt);
+
+    /// <summary>
+    /// The age of a capture in the words an operator reads. Shared with
+    /// <see cref="SnapshotEntry"/> so the card and the list never describe one file differently.
+    /// </summary>
+    public static string DescribeAge(DateTimeOffset? capturedAt)
     {
-        get
-        {
-            if (CapturedAt is null) return string.Empty;
-            var age = DateTimeOffset.UtcNow - CapturedAt.Value;
-            if (age.TotalMinutes < 1) return "just now";
-            if (age.TotalHours < 1) return $"{(int)age.TotalMinutes} min ago";
-            if (age.TotalDays < 1) return $"{(int)age.TotalHours} h ago";
-            if (age.TotalDays < 60) return $"{(int)age.TotalDays} days ago";
-            return CapturedAt.Value.ToUniversalTime().ToString("yyyy-MM-dd") + " (UTC)";
-        }
+        if (capturedAt is null) return string.Empty;
+        var age = DateTimeOffset.UtcNow - capturedAt.Value;
+        if (age.TotalMinutes < 1) return "just now";
+        if (age.TotalHours < 1) return $"{(int)age.TotalMinutes} min ago";
+        if (age.TotalHours < 24) return $"{(int)age.TotalHours} h ago";
+        if (age.TotalDays < 60) return $"{(int)age.TotalDays} days ago";
+        return capturedAt.Value.ToUniversalTime().ToString("yyyy-MM-dd") + " (UTC)";
     }
 }

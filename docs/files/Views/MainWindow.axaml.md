@@ -10,4 +10,4 @@
 - `Services/ClipboardSafety.cs`
 - `Views/MainWindow.axaml.cs`
 
-**Size:** 528 lines
+**Size:** 564 lines

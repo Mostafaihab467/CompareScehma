@@ -22,6 +22,7 @@
 - `Services/QueryBuilderService.cs`
 - `Services/QueryHistoryService.cs`
 - `Services/RecentFilesService.cs`
+- `Services/SnapshotLibraryService.cs`
 - `Services/TabSessionService.cs`
 - `ViewModels/DataCompareViewModel.cs`
 - `ViewModels/DbHealthViewModel.cs`

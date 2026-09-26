@@ -72,7 +72,7 @@ PURPOSES = {
     "Controls/DiagramTableCard.axaml.cs": "Diagram table card: columns, PK/FK markers, selection and drag behaviour.",
 
     # ── ViewModels ──
-    "ViewModels/MainViewModel.cs": "Launcher view-model: the two comparison sides (live database or snapshot file, each capturable), the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
+    "ViewModels/MainViewModel.cs": "Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
     "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist.",
     "ViewModels/DbManagerViewModel.cs": "Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.",
     "ViewModels/DbHealthViewModel.cs": "DB Health view-model: polling, samples, blocking chain, KILL, error log tail and the Query Store tab (state banner, regressed and top queries, plan list, force/unforce behind the confirmation host).",
@@ -84,6 +84,7 @@ PURPOSES = {
     "Models/ConnectionInfo.cs": "Connection parameters (server, DB, Windows/SQL/Entra auth, TLS), the connection strings they build, a log-safe label and the sibling-database clone the explorer switches to.",
     "Models/SchemaSource.cs": "One side of a schema comparison as either a live database or a snapshot file, so compare, script and deploy never assume a reachable server.",
     "Models/SnapshotInfo.cs": "What a .dacpac snapshot says about itself: the database and server it was captured from, when, and how old that makes it.",
+    "Models/SnapshotEntry.cs": "One remembered baseline as the list keeps it: the path plus the provenance copied out of the package, and the single line a row shows.",
     "Models/SavedConnection.cs": "A saved connection profile: its authentication method, how its password is held and how it becomes a ConnectionInfo.",
     "Models/ServerBrowserModels.cs": "Rows behind the server-scope tree nodes: instance overview, databases with state and size, logins and server roles, linked servers, Agent jobs.",
     "Models/AuthMethod.cs": "The authentication dropdown: Windows, SQL and the Entra ID flows, each mapped to the SqlClient Authentication= value it emits.",
@@ -120,6 +121,7 @@ PURPOSES = {
     "Services/ExecutionPlanService.cs": "Parses ShowPlanXML into the plan model: estimates for a compiled plan, and for a run one the RuntimeCounters under RunTimeInformation (rows and reads summed across threads, elapsed time taken as the maximum) plus a warning wherever the row estimate missed by 10x or more.",
     "Services/SchemaCompareService.cs": "DacFx schema compare over any pair of live databases or snapshot files, and the one comparison path behind both script directions — forward deploy, reversed rollback — with the function-before-view reorder, the deploy-database retargeting and the note a file on either side forces on the script.",
     "Services/SchemaSnapshotService.cs": "Schema snapshots as .dacpac files: schema-only DAC extract with the SQL71562 verify-off retry, the capture provenance written into and read back out of the package, and the UTC-stamped file name that keeps two captures of one day apart.",
+    "Services/SnapshotLibraryService.cs": "The list of baselines this app has captured or opened: newest-first, de-duped by path, pruned of files that no longer exist, and stored as paths and provenance only — forgetting a row never touches the .dacpac.",
     "Services/DataMoveService.cs": "Row synchronization between two databases in safe dependency order.",
     "Services/QuerySchemaService.cs": "Schema cache used by IntelliSense: tables, views, columns, loaded lazily per connection.",
     "Services/QueryBuilderService.cs": "Extras for the Constructor: FK-based join suggestions and per-table column lists.",

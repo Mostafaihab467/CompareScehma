@@ -75,6 +75,7 @@ Three conventions that matter when you change behaviour:
 | Schema compare / sync / diff colours | `Services/SchemaCompareService.cs`, `Services/LineDiffer.cs`, `Models/SchemaDiffItem.cs` |
 | Deployment (UP) and rollback (DOWN) scripts | `Services/SchemaCompareService.cs` (`GenerateScriptBetweenAsync`, `GenerateScriptAsync`, `GenerateRollbackScriptAsync`, `RetargetScriptHeader`), `ViewModels/MainViewModel.cs` (`GenerateRollbackScriptAsync`, `ShowingRollbackScript`, `DisplayedScript`), `Views/MainWindow.axaml` (script pane + `CopyScript_Click` / `SaveScript_Click`) |
 | Schema snapshots (.dacpac) and drift against one | `Services/SchemaSnapshotService.cs` (`CaptureAsync`, `ReadSnapshot`, `SuggestedFileName`), `Models/SnapshotInfo.cs`, `Models/SchemaSource.cs`, `ViewModels/MainViewModel.cs` (`CaptureSnapshotAsync`, `BrowseSnapshotAsync`, `GetSource` / `GetTarget`, `SourceCardTitle`), `Views/MainWindow.axaml` (the snapshot checkbox + path row in each card), `Views/MainWindow.axaml.cs` (`PickSnapshotPathAsync`) |
+| The list of baselines already captured | `Services/SnapshotLibraryService.cs` (`Remember`, `Find`, `Forget`, `Load`), `Models/SnapshotEntry.cs` (`Display`, `SameProvenanceAs`), `ViewModels/MainViewModel.cs` (`SnapshotLibrary`, `HasSnapshots`, `SelectedSourceSnapshot` / `SelectedTargetSnapshot`, `Forget*SnapshotCommand`, the `Remember` inside `DescribeSnapshot`), `Views/MainWindow.axaml` (the `Recent snapshots` row on each card) |
 | Connections, saved profiles, authentication methods, TLS, passwords | `Models/ConnectionInfo.cs`, `Models/AuthMethod.cs`, `Services/SavedConnectionsService.cs`, `Models/SavedConnection.cs` |
 | Settings, UI scale, fonts | `Services/AppSettingsService.cs`, `Models/AppSettings.cs`, `Styles/Resources.axaml` |
 | Logging, crash reporting, About/diagnostics | `Services/AppLog.cs`, `Program.cs`, `Services/AppInfo.cs`, `Views/AboutWindow.axaml.cs` |
@@ -86,7 +87,7 @@ The app is proven by a headless harness, not by eyeballing: `ReproSsms` in the
 scratch working directory drives real windows and dialogs through Avalonia's
 headless lifetime and writes PNGs with `RenderTargetBitmap`.
 
-- 860 assertions cover Tier 1, the five Tier 2 rounds, both Tier 3 rounds and the round-8
+- 896 assertions cover Tier 1, the five Tier 2 rounds, both Tier 3 rounds and the round-8
   plan and lint fixes end to
   end, against the local instance (EgyptMart) and a snapshot database of it. Objects the
   designer and the import wizard create are created in `tempdb`, verified on the server and
@@ -94,7 +95,9 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   creates, enables, works and drops, the rollback script against a `__sc20_src` /
   `__sc20_snap` pair built to differ in all three ways a schema can differ, and the
   snapshot drift against a `__sc21_live` database captured to a `.dacpac`, then edited in
-  those same three ways — every file the run writes is deleted again.
+  those same three ways, and the snapshot library against a `__sc23_snap` capture driven
+  through a real compare card (`49_snapshot_library.png`) — every file the run writes is
+  deleted again.
 - It performs a live `COPY_ONLY` backup and reads it back; it never restores, never
   `KILL`s, never starts an Agent job and never executes a data-sync script — all four are
   asserted up to the confirmation and declined, and the compare run counts rows on both

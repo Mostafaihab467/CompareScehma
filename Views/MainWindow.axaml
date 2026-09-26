@@ -151,6 +151,24 @@
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel IsVisible="{Binding SourceIsSnapshot}">
+                                        <TextBlock Text="Recent snapshots" Classes="sectionTitle" />
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8" IsVisible="{Binding HasSnapshots}">
+                                            <controls:SearchableComboBox ItemsSource="{Binding SnapshotLibrary}"
+                                                      SelectedItem="{Binding SelectedSourceSnapshot}"
+                                                      PlaceholderText="Pick a captured baseline…"
+                                                      HorizontalAlignment="Stretch">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate DataType="models:SnapshotEntry">
+                                                        <TextBlock Text="{Binding Display}" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </controls:SearchableComboBox>
+                                            <Button Grid.Column="1" Classes="danger" Command="{Binding ForgetSourceSnapshotCommand}"
+                                                    Padding="10,4" FontSize="11" Margin="6,0,0,0"
+                                                    ToolTip.Tip="Remove the selected baseline from this list. The .dacpac file is left exactly where it is."><TextBlock Text="Forget" /></Button>
+                                        </Grid>
+                                        <TextBlock Text="Baselines you capture will be listed here." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                                                   TextWrapping="Wrap" Margin="0,0,0,8" IsVisible="{Binding !HasSnapshots}" />
                                         <TextBlock Text="Snapshot file" Classes="sectionTitle" />
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBox Text="{Binding SourceSnapshotPath}" PlaceholderText="EgyptMart-20260926-0715.dacpac" />
@@ -238,6 +256,24 @@
                                         </StackPanel>
                                     </StackPanel>
                                     <StackPanel IsVisible="{Binding TargetIsSnapshot}">
+                                        <TextBlock Text="Recent snapshots" Classes="sectionTitle" />
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,0,0,8" IsVisible="{Binding HasSnapshots}">
+                                            <controls:SearchableComboBox ItemsSource="{Binding SnapshotLibrary}"
+                                                      SelectedItem="{Binding SelectedTargetSnapshot}"
+                                                      PlaceholderText="Pick a captured baseline…"
+                                                      HorizontalAlignment="Stretch">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate DataType="models:SnapshotEntry">
+                                                        <TextBlock Text="{Binding Display}" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </controls:SearchableComboBox>
+                                            <Button Grid.Column="1" Classes="danger" Command="{Binding ForgetTargetSnapshotCommand}"
+                                                    Padding="10,4" FontSize="11" Margin="6,0,0,0"
+                                                    ToolTip.Tip="Remove the selected baseline from this list. The .dacpac file is left exactly where it is."><TextBlock Text="Forget" /></Button>
+                                        </Grid>
+                                        <TextBlock Text="Baselines you capture will be listed here." FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                                                   TextWrapping="Wrap" Margin="0,0,0,8" IsVisible="{Binding !HasSnapshots}" />
                                         <TextBlock Text="Snapshot file" Classes="sectionTitle" />
                                         <Grid ColumnDefinitions="*,Auto">
                                             <TextBox Text="{Binding TargetSnapshotPath}" PlaceholderText="EgyptMart-20260926-0715.dacpac" />

@@ -78,7 +78,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`ViewModels/DbManagerViewModel.cs`](files/ViewModels/DbManagerViewModel.cs.md) — Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.
 - [`ViewModels/DiagramViewModel.cs`](files/ViewModels/DiagramViewModel.cs.md) — Diagram view-model: schema load, table search, layout, persistence.
 - [`ViewModels/ImportWizardViewModel.cs`](files/ViewModels/ImportWizardViewModel.cs.md) — View-model of the import wizard: read file, review the mapping, match an existing table, then load — failing closed without a confirmation host.
-- [`ViewModels/MainViewModel.cs`](files/ViewModels/MainViewModel.cs.md) — Launcher view-model: the two comparison sides (live database or snapshot file, each capturable), the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.
+- [`ViewModels/MainViewModel.cs`](files/ViewModels/MainViewModel.cs.md) — Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.
 - [`ViewModels/QueryBuilderViewModel.cs`](files/ViewModels/QueryBuilderViewModel.cs.md) — Query Constructor view-model: joins, filters, grouping, ordering, regeneration of the SQL on every change.
 - [`ViewModels/QueryViewModel.cs`](files/ViewModels/QueryViewModel.cs.md) — Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist.
 
@@ -109,6 +109,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Models/SchemaDiffItem.cs`](files/Models/SchemaDiffItem.cs.md) — One schema-compare diff line and its Added/Removed/Modified status.
 - [`Models/SchemaSource.cs`](files/Models/SchemaSource.cs.md) — One side of a schema comparison as either a live database or a snapshot file, so compare, script and deploy never assume a reachable server.
 - [`Models/ServerBrowserModels.cs`](files/Models/ServerBrowserModels.cs.md) — Rows behind the server-scope tree nodes: instance overview, databases with state and size, logins and server roles, linked servers, Agent jobs.
+- [`Models/SnapshotEntry.cs`](files/Models/SnapshotEntry.cs.md) — One remembered baseline as the list keeps it: the path plus the provenance copied out of the package, and the single line a row shows.
 - [`Models/SnapshotInfo.cs`](files/Models/SnapshotInfo.cs.md) — What a .dacpac snapshot says about itself: the database and server it was captured from, when, and how old that makes it.
 - [`Models/StoredProcParam.cs`](files/Models/StoredProcParam.cs.md) — One stored-procedure parameter and the value typed on the Execute tab.
 - [`Models/TableColumn.cs`](files/Models/TableColumn.cs.md) — Column metadata with human-readable type, nullability and defaults.
@@ -143,6 +144,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/SavedConnectionsService.cs`](files/Services/SavedConnectionsService.cs.md) — Reads and writes saved connection profiles, including DPAPI-protected passwords.
 - [`Services/SchemaCompareService.cs`](files/Services/SchemaCompareService.cs.md) — DacFx schema compare over any pair of live databases or snapshot files, and the one comparison path behind both script directions — forward deploy, reversed rollback — with the function-before-view reorder, the deploy-database retargeting and the note a file on either side forces on the script.
 - [`Services/SchemaSnapshotService.cs`](files/Services/SchemaSnapshotService.cs.md) — Schema snapshots as .dacpac files: schema-only DAC extract with the SQL71562 verify-off retry, the capture provenance written into and read back out of the package, and the UTC-stamped file name that keeps two captures of one day apart.
+- [`Services/SnapshotLibraryService.cs`](files/Services/SnapshotLibraryService.cs.md) — The list of baselines this app has captured or opened: newest-first, de-duped by path, pruned of files that no longer exist, and stored as paths and provenance only — forgetting a row never touches the .dacpac.
 - [`Services/SqlBuilder.cs`](files/Services/SqlBuilder.cs.md) — Pure T-SQL generator for the visual Query Constructor.
 - [`Services/SqlExplainerService.cs`](files/Services/SqlExplainerService.cs.md) — Deterministic plain-English analysis of a script: steps, joins, effects and safety warnings.
 - [`Services/SqlFormatter.cs`](files/Services/SqlFormatter.cs.md) — T-SQL beautifier behind Ctrl+Shift+F: tokenizes first, so only case, whitespace and line breaks change.
@@ -168,4 +170,4 @@ One page per source file: purpose, declared types, public surface and who refere
 
 - [`Tools/DBPressureTest.ps1`](files/Tools/DBPressureTest.ps1.md) — PowerShell load generator used to exercise blocking, waits and CPU sampling.
 
-_136 pages. Regenerate after any code change with `python docs/build_docs.py`._
+_138 pages. Regenerate after any code change with `python docs/build_docs.py`._

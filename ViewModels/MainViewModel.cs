@@ -15,6 +15,7 @@ public partial class MainViewModel : ObservableObject
     private readonly DataMoveService _dataMoveService = new();
     private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
+    private readonly SnapshotLibraryService _snapshotLibrary = new();
     private readonly AppSettingsService _settingsService = new();
     private bool _applyingProfile;
     private bool _applyingSettings;
@@ -52,6 +53,14 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _targetSnapshotPath = "";
     [ObservableProperty] private string _targetSnapshotCaption = "";
     [ObservableProperty] private bool _isCapturingSnapshot;
+
+    // The baselines this app has captured or opened before, so "compare against yesterday's
+    // snapshot" is a pick from a list instead of a file dialog into a folder of timestamps.
+    public ObservableCollection<SnapshotEntry> SnapshotLibrary => _snapshotLibrary.Entries;
+    public bool HasSnapshots => SnapshotLibrary.Count > 0;
+
+    [ObservableProperty] private SnapshotEntry? _selectedSourceSnapshot;
+    [ObservableProperty] private SnapshotEntry? _selectedTargetSnapshot;
 
     /// <summary>Capturing needs a live database on that side, and re-capturing the side you are
     /// already reading from a file would only overwrite the baseline.</summary>
@@ -216,6 +225,8 @@ public partial class MainViewModel : ObservableObject
     public ICommand CaptureTargetSnapshotCommand { get; }
     public ICommand BrowseSourceSnapshotCommand { get; }
     public ICommand BrowseTargetSnapshotCommand { get; }
+    public ICommand ForgetSourceSnapshotCommand { get; }
+    public ICommand ForgetTargetSnapshotCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand ConfirmApplyCommand { get; }
     public ICommand CancelApplyCommand { get; }
@@ -287,6 +298,8 @@ public partial class MainViewModel : ObservableObject
         CaptureTargetSnapshotCommand = new AsyncRelayCommand(() => CaptureSnapshotAsync(isSource: false), () => CanCaptureTargetSnapshot);
         BrowseSourceSnapshotCommand = new AsyncRelayCommand(() => BrowseSnapshotAsync(isSource: true), () => !IsCapturingSnapshot);
         BrowseTargetSnapshotCommand = new AsyncRelayCommand(() => BrowseSnapshotAsync(isSource: false), () => !IsCapturingSnapshot);
+        ForgetSourceSnapshotCommand = new RelayCommand(() => ForgetSnapshot(isSource: true));
+        ForgetTargetSnapshotCommand = new RelayCommand(() => ForgetSnapshot(isSource: false));
         ApplyCommand = new AsyncRelayCommand(ApplyAsync, CanApply);
         ConfirmApplyCommand = new AsyncRelayCommand(ConfirmApplyAsync);
         CancelApplyCommand = new RelayCommand(CancelApply);
@@ -325,6 +338,9 @@ public partial class MainViewModel : ObservableObject
 
         foreach (var saved in _savedService.Load())
             SavedConnections.Add(saved);
+
+        _snapshotLibrary.Load();
+        _snapshotLibrary.Entries.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSnapshots));
 
         LoadDisplaySettings();
 
@@ -382,6 +398,10 @@ public partial class MainViewModel : ObservableObject
     {
         var caption = string.IsNullOrWhiteSpace(value) ? "" : DescribeSnapshot(value);
         if (isSource) SourceSnapshotCaption = caption; else TargetSnapshotCaption = caption;
+        // Show the card's row for whatever file is in the box, including one typed by hand or
+        // written by a capture, so the list and the card never disagree about the current pick.
+        if (isSource) SelectedSourceSnapshot = _snapshotLibrary.Find(value);
+        else SelectedTargetSnapshot = _snapshotLibrary.Find(value);
         RefreshSnapshotCommands();
     }
 
@@ -390,6 +410,9 @@ public partial class MainViewModel : ObservableObject
         try
         {
             var info = SchemaSnapshotService.ReadSnapshot(path);
+            // Every route into this box — capture, Browse, a pick from the list — passes here,
+            // so remembering the baseline from one place records it from all three.
+            _snapshotLibrary.Remember(info);
             var age = info.AgeCaption.Length > 0 ? $" {info.AgeCaption}." : "";
             return $"{info.Caption}{age} ({info.FileSizeBytes / 1024} KB)";
         }
@@ -398,6 +421,36 @@ public partial class MainViewModel : ObservableObject
             AppendLog($"Snapshot header unreadable: {ex.Message}");
             return ex.Message;
         }
+    }
+
+    /// <summary>The library is the shortcut to a file, not a second copy of it: choosing a row
+    /// switches that side to snapshot mode and fills the path, and the path then re-syncs the
+    /// selection through <see cref="OnSnapshotPathChanged"/> — which is why that setter is a
+    /// no-op once the two already point at the same file.</summary>
+    partial void OnSelectedSourceSnapshotChanged(SnapshotEntry? value)
+    {
+        if (value is null || string.Equals(value.Path, SourceSnapshotPath, StringComparison.OrdinalIgnoreCase)) return;
+        SourceIsSnapshot = true;
+        SourceSnapshotPath = value.Path;
+    }
+
+    partial void OnSelectedTargetSnapshotChanged(SnapshotEntry? value)
+    {
+        if (value is null || string.Equals(value.Path, TargetSnapshotPath, StringComparison.OrdinalIgnoreCase)) return;
+        TargetIsSnapshot = true;
+        TargetSnapshotPath = value.Path;
+    }
+
+    /// <summary>Drop the remembered row, never the file — the .dacpac is the operator's and may
+    /// be a baseline another tool or machine still uses.</summary>
+    private void ForgetSnapshot(bool isSource)
+    {
+        var entry = isSource ? SelectedSourceSnapshot : SelectedTargetSnapshot;
+        if (entry is null) { StatusMessage = "Choose a snapshot in the list to forget it."; return; }
+        if (!_snapshotLibrary.Forget(entry)) return;
+        if (isSource) SelectedSourceSnapshot = null; else SelectedTargetSnapshot = null;
+        StatusMessage = $"Forgotten {entry.FileName}. The file itself was left where it is.";
+        AppendLog(StatusMessage);
     }
 
     partial void OnSourceIsSnapshotChanged(bool value)
