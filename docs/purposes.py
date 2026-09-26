@@ -13,8 +13,8 @@ PURPOSES = {
     "Program.cs": "STAThread entry point: crash logging for unhandled exceptions, then the Avalonia app builder.",
 
     # ── Views: windows ──
-    "Views/MainWindow.axaml": "Layout of the launcher window: source/target scripts, compare, the one script pane that toggles UP/DOWN, buttons into every other window.",
-    "Views/MainWindow.axaml.cs": "Launcher window code-behind: opens saved connections, copies and saves whichever script the pane shows, and every other window from the menu.",
+    "Views/MainWindow.axaml": "Layout of the launcher window: source and target cards that are each a live database or a snapshot file, compare, the one script pane that toggles UP/DOWN, buttons into every other window.",
+    "Views/MainWindow.axaml.cs": "Launcher window code-behind: opens saved connections, copies and saves whichever script the pane shows, the snapshot file pickers both directions, and every other window from the menu.",
     "Views/QueryWindow.axaml": "Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes.",
     "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, session restore on close.",
     "Views/DbManagerWindow.axaml": "Layout of Object Explorer: server/database tree, filter bar, and the Data/Structure/Definition/Execute tabs.",
@@ -72,7 +72,7 @@ PURPOSES = {
     "Controls/DiagramTableCard.axaml.cs": "Diagram table card: columns, PK/FK markers, selection and drag behaviour.",
 
     # ── ViewModels ──
-    "ViewModels/MainViewModel.cs": "Launcher view-model: the connection forms, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
+    "ViewModels/MainViewModel.cs": "Launcher view-model: the two comparison sides (live database or snapshot file, each capturable), the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
     "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist.",
     "ViewModels/DbManagerViewModel.cs": "Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.",
     "ViewModels/DbHealthViewModel.cs": "DB Health view-model: polling, samples, blocking chain, KILL, error log tail and the Query Store tab (state banner, regressed and top queries, plan list, force/unforce behind the confirmation host).",
@@ -82,6 +82,8 @@ PURPOSES = {
 
     # ── Models ──
     "Models/ConnectionInfo.cs": "Connection parameters (server, DB, Windows/SQL/Entra auth, TLS), the connection strings they build, a log-safe label and the sibling-database clone the explorer switches to.",
+    "Models/SchemaSource.cs": "One side of a schema comparison as either a live database or a snapshot file, so compare, script and deploy never assume a reachable server.",
+    "Models/SnapshotInfo.cs": "What a .dacpac snapshot says about itself: the database and server it was captured from, when, and how old that makes it.",
     "Models/SavedConnection.cs": "A saved connection profile: its authentication method, how its password is held and how it becomes a ConnectionInfo.",
     "Models/ServerBrowserModels.cs": "Rows behind the server-scope tree nodes: instance overview, databases with state and size, logins and server roles, linked servers, Agent jobs.",
     "Models/AuthMethod.cs": "The authentication dropdown: Windows, SQL and the Entra ID flows, each mapped to the SqlClient Authentication= value it emits.",
@@ -112,11 +114,12 @@ PURPOSES = {
     "Services/DbManagerService.cs": "Data access for Object Explorer: object and server-level browsing (databases, logins, linked servers, Agent jobs), object scripting, restore media reads, table/database properties.",
     "Services/ManagerScriptBuilder.cs": "Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.",
     "Services/DataCompareService.cs": "Row-level key comparison: table discovery with shared keys, the streamed row diff with its literal key pairing, value equality by type, and the review-first insert/update/delete script it writes without ever executing SQL against the target.",
-    "Services/DatabaseBackupService.cs": "Native BACKUP DATABASE/LOG plus VERIFYONLY, and the older DacFx BACPAC export.",
+    "Services/DatabaseBackupService.cs": "Native BACKUP DATABASE/LOG plus VERIFYONLY, and the older DacFx BACPAC export; its SQL71562 detection is shared with the snapshot capture.",
     "Services/DbHealthService.cs": "DMV reads for health, blocking chain walk, KILL, the xp_readerrorlog tail, and the Query Store reads (version-tolerant options, regressed halves, ranked top queries, plans per query).",
     "Services/QueryExecutionService.cs": "Executes ad-hoc batches: GO splitting, cancellation, messages, result streaming, statistics and plan capture.",
     "Services/ExecutionPlanService.cs": "Parses ShowPlanXML into the plan model, for both estimated and actual plans.",
-    "Services/SchemaCompareService.cs": "DacFx schema compare and the one comparison path behind both script directions — forward deploy, reversed rollback — with the function-before-view reorder and the deploy-database retargeting.",
+    "Services/SchemaCompareService.cs": "DacFx schema compare over any pair of live databases or snapshot files, and the one comparison path behind both script directions — forward deploy, reversed rollback — with the function-before-view reorder, the deploy-database retargeting and the note a file on either side forces on the script.",
+    "Services/SchemaSnapshotService.cs": "Schema snapshots as .dacpac files: schema-only DAC extract with the SQL71562 verify-off retry, the capture provenance written into and read back out of the package, and the UTC-stamped file name that keeps two captures of one day apart.",
     "Services/DataMoveService.cs": "Row synchronization between two databases in safe dependency order.",
     "Services/QuerySchemaService.cs": "Schema cache used by IntelliSense: tables, views, columns, loaded lazily per connection.",
     "Services/QueryBuilderService.cs": "Extras for the Constructor: FK-based join suggestions and per-table column lists.",

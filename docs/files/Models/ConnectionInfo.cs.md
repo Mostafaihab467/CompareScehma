@@ -15,6 +15,7 @@
 ## Referenced by
 
 - `Models/SavedConnection.cs`
+- `Models/SchemaSource.cs`
 - `Services/CsvImportService.cs`
 - `Services/DataCompareService.cs`
 - `Services/DataMoveService.cs`
@@ -26,6 +27,7 @@
 - `Services/QueryExecutionService.cs`
 - `Services/QuerySchemaService.cs`
 - `Services/SchemaCompareService.cs`
+- `Services/SchemaSnapshotService.cs`
 - `ViewModels/DataCompareViewModel.cs`
 - `ViewModels/DbHealthViewModel.cs`
 - `ViewModels/DbManagerViewModel.cs`

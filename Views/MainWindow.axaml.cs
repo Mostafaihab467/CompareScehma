@@ -36,6 +36,11 @@ public partial class MainWindow : Window
                 current.StatusMessage = message;
         });
 
+        // Snapshot files: one picker for both directions, so the filter and the starting
+        // folder cannot drift apart between choosing a baseline and writing a new one.
+        vm.PickSnapshotFileAsync = () => PickSnapshotPathAsync(this, "Open schema snapshot", null);
+        vm.PickSnapshotSavePathAsync = name => PickSnapshotPathAsync(this, "Save schema snapshot", name);
+
         DataContext = vm;
         vm.OpenMoveDataWindowAction = () =>
         {
@@ -206,6 +211,48 @@ public partial class MainWindow : Window
             AppLog.Error("MainWindow", ex, "Script save failed");
             vm.StatusMessage = $"Could not save the script: {ex.Message}";
         }
+    }
+
+    /// <summary>
+    /// The snapshot file picker, shared by "choose a baseline" and "capture a new one" so the
+    /// filter and the starting folder stay identical. Returns null for cancelled or for a host
+    /// with no storage provider — the caller then says so rather than guessing a path.
+    /// </summary>
+    private static async Task<string?> PickSnapshotPathAsync(Window window, string title, string? suggestedFileName)
+    {
+        var provider = window.StorageProvider;
+        if (provider is null) return null;
+
+        IStorageFolder? start = null;
+        var preferred = SchemaSnapshotService.DefaultDirectory;
+        if (Directory.Exists(preferred))
+        {
+            try { start = await provider.TryGetFolderFromPathAsync(preferred); }
+            catch (Exception ex) { AppLog.Error("MainWindow", ex, "Snapshot folder could not be opened"); }
+        }
+
+        var dacpac = new FilePickerFileType("Schema snapshot (.dacpac)") { Patterns = ["*.dacpac"] };
+        if (suggestedFileName is null)
+        {
+            var picked = await provider.OpenFilePickerAsync(new FilePickerOpenOptions
+            {
+                Title = title,
+                SuggestedStartLocation = start,
+                AllowMultiple = false,
+                FileTypeFilter = [dacpac]
+            });
+            return picked.Count > 0 ? picked[0].Path.LocalPath : null;
+        }
+
+        var file = await provider.SaveFilePickerAsync(new FilePickerSaveOptions
+        {
+            Title = title,
+            SuggestedStartLocation = start,
+            SuggestedFileName = suggestedFileName,
+            DefaultExtension = "dacpac",
+            FileTypeChoices = [dacpac]
+        });
+        return file?.Path.LocalPath;
     }
 
     private async void CopyLogs_Click(object? sender, RoutedEventArgs e)

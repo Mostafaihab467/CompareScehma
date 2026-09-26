@@ -1,6 +1,6 @@
 # `Services/DatabaseBackupService.cs`
 
-**Purpose:** Native BACKUP DATABASE/LOG plus VERIFYONLY, and the older DacFx BACPAC export.
+**Purpose:** Native BACKUP DATABASE/LOG plus VERIFYONLY, and the older DacFx BACPAC export; its SQL71562 detection is shared with the snapshot capture.
 
 **Namespace:** `SchemaCompare.Services`
 
@@ -14,7 +14,8 @@
 
 ## Referenced by
 
+- `Services/SchemaSnapshotService.cs`
 - `ViewModels/DbManagerViewModel.cs`
 - `ViewModels/MainViewModel.cs`
 
-**Size:** 81 lines
+**Size:** 82 lines

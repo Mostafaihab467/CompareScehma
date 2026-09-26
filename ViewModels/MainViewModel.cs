@@ -11,6 +11,7 @@ namespace SchemaCompare.ViewModels;
 public partial class MainViewModel : ObservableObject
 {
     private readonly SchemaCompareService _compareService = new();
+    private readonly SchemaSnapshotService _snapshotService = new();
     private readonly DataMoveService _dataMoveService = new();
     private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
@@ -41,6 +42,41 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private bool _sourceTrustServerCertificate = true;
     [ObservableProperty] private bool _targetEncryptConnection;
     [ObservableProperty] private bool _targetTrustServerCertificate = true;
+
+    // Schema snapshots: either side of the comparison can be a .dacpac captured earlier
+    // instead of a live database, which is how a baseline outlives the server it came from.
+    [ObservableProperty] private bool _sourceIsSnapshot;
+    [ObservableProperty] private string _sourceSnapshotPath = "";
+    [ObservableProperty] private string _sourceSnapshotCaption = "";
+    [ObservableProperty] private bool _targetIsSnapshot;
+    [ObservableProperty] private string _targetSnapshotPath = "";
+    [ObservableProperty] private string _targetSnapshotCaption = "";
+    [ObservableProperty] private bool _isCapturingSnapshot;
+
+    /// <summary>Capturing needs a live database on that side, and re-capturing the side you are
+    /// already reading from a file would only overwrite the baseline.</summary>
+    public bool CanCaptureSourceSnapshot =>
+        !IsCapturingSnapshot && !SourceIsSnapshot && HasLiveSourceEndpoint;
+    public bool CanCaptureTargetSnapshot =>
+        !IsCapturingSnapshot && !TargetIsSnapshot && HasLiveTargetEndpoint;
+
+    // The card headers say which of the two things that side currently is.
+    public string SourceCardTitle => SourceIsSnapshot ? "SOURCE SNAPSHOT" : "SOURCE DATABASE";
+    public string TargetCardTitle => TargetIsSnapshot ? "TARGET SNAPSHOT" : "TARGET DATABASE";
+
+    private bool HasLiveSourceEndpoint =>
+        !string.IsNullOrWhiteSpace(SourceServer) && !string.IsNullOrWhiteSpace(SourceDatabase);
+    private bool HasLiveTargetEndpoint =>
+        !string.IsNullOrWhiteSpace(TargetServer) && !string.IsNullOrWhiteSpace(TargetDatabase);
+
+    private void RefreshSnapshotCapabilities()
+    {
+        OnPropertyChanged(nameof(CanCaptureSourceSnapshot));
+        OnPropertyChanged(nameof(CanCaptureTargetSnapshot));
+        RefreshApplyCanExecute();
+    }
+
+    private void RefreshApplyCanExecute() => ((AsyncRelayCommand)ApplyCommand).NotifyCanExecuteChanged();
 
     [ObservableProperty] private bool _isComparing;
     [ObservableProperty] private string _statusMessage = "Enter connection details and click Compare";
@@ -176,6 +212,10 @@ public partial class MainViewModel : ObservableObject
     public ICommand CompareCommand { get; }
     public ICommand GenerateScriptCommand { get; }
     public ICommand GenerateRollbackScriptCommand { get; }
+    public ICommand CaptureSourceSnapshotCommand { get; }
+    public ICommand CaptureTargetSnapshotCommand { get; }
+    public ICommand BrowseSourceSnapshotCommand { get; }
+    public ICommand BrowseTargetSnapshotCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand ConfirmApplyCommand { get; }
     public ICommand CancelApplyCommand { get; }
@@ -230,12 +270,24 @@ public partial class MainViewModel : ObservableObject
     /// <summary>Set by the View to enable clipboard operations from the ViewModel.</summary>
     public Func<string, Task>? CopyToClipboardAsync { get; set; }
 
+    /// <summary>Set by the view — asks for an existing snapshot file to compare against.
+    /// Null when the user cancelled or the host has no file picker.</summary>
+    public Func<Task<string?>>? PickSnapshotFileAsync { get; set; }
+
+    /// <summary>Set by the view — asks where to write a captured snapshot, given the name this
+    /// class suggests. Null when the user cancelled or no picker is available.</summary>
+    public Func<string, Task<string?>>? PickSnapshotSavePathAsync { get; set; }
+
     public MainViewModel()
     {
         CompareCommand = new AsyncRelayCommand(CompareAsync, CanCompare);
         GenerateScriptCommand = new AsyncRelayCommand(GenerateScriptAsync, () => HasResults && !IsComparing);
         GenerateRollbackScriptCommand = new AsyncRelayCommand(GenerateRollbackScriptAsync, () => HasResults && !IsComparing);
-        ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => HasResults && !IsComparing);
+        CaptureSourceSnapshotCommand = new AsyncRelayCommand(() => CaptureSnapshotAsync(isSource: true), () => CanCaptureSourceSnapshot);
+        CaptureTargetSnapshotCommand = new AsyncRelayCommand(() => CaptureSnapshotAsync(isSource: false), () => CanCaptureTargetSnapshot);
+        BrowseSourceSnapshotCommand = new AsyncRelayCommand(() => BrowseSnapshotAsync(isSource: true), () => !IsCapturingSnapshot);
+        BrowseTargetSnapshotCommand = new AsyncRelayCommand(() => BrowseSnapshotAsync(isSource: false), () => !IsCapturingSnapshot);
+        ApplyCommand = new AsyncRelayCommand(ApplyAsync, CanApply);
         ConfirmApplyCommand = new AsyncRelayCommand(ConfirmApplyAsync);
         CancelApplyCommand = new RelayCommand(CancelApply);
         TestSourceConnectionCommand = new AsyncRelayCommand(() => TestConnectionAsync(GetSourceInfo(), isSource: true));
@@ -282,7 +334,8 @@ public partial class MainViewModel : ObservableObject
             ((AsyncRelayCommand)CompareCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)GenerateScriptCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)GenerateRollbackScriptCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)ApplyCommand).NotifyCanExecuteChanged();
+            RefreshApplyCanExecute();
+            RefreshSnapshotCommands();
             ((AsyncRelayCommand)AnalyzeDataMoveCommand).NotifyCanExecuteChanged();
             ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged();
         };
@@ -290,7 +343,7 @@ public partial class MainViewModel : ObservableObject
         {
             ((AsyncRelayCommand)GenerateScriptCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)GenerateRollbackScriptCommand).NotifyCanExecuteChanged();
-            ((AsyncRelayCommand)ApplyCommand).NotifyCanExecuteChanged();
+            RefreshApplyCanExecute();
         };
     }
 
@@ -301,6 +354,68 @@ public partial class MainViewModel : ObservableObject
     partial void OnHasResultsChanged(bool value) => _hasResultsChanged?.Invoke();
 
     private bool CanCompare() => !IsComparing;
+
+    /// <summary>Apply runs batches against a live database, so a snapshot on the target side has
+    /// nothing to run against — generating a script from it is still fine.</summary>
+    private bool CanApply() => HasResults && !IsComparing && !TargetIsSnapshot;
+
+    private void RefreshSnapshotCommands()
+    {
+        OnPropertyChanged(nameof(CanCaptureSourceSnapshot));
+        OnPropertyChanged(nameof(CanCaptureTargetSnapshot));
+        ((AsyncRelayCommand)CaptureSourceSnapshotCommand).NotifyCanExecuteChanged();
+        ((AsyncRelayCommand)CaptureTargetSnapshotCommand).NotifyCanExecuteChanged();
+        ((AsyncRelayCommand)BrowseSourceSnapshotCommand).NotifyCanExecuteChanged();
+        ((AsyncRelayCommand)BrowseTargetSnapshotCommand).NotifyCanExecuteChanged();
+        RefreshApplyCanExecute();
+    }
+
+    partial void OnSourceSnapshotPathChanged(string value) => OnSnapshotPathChanged(isSource: true, value);
+    partial void OnTargetSnapshotPathChanged(string value) => OnSnapshotPathChanged(isSource: false, value);
+
+    /// <summary>
+    /// The caption is what tells the operator whether the file beside the box is the baseline
+    /// they think it is — a two-year-old snapshot compared without a second look is how a
+    /// quiet revert gets deployed — so a path that cannot be read says so instead of going blank.
+    /// </summary>
+    private void OnSnapshotPathChanged(bool isSource, string value)
+    {
+        var caption = string.IsNullOrWhiteSpace(value) ? "" : DescribeSnapshot(value);
+        if (isSource) SourceSnapshotCaption = caption; else TargetSnapshotCaption = caption;
+        RefreshSnapshotCommands();
+    }
+
+    private string DescribeSnapshot(string path)
+    {
+        try
+        {
+            var info = SchemaSnapshotService.ReadSnapshot(path);
+            var age = info.AgeCaption.Length > 0 ? $" {info.AgeCaption}." : "";
+            return $"{info.Caption}{age} ({info.FileSizeBytes / 1024} KB)";
+        }
+        catch (Exception ex)
+        {
+            AppendLog($"Snapshot header unreadable: {ex.Message}");
+            return ex.Message;
+        }
+    }
+
+    partial void OnSourceIsSnapshotChanged(bool value)
+    {
+        OnPropertyChanged(nameof(SourceCardTitle));
+        RefreshSnapshotCommands();
+    }
+
+    partial void OnTargetIsSnapshotChanged(bool value)
+    {
+        OnPropertyChanged(nameof(TargetCardTitle));
+        // A file has nothing to test a connection against, so a stale "connected" banner from
+        // when this side was live would be a lie about the side as it now stands.
+        if (value) { TargetConnectionStatus = ""; TargetHasConnectionResult = false; }
+        RefreshSnapshotCommands();
+    }
+
+    partial void OnIsCapturingSnapshotChanged(bool value) => RefreshSnapshotCommands();
 
     partial void OnShowAddedChanged(bool value) => ApplyFilter();
     partial void OnShowChangedChanged(bool value) => ApplyFilter();
@@ -326,12 +441,12 @@ public partial class MainViewModel : ObservableObject
         ClearTargetSelectionOnManualEdit();
     }
 
-    partial void OnSourceServerChanged(string value) => ClearSourceSelectionOnManualEdit();
-    partial void OnSourceDatabaseChanged(string value) => ClearSourceSelectionOnManualEdit();
+    partial void OnSourceServerChanged(string value) { ClearSourceSelectionOnManualEdit(); RefreshSnapshotCommands(); }
+    partial void OnSourceDatabaseChanged(string value) { ClearSourceSelectionOnManualEdit(); RefreshSnapshotCommands(); }
     partial void OnSourceUsernameChanged(string value) => ClearSourceSelectionOnManualEdit();
     partial void OnSourcePasswordChanged(string value) => ClearSourceSelectionOnManualEdit();
-    partial void OnTargetServerChanged(string value) => ClearTargetSelectionOnManualEdit();
-    partial void OnTargetDatabaseChanged(string value) => ClearTargetSelectionOnManualEdit();
+    partial void OnTargetServerChanged(string value) { ClearTargetSelectionOnManualEdit(); RefreshSnapshotCommands(); }
+    partial void OnTargetDatabaseChanged(string value) { ClearTargetSelectionOnManualEdit(); RefreshSnapshotCommands(); }
     partial void OnTargetUsernameChanged(string value) => ClearTargetSelectionOnManualEdit();
     partial void OnTargetPasswordChanged(string value) => ClearTargetSelectionOnManualEdit();
 
@@ -687,12 +802,11 @@ public partial class MainViewModel : ObservableObject
 
     private async Task CompareAsync()
     {
-        var sourceInfo = GetSourceInfo();
-        var targetInfo = GetTargetInfo();
-        if (string.IsNullOrWhiteSpace(sourceInfo.Server) || string.IsNullOrWhiteSpace(targetInfo.Server))
-        { ShowError = true; ErrorMessage = "Please enter both source and target server addresses."; StatusMessage = ErrorMessage; return; }
-        if (string.IsNullOrWhiteSpace(sourceInfo.Database) || string.IsNullOrWhiteSpace(targetInfo.Database))
-        { ShowError = true; ErrorMessage = "Please enter both source and target database names."; StatusMessage = ErrorMessage; return; }
+        var source = GetSource();
+        var target = GetTarget();
+        var problem = SideProblem(source, "Source") ?? SideProblem(target, "Target");
+        if (problem is not null)
+        { ShowError = true; ErrorMessage = problem; StatusMessage = problem; return; }
 
         IsComparing = true; ProgressValue = 0; Differences.Clear(); FilteredDifferences.Clear();
         HasResults = false; ShowError = false; ErrorMessage = "";
@@ -700,7 +814,7 @@ public partial class MainViewModel : ObservableObject
         RollbackScript = ""; ShowingRollbackScript = false;
         HasSourceScript = false; HasTargetScript = false;
         StatusMessage = "Comparing...";
-        AppendLog($"--- Compare started: {sourceInfo.Server}/{sourceInfo.Database} -> {targetInfo.Server}/{targetInfo.Database} ---");
+        AppendLog($"--- Compare started: {source.DisplayName} -> {target.DisplayName} ---");
         try
         {
             var p = new Progress<string>(m =>
@@ -709,7 +823,7 @@ public partial class MainViewModel : ObservableObject
                 StatusMessage = m;
                 AppendLog(m);
             });
-            var (items, summary) = await _compareService.CompareAsync(sourceInfo, targetInfo, p, allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
+            var (items, summary) = await _compareService.CompareAsync(source, target, p, allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
             TotalAdded = summary.AddedCount; TotalChanged = summary.ChangedCount; TotalDeleted = summary.DeletedCount;
             AddedFilterText = $"Added: {summary.AddedCount}"; ChangedFilterText = $"Changed: {summary.ChangedCount}"; DeletedFilterText = $"Deleted: {summary.DeletedCount}";
             foreach (var item in items) Differences.Add(item);
@@ -731,7 +845,7 @@ public partial class MainViewModel : ObservableObject
         AppendLog("Generating deployment script...");
         try
         {
-            FullDeployScript = await _compareService.GenerateScriptAsync(GetSourceInfo(), GetTargetInfo(), allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
+            FullDeployScript = await _compareService.GenerateScriptAsync(GetSource(), GetTarget(), allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
             HasFullScript = true; StatusMessage = "Deployment script generated.";
             AppendLog("Deployment script generated successfully.");
         }
@@ -746,7 +860,7 @@ public partial class MainViewModel : ObservableObject
         AppendLog("Generating rollback (DOWN) script...");
         try
         {
-            RollbackScript = await _compareService.GenerateRollbackScriptAsync(GetSourceInfo(), GetTargetInfo(), allowUnsafeChanges: AllowUnsafeChanges);
+            RollbackScript = await _compareService.GenerateRollbackScriptAsync(GetSource(), GetTarget(), allowUnsafeChanges: AllowUnsafeChanges);
             ShowingRollbackScript = true;
             StatusMessage = "Rollback script generated.";
             // The reversed diff only exists while the target is behind, so the text is worth
@@ -763,7 +877,9 @@ public partial class MainViewModel : ObservableObject
 
     private string TargetDatabaseForFileName()
     {
-        var name = GetTargetInfo().Database;
+        // A snapshot target has no live database, so the name it was captured from is used —
+        // the file name is the operator's cue for where the script belongs.
+        var name = GetTarget().DatabaseName ?? GetSource().DatabaseName ?? "target";
         foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
         return string.IsNullOrWhiteSpace(name) ? "target" : name;
     }
@@ -779,6 +895,14 @@ public partial class MainViewModel : ObservableObject
     private async Task ApplyAsync()
     {
         if (!HasResults) return;
+
+        // Reachable through the confirmation overlay even though the button is disabled for it.
+        if (TargetIsSnapshot)
+        {
+            StatusMessage = ErrorMessage = "A snapshot file cannot be deployed to. Put a live database on the Target side.";
+            ShowError = true;
+            return;
+        }
 
         // Only apply items the user has checked
         var includedItems = Differences.Where(d => d.IsIncluded).ToList();
@@ -797,7 +921,7 @@ public partial class MainViewModel : ObservableObject
         try
         {
             var p = new Progress<string>(m => { ProgressText = m; StatusMessage = m; AppendLog(m); });
-            var (_, script) = await _compareService.ApplyChangesAsync(GetSourceInfo(), GetTargetInfo(), p, includedItems, allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
+            var (_, script) = await _compareService.ApplyChangesAsync(GetSource(), GetTarget(), p, includedItems, allowUnsafeDrops: AllowUnsafeDrops, allowUnsafeChanges: AllowUnsafeChanges);
             FullDeployScript = script; HasFullScript = true;
             StatusMessage = "Changes applied successfully.";
             AppendLog("--- Apply finished successfully ---");
@@ -814,10 +938,15 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>Server/database only — audit lines must never carry credentials.</summary>
     // An audit line names the server, the database and the auth mode only — never a user
-    // name or a password, because these labels are written to the log file.
-    private string SourceAuditLabel() => $"{SourceServer?.Trim()}/{SourceDatabase?.Trim()} ({SourceAuth.Short})";
+    // name or a password, because these labels are written to the log file. A side reading
+    // from a file is named by that file, since no server was contacted for it.
+    private string SourceAuditLabel() => SourceIsSnapshot
+        ? $"snapshot [{Path.GetFileName(SourceSnapshotPath)}]"
+        : $"{SourceServer?.Trim()}/{SourceDatabase?.Trim()} ({SourceAuth.Short})";
 
-    private string TargetAuditLabel() => $"{TargetServer?.Trim()}/{TargetDatabase?.Trim()} ({TargetAuth.Short})";
+    private string TargetAuditLabel() => TargetIsSnapshot
+        ? $"snapshot [{Path.GetFileName(TargetSnapshotPath)}]"
+        : $"{TargetServer?.Trim()}/{TargetDatabase?.Trim()} ({TargetAuth.Short})";
 
     private void InvalidateDataMovePlan()
     {
@@ -987,4 +1116,102 @@ public partial class MainViewModel : ObservableObject
         Username = TargetUsername, Password = TargetPassword,
         EncryptConnection = TargetEncryptConnection, TrustServerCertificate = TargetTrustServerCertificate
     };
+
+    /// <summary>
+    /// The two sides of the comparison. Each is either the database described above or the
+    /// snapshot file chosen for it — never a mix, and never the other window's connection:
+    /// data move and backup still talk to live databases through <see cref="ConnectionInfo"/>.
+    /// </summary>
+    private SchemaSource GetSource() => SourceIsSnapshot
+        ? SchemaSource.OfSnapshot(SourceSnapshotPath, TryReadSnapshot(SourceSnapshotPath))
+        : SchemaSource.OfDatabase(GetSourceInfo());
+
+    private SchemaSource GetTarget() => TargetIsSnapshot
+        ? SchemaSource.OfSnapshot(TargetSnapshotPath, TryReadSnapshot(TargetSnapshotPath))
+        : SchemaSource.OfDatabase(GetTargetInfo());
+
+    /// <summary>A missing or unreadable header costs the label its detail, not the comparison:
+    /// DacFx reads the model from the file itself, so the diff is still correct.</summary>
+    private SnapshotInfo? TryReadSnapshot(string path)
+    {
+        try { return SchemaSnapshotService.ReadSnapshot(path); }
+        catch (Exception ex) { AppendLog($"Snapshot header unreadable: {ex.Message}"); return null; }
+    }
+
+    /// <summary>What stops a compare from starting, per side, or null when that side is ready.
+    /// A snapshot has to exist on disk: naming a file that isn't there is a typo, and DacFx
+    /// reports it as a comparison failure that reads like a bug in the diff.</summary>
+    private static string? SideProblem(SchemaSource side, string label)
+    {
+        if (side.IsSnapshot)
+            return File.Exists(side.SnapshotPath)
+                ? null
+                : $"{label} snapshot file was not found: {Path.GetFileName(side.SnapshotPath)}";
+        var live = side.Connection!;
+        if (string.IsNullOrWhiteSpace(live.Server)) return $"{label}: enter a server, or switch that side to a snapshot file.";
+        if (string.IsNullOrWhiteSpace(live.Database)) return $"{label}: enter a database name, or switch that side to a snapshot file.";
+        return null;
+    }
+
+    /// <summary>
+    /// Writes the chosen side's current schema to a file. This only ever reads the database —
+    /// extraction runs inside a transaction-free DAC export and touches no user rows.
+    /// </summary>
+    private async Task CaptureSnapshotAsync(bool isSource)
+    {
+        var live = isSource ? GetSourceInfo() : GetTargetInfo();
+        var problem = SideProblem(SchemaSource.OfDatabase(live), isSource ? "Source" : "Target");
+        if (problem is not null) { StatusMessage = ErrorMessage = problem; ShowError = true; return; }
+
+        if (PickSnapshotSavePathAsync is null)
+        {
+            StatusMessage = "No file picker is available here, so the snapshot cannot be saved.";
+            ErrorMessage = StatusMessage; ShowError = true;
+            AppendLog("Snapshot capture aborted: the view supplied no save-path hook.");
+            return;
+        }
+
+        var suggested = SchemaSnapshotService.SuggestedFileName(live.Database, DateTimeOffset.UtcNow);
+        var target = await PickSnapshotSavePathAsync(suggested);
+        if (target is null) { StatusMessage = "Snapshot capture cancelled."; return; }
+
+        IsCapturingSnapshot = true;
+        ShowError = false;
+        AppendLog($"--- Snapshot capture started: {live.SafeForLog} -> {Path.GetFileName(target)} ---");
+        try
+        {
+            var progress = new Progress<string>(m => { StatusMessage = m; AppendLog($"Snapshot: {m}"); });
+            var info = await _snapshotService.CaptureAsync(live, target, progress);
+            // The path is stored but the side stays live: capturing the target as a baseline is
+            // something you do immediately before deploying to that same target, so flipping the
+            // card to file mode would break the very workflow the capture was for. The caption
+            // comes from the finished file, not from what was intended.
+            if (isSource) SourceSnapshotPath = info.Path; else TargetSnapshotPath = info.Path;
+            StatusMessage = $"Snapshot of {live.Database} saved to {Path.GetFileName(info.Path)}.";
+            AppendLog($"--- Snapshot capture completed: {info.Caption} ---");
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message; ShowError = true;
+            StatusMessage = $"Snapshot capture failed: {ex.Message}";
+            AppendLog($"Snapshot capture ERROR: {ex.Message}");
+        }
+        finally { IsCapturingSnapshot = false; }
+    }
+
+    /// <summary>Points a side at an existing snapshot file to compare against.</summary>
+    private async Task BrowseSnapshotAsync(bool isSource)
+    {
+        if (PickSnapshotFileAsync is null)
+        {
+            StatusMessage = "No file picker is available here, so a snapshot cannot be chosen.";
+            ErrorMessage = StatusMessage; ShowError = true;
+            return;
+        }
+        var path = await PickSnapshotFileAsync();
+        if (path is null) return;
+        if (isSource) { SourceIsSnapshot = true; SourceSnapshotPath = path; }
+        else          { TargetIsSnapshot = true; TargetSnapshotPath = path; }
+        StatusMessage = $"Comparing against snapshot {Path.GetFileName(path)}.";
+    }
 }

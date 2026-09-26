@@ -7,25 +7,40 @@ namespace SchemaCompare.Services;
 
 public class SchemaCompareService
 {
+    /// <summary>
+    /// The DacFx endpoint for a side of the comparison: a live connection or a snapshot file.
+    /// Everything else — options, difference walking, script generation — is identical, which
+    /// is the point of taking <see cref="SchemaSource"/> instead of a connection.
+    /// </summary>
+    private static SchemaCompareEndpoint EndpointFor(SchemaSource side)
+    {
+        if (side.IsSnapshot)
+        {
+            if (!File.Exists(side.SnapshotPath))
+                throw new FileNotFoundException($"The snapshot file could not be found: {Path.GetFileName(side.SnapshotPath)}", side.SnapshotPath);
+            return new SchemaCompareDacpacEndpoint(side.SnapshotPath);
+        }
+        if (side.Connection is null)
+            throw new InvalidOperationException("One side of the comparison has neither a database nor a snapshot file.");
+        return new SchemaCompareDatabaseEndpoint(side.Connection.ConnectionString);
+    }
+
     public async Task<(List<SchemaDiffItem> Items, CompareResultSummary Summary)> CompareAsync(
-        ConnectionInfo sourceInfo, ConnectionInfo targetInfo, IProgress<string>? progress = null,
+        SchemaSource source, SchemaSource target, IProgress<string>? progress = null,
         CancellationToken ct = default, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
     {
         return await Task.Run(() =>
         {
             ct.ThrowIfCancellationRequested();
 
-            var sourceCs = sourceInfo.ConnectionString;
-            var targetCs = targetInfo.ConnectionString;
-
-            progress?.Report($"Source: {sourceInfo.Server}/{sourceInfo.Database}");
-            progress?.Report($"Target: {targetInfo.Server}/{targetInfo.Database}");
+            progress?.Report($"Source: {source.DisplayName}");
+            progress?.Report($"Target: {target.DisplayName}");
             progress?.Report("Loading source schema...");
-            var sourceEndpoint = new SchemaCompareDatabaseEndpoint(sourceCs);
+            var sourceEndpoint = EndpointFor(source);
             ct.ThrowIfCancellationRequested();
 
             progress?.Report("Loading target schema...");
-            var targetEndpoint = new SchemaCompareDatabaseEndpoint(targetCs);
+            var targetEndpoint = EndpointFor(target);
             ct.ThrowIfCancellationRequested();
 
             progress?.Report("Building comparison...");
@@ -39,7 +54,7 @@ public class SchemaCompareService
 
             ct.ThrowIfCancellationRequested();
             progress?.Report(
-                $"Comparing {sourceInfo.Database} against {targetInfo.Database} with DacFx " +
+                $"Comparing {source.DisplayName} against {target.DisplayName} with DacFx " +
                 $"(drops {(allowUnsafeDrops ? "allowed" : "blocked")}, data loss {(allowUnsafeChanges ? "allowed" : "blocked")})...");
             var result = comparison.Compare();
             ct.ThrowIfCancellationRequested();
@@ -136,10 +151,10 @@ public class SchemaCompareService
     }
 
     /// <summary>
-    /// UP script: makes <paramref name="targetInfo"/> look like <paramref name="sourceInfo"/>.
+    /// UP script: makes <paramref name="target"/> look like <paramref name="source"/>.
     /// </summary>
-    public Task<string> GenerateScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
-        => GenerateScriptBetweenAsync(sourceInfo, targetInfo, targetInfo.Database, allowUnsafeDrops, allowUnsafeChanges);
+    public Task<string> GenerateScriptAsync(SchemaSource source, SchemaSource target, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
+        => GenerateScriptBetweenAsync(source, target, ScriptDatabaseName(target, source), allowUnsafeDrops, allowUnsafeChanges);
 
     /// <summary>
     /// DOWN script: the same comparison read the other way round, so whatever the deploy
@@ -156,13 +171,22 @@ public class SchemaCompareService
     /// dropping the objects it added, so a rollback that honoured the drop guard would undo
     /// nothing. The data-loss guard still applies unless the operator lifted it for the deploy.
     /// </summary>
-    public Task<string> GenerateRollbackScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeChanges = false)
-        => GenerateScriptBetweenAsync(targetInfo, sourceInfo, targetInfo.Database, allowUnsafeDrops: true, allowUnsafeChanges,
-            rollbackHeader: $"-- ROLLBACK (DOWN) for {targetInfo.Server}/{targetInfo.Database}\r\n" +
-                            $"-- Reversed from the UP diff {sourceInfo.Server}/{sourceInfo.Database} -> {targetInfo.Server}/{targetInfo.Database}.\r\n" +
+    public Task<string> GenerateRollbackScriptAsync(SchemaSource source, SchemaSource target, bool allowUnsafeChanges = false)
+        => GenerateScriptBetweenAsync(target, source, ScriptDatabaseName(target, source), allowUnsafeDrops: true, allowUnsafeChanges,
+            rollbackHeader: $"-- ROLLBACK (DOWN) for {target.DisplayName}\r\n" +
+                            $"-- Reversed from the UP diff {source.DisplayName} -> {target.DisplayName}.\r\n" +
                             $"-- Generated {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC and only valid while the target is still in its pre-deploy state.\r\n" +
                             "-- This script DROPS the objects the deploy added — that is its purpose. Reverting a widening\r\n" +
                             "-- change can also truncate data. Review before running.\r\n\r\n");
+
+    /// <summary>
+    /// Which database a generated script speaks about. The side being rewritten comes first; a
+    /// snapshot has no live database, so it contributes the name it was captured from, and the
+    /// other side is the last resort. A script whose target is a file is a preview to review,
+    /// never something to press Run on, and the header says so.
+    /// </summary>
+    private static string ScriptDatabaseName(SchemaSource rewritten, SchemaSource other) =>
+        rewritten.DatabaseName ?? other.DatabaseName ?? "the target database";
 
     /// <summary>
     /// Single source of truth for both directions: <paramref name="desired"/> is the DacFx
@@ -171,14 +195,12 @@ public class SchemaCompareService
     /// so the preview, the confirmation dialog and the executed batches cannot drift apart.
     /// </summary>
     private async Task<string> GenerateScriptBetweenAsync(
-        ConnectionInfo desired, ConnectionInfo current, string deployDatabase,
+        SchemaSource desired, SchemaSource current, string deployDatabase,
         bool allowUnsafeDrops, bool allowUnsafeChanges, string rollbackHeader = "")
     {
         return await Task.Run(() =>
         {
-            var comparison = new SchemaComparison(
-                new SchemaCompareDatabaseEndpoint(desired.ConnectionString),
-                new SchemaCompareDatabaseEndpoint(current.ConnectionString));
+            var comparison = new SchemaComparison(EndpointFor(desired), EndpointFor(current));
             comparison.Options.IgnoreAnsiNulls  = false;
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
@@ -188,13 +210,30 @@ public class SchemaCompareService
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
             if (!result.Differences.Any())
-                return rollbackHeader + NothingToScript(deployDatabase, isRollback: rollbackHeader.Length > 0);
+                return rollbackHeader + SnapshotNote(desired, current) + NothingToScript(deployDatabase, isRollback: rollbackHeader.Length > 0);
             var scriptResult = result.GenerateScript(deployDatabase);
             if (!scriptResult.Success)
                 throw new InvalidOperationException(scriptResult.Message ?? scriptResult.Exception?.Message ?? "Script generation failed");
 
-            return rollbackHeader + RetargetScriptHeader(ReorderScriptBatches(scriptResult.Script, deployDatabase), deployDatabase);
+            return rollbackHeader + SnapshotNote(desired, current)
+                   + RetargetScriptHeader(ReorderScriptBatches(scriptResult.Script, deployDatabase), deployDatabase);
         });
+    }
+
+    /// <summary>
+    /// A snapshot on either side changes what the script means, and the diff itself cannot say
+    /// so: "desired" being a file means the live database has objects the file never saw, and
+    /// those arrive as DROPs. Better stated at the top than discovered in production.
+    /// </summary>
+    private static string SnapshotNote(SchemaSource desired, SchemaSource current)
+    {
+        if (current.IsSnapshot)
+            return $"-- NOTE: the current state is the {current.DisplayName} file, so this script rewrites no\r\n" +
+                   $"-- database as written. Check the USE line names the one you mean before running it.\r\n\r\n";
+        if (desired.IsSnapshot)
+            return $"-- NOTE: the desired state is the {desired.DisplayName} file. Anything the live database\r\n" +
+                   $"-- gained after that snapshot was taken appears below as a DROP. Read those lines first.\r\n\r\n";
+        return "";
     }
 
     /// <summary>
@@ -223,17 +262,25 @@ public class SchemaCompareService
         return script;
     }
 
+    /// <summary>
+    /// Deploys the comparison. Only the target has to be a live database — publishing a
+    /// snapshot onto one is the normal dacpac workflow — and a snapshot target is refused
+    /// rather than silently written to whichever server the file happens to name.
+    /// </summary>
     public async Task<(bool Success, string Script)> ApplyChangesAsync(
-        ConnectionInfo sourceInfo, ConnectionInfo targetInfo, IProgress<string>? progress = null,
+        SchemaSource source, SchemaSource target, IProgress<string>? progress = null,
         List<SchemaDiffItem>? includedItems = null, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
 
     {
+        if (target.IsSnapshot)
+            throw new InvalidOperationException("A snapshot file cannot be deployed to. Put the live database on the target side.");
+        var targetConnection = target.Connection!;
+        var targetDatabase = ScriptDatabaseName(target, source);
+
         return await Task.Run(async () =>
         {
             progress?.Report("Comparing schemas...");
-            var comparison = new SchemaComparison(
-                new SchemaCompareDatabaseEndpoint(sourceInfo.ConnectionString),
-                new SchemaCompareDatabaseEndpoint(targetInfo.ConnectionString));
+            var comparison = new SchemaComparison(EndpointFor(source), EndpointFor(target));
             comparison.Options.IgnoreAnsiNulls  = false;
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
@@ -260,16 +307,16 @@ public class SchemaCompareService
             }
 
             progress?.Report("Generating deployment script...");
-            var scriptResult = result.GenerateScript(targetInfo.Database);
+            var scriptResult = result.GenerateScript(targetDatabase);
             if (!scriptResult.Success)
                 throw new InvalidOperationException(scriptResult.Message ?? scriptResult.Exception?.Message ?? "Script generation failed");
 
-            var reorderedScript = ReorderScriptBatches(scriptResult.Script, targetInfo.Database);
+            var reorderedScript = ReorderScriptBatches(scriptResult.Script, targetDatabase);
             var batches = ExtractExecutableBatches(reorderedScript, allowDataLoss: allowUnsafeChanges);
 
             progress?.Report($"Applying {batches.Count} changes to target database...");
 
-            using var conn = new SqlConnection(targetInfo.ConnectionString);
+            using var conn = new SqlConnection(targetConnection.ConnectionString);
             await conn.OpenAsync().ConfigureAwait(false);
 
             var deferredBatches = new List<string>();

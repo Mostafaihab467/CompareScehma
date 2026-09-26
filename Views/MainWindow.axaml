@@ -84,59 +84,80 @@
                         <Grid ColumnDefinitions="*,Auto,*">
                             <Border Classes="card" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Top" MinWidth="0">
                                 <StackPanel>
-                                    <TextBlock Text="SOURCE DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
+                                    <TextBlock Text="{Binding SourceCardTitle}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Primary500}" LetterSpacing="1" />
                                     <Rectangle Height="2" Fill="{StaticResource HeaderGradient}" Margin="0,6,0,12" />
-                                    <TextBlock Text="Saved profile" Classes="sectionTitle" />
-                                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                                        <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
-                                                  SelectedItem="{Binding SelectedSavedSource}"
-                                                  PlaceholderText="Select saved…"
-                                                  HorizontalAlignment="Stretch">
+                                    <StackPanel IsVisible="{Binding !SourceIsSnapshot}">
+                                        <TextBlock Text="Saved profile" Classes="sectionTitle" />
+                                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                                            <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
+                                                      SelectedItem="{Binding SelectedSavedSource}"
+                                                      PlaceholderText="Select saved…"
+                                                      HorizontalAlignment="Stretch">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate DataType="models:SavedConnection">
+                                                        <TextBlock Text="{Binding DisplayName}" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </controls:SearchableComboBox>
+                                            <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveSourceProfileCommand}"
+                                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
+                                            <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
+                                                    CommandParameter="{Binding SelectedSavedSource}"
+                                                    Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                                        </Grid>
+                                    </StackPanel>
+                                    <CheckBox Content="Compare against a snapshot file" IsChecked="{Binding SourceIsSnapshot}" FontSize="11" Margin="0,0,0,10"
+                                              ToolTip.Tip="Read this side from a .dacpac captured earlier instead of from a live server — for a baseline, a diff of two captures, or what a database gained since." />
+                                    <StackPanel IsVisible="{Binding !SourceIsSnapshot}">
+                                        <TextBlock Text="Server" Classes="sectionTitle" />
+                                        <TextBox Text="{Binding SourceServer}" PlaceholderText="localhost, (local), or IP" />
+                                        <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
+                                        <TextBox Text="{Binding SourceDatabase}" PlaceholderText="Database name" />
+                                        <TextBlock Text="Authentication" Classes="sectionTitle" Margin="0,10,0,0" />
+                                        <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding SourceAuth}"
+                                                  HorizontalAlignment="Stretch" FontSize="12">
                                             <ComboBox.ItemTemplate>
-                                                <DataTemplate DataType="models:SavedConnection">
-                                                    <TextBlock Text="{Binding DisplayName}" />
+                                                <DataTemplate DataType="models:AuthMethod">
+                                                    <TextBlock Text="{Binding Display}" />
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
-                                        </controls:SearchableComboBox>
-                                        <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveSourceProfileCommand}"
-                                                Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Source credentials"><TextBlock Text="Save" /></Button>
-                                        <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
-                                                CommandParameter="{Binding SelectedSavedSource}"
-                                                Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
-                                    </Grid>
-                                    <TextBlock Text="Server" Classes="sectionTitle" />
-                                    <TextBox Text="{Binding SourceServer}" PlaceholderText="localhost, (local), or IP" />
-                                    <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
-                                    <TextBox Text="{Binding SourceDatabase}" PlaceholderText="Database name" />
-                                    <TextBlock Text="Authentication" Classes="sectionTitle" Margin="0,10,0,0" />
-                                    <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding SourceAuth}"
-                                              HorizontalAlignment="Stretch" FontSize="12">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate DataType="models:AuthMethod">
-                                                <TextBlock Text="{Binding Display}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                    <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding SourceAuth.NeedsCredentials}">
-                                        <TextBox Text="{Binding SourceUsername}" PlaceholderText="{Binding SourceAuth.CredentialHint}" />
-                                        <TextBox Grid.Column="1" Text="{Binding SourcePassword}" PlaceholderText="Password or client secret" PasswordChar="*" Margin="8,0,0,0" />
-                                    </Grid>
-                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Spacing="14">
-                                        <CheckBox Content="Encrypt connection" IsChecked="{Binding SourceEncryptConnection}" FontSize="11"
-                                                  ToolTip.Tip="Force TLS on the wire (Encrypt=True). Needs a valid server certificate." />
-                                        <CheckBox Content="Trust server certificate" IsChecked="{Binding SourceTrustServerCertificate}" FontSize="11"
-                                                  ToolTip.Tip="Accept a certificate no trusted CA signed. Leave off for anything beyond a local or lab server." />
+                                        </ComboBox>
+                                        <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding SourceAuth.NeedsCredentials}">
+                                            <TextBox Text="{Binding SourceUsername}" PlaceholderText="{Binding SourceAuth.CredentialHint}" />
+                                            <TextBox Grid.Column="1" Text="{Binding SourcePassword}" PlaceholderText="Password or client secret" PasswordChar="*" Margin="8,0,0,0" />
+                                        </Grid>
+                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Spacing="14">
+                                            <CheckBox Content="Encrypt connection" IsChecked="{Binding SourceEncryptConnection}" FontSize="11"
+                                                      ToolTip.Tip="Force TLS on the wire (Encrypt=True). Needs a valid server certificate." />
+                                            <CheckBox Content="Trust server certificate" IsChecked="{Binding SourceTrustServerCertificate}" FontSize="11"
+                                                      ToolTip.Tip="Accept a certificate no trusted CA signed. Leave off for anything beyond a local or lab server." />
+                                        </StackPanel>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+                                            <Button Classes="link" Command="{Binding CaptureSourceSnapshotCommand}" HorizontalAlignment="Left" Padding="8,4" FontSize="11"
+                                                    ToolTip.Tip="Save this database's schema to a .dacpac file. It reads the schema only — no rows, no logins, no permissions — and changes nothing.">
+                                                <TextBlock Text="Capture snapshot…" />
+                                            </Button>
+                                            <Button Grid.Column="1" Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
+                                        </Grid>
+                                        <StackPanel Margin="0,8,0,0" IsVisible="{Binding SourceHasConnectionResult}">
+                                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding SourceConnectionOk}"
+                                                    Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
+                                                <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
+                                            </Border>
+                                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !SourceConnectionOk}"
+                                                    Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
+                                                <TextBox Text="{Binding SourceConnectionStatus}" Classes="errorText" />
+                                            </Border>
+                                        </StackPanel>
                                     </StackPanel>
-                                    <Button Classes="link" Command="{Binding TestSourceConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
-                                    <StackPanel Margin="0,8,0,0" IsVisible="{Binding SourceHasConnectionResult}">
-                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding SourceConnectionOk}"
-                                                Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
-                                            <TextBlock Text="{Binding SourceConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
-                                        </Border>
-                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !SourceConnectionOk}"
-                                                Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
-                                            <TextBox Text="{Binding SourceConnectionStatus}" Classes="errorText" />
-                                        </Border>
+                                    <StackPanel IsVisible="{Binding SourceIsSnapshot}">
+                                        <TextBlock Text="Snapshot file" Classes="sectionTitle" />
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBox Text="{Binding SourceSnapshotPath}" PlaceholderText="EgyptMart-20260926-0715.dacpac" />
+                                            <Button Grid.Column="1" Classes="secondary" Command="{Binding BrowseSourceSnapshotCommand}"
+                                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Choose a snapshot file taken earlier"><TextBlock Text="Browse" /></Button>
+                                        </Grid>
+                                        <TextBlock Text="{Binding SourceSnapshotCaption}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" TextWrapping="Wrap" Margin="0,6,0,0" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>
@@ -150,59 +171,80 @@
 
                             <Border Grid.Column="2" Classes="card" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Top" MinWidth="0">
                                 <StackPanel>
-                                    <TextBlock Text="TARGET DATABASE" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
+                                    <TextBlock Text="{Binding TargetCardTitle}" FontSize="12" FontWeight="Bold" Foreground="{StaticResource Amber}" LetterSpacing="1" />
                                     <Rectangle Height="2" Fill="{StaticResource WarningBrush}" Margin="0,6,0,12" />
-                                    <TextBlock Text="Saved profile" Classes="sectionTitle" />
-                                    <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
-                                        <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
-                                                  SelectedItem="{Binding SelectedSavedTarget}"
-                                                  PlaceholderText="Select saved…"
-                                                  HorizontalAlignment="Stretch">
+                                    <StackPanel IsVisible="{Binding !TargetIsSnapshot}">
+                                        <TextBlock Text="Saved profile" Classes="sectionTitle" />
+                                        <Grid ColumnDefinitions="*,Auto,Auto" Margin="0,0,0,10">
+                                            <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}"
+                                                      SelectedItem="{Binding SelectedSavedTarget}"
+                                                      PlaceholderText="Select saved…"
+                                                      HorizontalAlignment="Stretch">
+                                                <ComboBox.ItemTemplate>
+                                                    <DataTemplate DataType="models:SavedConnection">
+                                                        <TextBlock Text="{Binding DisplayName}" />
+                                                    </DataTemplate>
+                                                </ComboBox.ItemTemplate>
+                                            </controls:SearchableComboBox>
+                                            <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveTargetProfileCommand}"
+                                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
+                                            <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
+                                                    CommandParameter="{Binding SelectedSavedTarget}"
+                                                    Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
+                                        </Grid>
+                                    </StackPanel>
+                                    <CheckBox Content="Compare against a snapshot file" IsChecked="{Binding TargetIsSnapshot}" FontSize="11" Margin="0,0,0,10"
+                                              ToolTip.Tip="Use a .dacpac as the current state instead of a live database. A file cannot be deployed to, so the script stays a preview." />
+                                    <StackPanel IsVisible="{Binding !TargetIsSnapshot}">
+                                        <TextBlock Text="Server" Classes="sectionTitle" />
+                                        <TextBox Text="{Binding TargetServer}" PlaceholderText="localhost, (local), or IP" />
+                                        <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
+                                        <TextBox Text="{Binding TargetDatabase}" PlaceholderText="Database name" />
+                                        <TextBlock Text="Authentication" Classes="sectionTitle" Margin="0,10,0,0" />
+                                        <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding TargetAuth}"
+                                                  HorizontalAlignment="Stretch" FontSize="12">
                                             <ComboBox.ItemTemplate>
-                                                <DataTemplate DataType="models:SavedConnection">
-                                                    <TextBlock Text="{Binding DisplayName}" />
+                                                <DataTemplate DataType="models:AuthMethod">
+                                                    <TextBlock Text="{Binding Display}" />
                                                 </DataTemplate>
                                             </ComboBox.ItemTemplate>
-                                        </controls:SearchableComboBox>
-                                        <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveTargetProfileCommand}"
-                                                Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Save current Target credentials"><TextBlock Text="Save" /></Button>
-                                        <Button Grid.Column="2" Classes="danger" Command="{Binding DeleteSavedProfileCommand}"
-                                                CommandParameter="{Binding SelectedSavedTarget}"
-                                                Padding="10,4" FontSize="11" Margin="4,0,0,0" ToolTip.Tip="Remove selected saved profile"><TextBlock Text="Delete" /></Button>
-                                    </Grid>
-                                    <TextBlock Text="Server" Classes="sectionTitle" />
-                                    <TextBox Text="{Binding TargetServer}" PlaceholderText="localhost, (local), or IP" />
-                                    <TextBlock Text="Database" Classes="sectionTitle" Margin="0,10,0,0" />
-                                    <TextBox Text="{Binding TargetDatabase}" PlaceholderText="Database name" />
-                                    <TextBlock Text="Authentication" Classes="sectionTitle" Margin="0,10,0,0" />
-                                    <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding TargetAuth}"
-                                              HorizontalAlignment="Stretch" FontSize="12">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate DataType="models:AuthMethod">
-                                                <TextBlock Text="{Binding Display}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-                                    <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding TargetAuth.NeedsCredentials}">
-                                        <TextBox Text="{Binding TargetUsername}" PlaceholderText="{Binding TargetAuth.CredentialHint}" />
-                                        <TextBox Grid.Column="1" Text="{Binding TargetPassword}" PlaceholderText="Password or client secret" PasswordChar="*" Margin="8,0,0,0" />
-                                    </Grid>
-                                    <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Spacing="14">
-                                        <CheckBox Content="Encrypt connection" IsChecked="{Binding TargetEncryptConnection}" FontSize="11"
-                                                  ToolTip.Tip="Force TLS on the wire (Encrypt=True). Needs a valid server certificate." />
-                                        <CheckBox Content="Trust server certificate" IsChecked="{Binding TargetTrustServerCertificate}" FontSize="11"
-                                                  ToolTip.Tip="Accept a certificate no trusted CA signed. Leave off for anything beyond a local or lab server." />
+                                        </ComboBox>
+                                        <Grid ColumnDefinitions="*,*" Margin="0,8,0,0" IsVisible="{Binding TargetAuth.NeedsCredentials}">
+                                            <TextBox Text="{Binding TargetUsername}" PlaceholderText="{Binding TargetAuth.CredentialHint}" />
+                                            <TextBox Grid.Column="1" Text="{Binding TargetPassword}" PlaceholderText="Password or client secret" PasswordChar="*" Margin="8,0,0,0" />
+                                        </Grid>
+                                        <StackPanel Orientation="Horizontal" Margin="0,8,0,0" Spacing="14">
+                                            <CheckBox Content="Encrypt connection" IsChecked="{Binding TargetEncryptConnection}" FontSize="11"
+                                                      ToolTip.Tip="Force TLS on the wire (Encrypt=True). Needs a valid server certificate." />
+                                            <CheckBox Content="Trust server certificate" IsChecked="{Binding TargetTrustServerCertificate}" FontSize="11"
+                                                      ToolTip.Tip="Accept a certificate no trusted CA signed. Leave off for anything beyond a local or lab server." />
+                                        </StackPanel>
+                                        <Grid ColumnDefinitions="*,Auto" Margin="0,10,0,0">
+                                            <Button Classes="link" Command="{Binding CaptureTargetSnapshotCommand}" HorizontalAlignment="Left" Padding="8,4" FontSize="11"
+                                                    ToolTip.Tip="Save this database's schema to a .dacpac — the baseline to compare against after the deploy. Reads the schema only and changes nothing.">
+                                                <TextBlock Text="Capture snapshot…" />
+                                            </Button>
+                                            <Button Grid.Column="1" Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
+                                        </Grid>
+                                        <StackPanel Margin="0,8,0,0" IsVisible="{Binding TargetHasConnectionResult}">
+                                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding TargetConnectionOk}"
+                                                    Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
+                                                <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
+                                            </Border>
+                                            <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !TargetConnectionOk}"
+                                                    Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
+                                                <TextBox Text="{Binding TargetConnectionStatus}" Classes="errorText" />
+                                            </Border>
+                                        </StackPanel>
                                     </StackPanel>
-                                    <Button Classes="link" Command="{Binding TestTargetConnectionCommand}" IsEnabled="{Binding !IsComparing}" HorizontalAlignment="Right" Margin="0,10,0,0" Padding="8,4" FontSize="11"><TextBlock Text="Test Connection" /></Button>
-                                    <StackPanel Margin="0,8,0,0" IsVisible="{Binding TargetHasConnectionResult}">
-                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding TargetConnectionOk}"
-                                                Background="{StaticResource SuccessPanelBg}" BorderBrush="{StaticResource SuccessPanelBorder}" BorderThickness="1">
-                                            <TextBlock Text="{Binding TargetConnectionStatus}" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource SuccessPanelText}" TextWrapping="Wrap" />
-                                        </Border>
-                                        <Border CornerRadius="6" Padding="10,6" IsVisible="{Binding !TargetConnectionOk}"
-                                                Background="{StaticResource ErrorPanelBg}" BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1">
-                                            <TextBox Text="{Binding TargetConnectionStatus}" Classes="errorText" />
-                                        </Border>
+                                    <StackPanel IsVisible="{Binding TargetIsSnapshot}">
+                                        <TextBlock Text="Snapshot file" Classes="sectionTitle" />
+                                        <Grid ColumnDefinitions="*,Auto">
+                                            <TextBox Text="{Binding TargetSnapshotPath}" PlaceholderText="EgyptMart-20260926-0715.dacpac" />
+                                            <Button Grid.Column="1" Classes="secondary" Command="{Binding BrowseTargetSnapshotCommand}"
+                                                    Padding="10,4" FontSize="11" Margin="6,0,0,0" ToolTip.Tip="Choose a snapshot file taken earlier"><TextBlock Text="Browse" /></Button>
+                                        </Grid>
+                                        <TextBlock Text="{Binding TargetSnapshotCaption}" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" TextWrapping="Wrap" Margin="0,6,0,0" />
                                     </StackPanel>
                                 </StackPanel>
                             </Border>

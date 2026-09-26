@@ -47,7 +47,7 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-793 assertions, 0 failures — Tier 1, all five Tier 2 rounds and the first Tier 3 round —
+828 assertions, 0 failures — Tier 1, all five Tier 2 rounds and both Tier 3 rounds —
 including a live
 `COPY_ONLY` backup of EgyptMart read
 back through `RESTORE HEADERONLY` / `FILELISTONLY` (the probe file is deleted
@@ -62,14 +62,17 @@ dependencies dialog on a table with thirteen edges (`40_object_dependencies.png`
 Query Store tab against a probe database that really has captured history
 (`44_query_store.png`), and the deployment and rollback scripts generated from a
 probe pair that differs in all three ways a schema can differ
-(`45_rollback_script.png`). No restore,
+(`45_rollback_script.png`), and the same three-way drift read back out of a captured
+`.dacpac` baseline instead of a live database (`46_snapshot_drift.png`). No restore,
 no `KILL` and no Agent job is ever executed — all three are asserted up to the
 confirmation and declined, and a DOWN script is never executed at all: it is
 previewed, toggled against the UP text, copied and saved, and both probe databases
 are counted before and after to prove generating it changed nothing. The data
 compare never writes either: the same run counts
 the source and target rows before and after every compare, script, save and copy, and
-requires both counts to be unchanged.
+requires both counts to be unchanged. Snapshots are read-only too: the capture run counts
+the live database's tables and rows before and after capturing, diffing and scripting, and
+deletes every `.dacpac` it wrote plus both probe databases before it reports done.
 
 Seven defects surfaced during that verification and are fixed:
 `RESTORE HEADERONLY` has no `Type`/`Description` columns (backup sets showed a blank
@@ -263,12 +266,54 @@ Three defects came out of generating that reversal:
   error dialog for two databases that legitimately match. An empty diff now returns a
   two-line script saying there is nothing to deploy or undo.
 
+Round 7 (2026-09-26) added the snapshots, screenshotted as `46_snapshot_drift.png`. The
+harness captures `__sc21_live` to a 3,803-byte package, then edits the live database in all
+three ways at once — drops a view, adds a table, widens a column — and reads the drift
+straight back out of the file: `Deleted:Table, Changed:Table, Added:View`, with the revert
+naming all three kinds. It then proves what a snapshot is *not*: `__sc21_other` carries the
+identical schema and five hundred rows against the package's three, and the compare finds
+zero differences, because no row ever entered the file.
+
+Seven things came out of building it:
+
+- A `.dacpac` keeps almost nothing about its author: `DacPackage.Load` exposes only `Name`,
+  `Description`, `Version` and the pre/post scripts. So the capture writes
+  `SchemaCompare snapshot from {server} at {O-format UTC}` into the description and
+  `SnapshotInfo` parses it back out — provenance travels inside the file, and a snapshot
+  copied to another machine still says where and when it came from.
+- DAC reports the same progress line up to 120 times for a two-object database, because it
+  messages per object *and* per phase. `CaptureAsync` de-duplicates case-insensitively: the
+  capture above shows 89 distinct lines.
+- A script whose wanted state is a file cannot say "run this" the way a live-vs-live script
+  can: anything the live database gained since the baseline appears below as a `DROP`. Those
+  scripts now open with a `-- NOTE:` header naming the file and warning exactly that, and
+  `ApplyChangesAsync` refuses a snapshot target outright rather than opening a connection
+  that has nowhere to write.
+- Retargeting had to be asserted on the *body*: the new `-- NOTE:` line legitimately contains
+  the captured database's name, so scanning the whole script for it proved nothing. The check
+  now starts at the `/*` where DacFx's own text begins, and confirms
+  `:setvar DatabaseName "__sc21_other"` for a `__sc21_live` package.
+- Capturing does **not** flip the side that was captured to file mode. Taking a target's
+  baseline immediately before deploying to it is the common case, and switching the card to
+  "read from this file" would break the very workflow the capture was for; the path is stored
+  and the card title says which mode it is in.
+- Two harness facts worth repeating: `MainWindow` installs its own picker hooks, so a
+  fail-closed "no picker available" test has to take the hook away first — under headless
+  Avalonia a real `StorageProvider` never answers, and the run hung for twenty minutes at
+  42 s CPU doing exactly that. And a window-driven capture is named from the clock, so the
+  fake picker writes into its own subfolder; otherwise a run that crosses no minute boundary
+  overwrites the baseline the drift checks depend on.
+- A card that reads from a file has no business offering a **saved server profile**: the
+  screenshot showed exactly that, a `Saved profile` dropdown above a snapshot path. Both
+  cards now hide the profile row with the rest of the live fields.
+
 | Feature | State | Notes |
 |---|---|---|
 | Migration script generator (UP) | **Done, verified** | `SchemaCompareService.GenerateScriptAsync` → `GenerateScriptBetweenAsync` / `ApplyChangesAsync` with per-object exclusion and FK-safe batch reordering |
 | Rollback / DOWN script generation | **Done, verified** | `SchemaCompareService.GenerateRollbackScriptAsync` — the same diff with the endpoints swapped, headed at the deployed database. `Rollback` button in the compare toolbar, one script pane that toggles between UP and DOWN (`MainViewModel.ShowingRollbackScript`), Copy and Save always hand out whichever is shown. Preview and file only: the app never executes a DOWN script |
-| Schema snapshots as files, snapshot-vs-snapshot | **Not done** | compare is live-vs-live only |
-| Drift detection ("what changed since yesterday") | **Not done** | — |
+| Schema snapshots as files, snapshot-vs-snapshot | **Done, verified** | `Services/SchemaSnapshotService.cs` writes a live database to a `.dacpac` (schema only, permissions ignored, extraction verified) and reads one back; `Models/SchemaSource.cs` makes *either* side of a comparison a database or a file, so live-vs-live, snapshot-vs-live and file-vs-file all run through the one `CompareAsync` / `GenerateScriptBetweenAsync` path. `Capture snapshot…` on a live card, `Compare against a snapshot file` + Browse on either |
+| Drift detection ("what changed since yesterday") | **Done, verified** | The same compare, pointed at a baseline: capture once, and every later run against that file answers what the database lost (`Added` — only the baseline has it), gained (`Deleted`) and widened or narrowed (`Changed`). The file carries its own provenance, so the card states `Captured from localhost/DB at … UTC` and `4 h ago` from the package, not from a sidecar the operator can lose |
+| Snapshot diff stored as a file the operator can keep | **Not done** | a capture is a file today; there is no "list my snapshots" view, and nothing remembers the last one used |
 
 ## Already production-grade
 

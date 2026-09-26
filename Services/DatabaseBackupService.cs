@@ -69,9 +69,10 @@ public sealed class DatabaseBackupService
 
     /// <summary>
     /// DAC export treats [ThisDatabase].[dbo].[Table] as an "external" reference and fails SQL71562
-    /// even when the name is the current database.
+    /// even when the name is the current database. Shared with the snapshot capture, which extracts
+    /// the same way and hits the same objects.
     /// </summary>
-    private static bool IsUnresolvedReferenceError(Exception ex)
+    internal static bool IsUnresolvedReferenceError(Exception ex)
     {
         var text = ex.ToString();
         return text.Contains("SQL71562", StringComparison.OrdinalIgnoreCase)
