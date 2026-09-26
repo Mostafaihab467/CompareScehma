@@ -66,11 +66,22 @@ another connection/database with FK-order handling. SSMS requires manual scripti
 
 ## Recommended build order
 
-1. **Query history + tab sessions** — cheap, highest daily value
-2. **Auto-JOIN + column validation** — Tier 1 #1; schema cache makes it nearly free
-3. **Safe Query Guard** — nobody has this; the headline exclusive feature
-4. **Result → Move pipeline** — leverages our unique combo
-5. **Schema snapshots + migration generator** — the Redgate killer
+Four of the five shipped; the fifth was scoped differently from what we ended up with.
+
+1. **Query history + tab sessions** — done (`Services/QueryHistoryService.cs`,
+   `Services/TabSessionService.cs`, the searchable history window)
+2. **Auto-JOIN + column validation** — done (`Services/QueryBuilderService.cs` proposes the
+   `JOIN … ON` candidates from FK metadata; `Services/SqlLintService.cs` reports unknown tables
+   and unknown columns against the schema cache)
+3. **Safe Query Guard** — *not* built as this list imagined it (an ad-hoc `UPDATE`/`DELETE`
+   without a `WHERE` stopped before it runs). What exists instead is the guard on the compare
+   path: `AllowUnsafeDrops` / `AllowUnsafeChanges` off by default, every script
+   preview-and-confirm, `Services/ClipboardGuard.cs`. The ad-hoc-query guard is still open work.
+4. **Result → Move pipeline** — done (`Services/DataMoveService.cs`, the Move Data window,
+   results-grid → plan)
+5. **Schema snapshots + migration generator** — done (`Services/SchemaSnapshotService.cs`
+   `.dacpac` baselines, `Services/SnapshotLibraryService.cs`, `Services/SavedComparisonsService.cs`,
+   the UP/DOWN script pair)
 
 ## Compatibility checklist (SSMS parity must-haves)
 
@@ -78,7 +89,11 @@ another connection/database with FK-order handling. SSMS requires manual scripti
 - [x] Autocomplete / IntelliSense (ranked, fuzzy, context-aware)
 - [x] Execute query (F5), selection-only execution, GO batch separators
 - [x] Tabular results with cell/column inspection
-- [ ] Query history, messages/elapsed parity, cancel in-flight query — mostly done (cancel ✅)
-- [ ] Object explorer (left tree: tables/views/procs with right-click scripts)
-- [ ] Right-click → "Select top 1000 rows" / script table as SELECT/INSERT
-- [ ] Execution plan viewer (lite version first: estimated plan as XML tree)
+- [x] Query history (persistent across runs, searchable window), Messages output with
+      `Elapsed 0.00s`, cancel of an in-flight query
+- [x] Object explorer (server → database → tables/views/procedures/security, right-click
+      scripts, object filter, double-click properties)
+- [x] Right-click → top-rows read (`SELECT TOP (1000)`), top-rows editable grid (200 rows),
+      Script Table as SELECT / INSERT
+- [x] Execution plan viewer — estimated plan without executing, actual plan with per-operator
+      runtime metrics, diagram, operator warnings and missing-index detail

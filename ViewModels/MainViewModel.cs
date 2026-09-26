@@ -16,8 +16,10 @@ public partial class MainViewModel : ObservableObject
     private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
     private readonly SnapshotLibraryService _snapshotLibrary = new();
+    private readonly SavedComparisonsService _savedComparisons = new();
     private readonly AppSettingsService _settingsService = new();
     private bool _applyingProfile;
+    private bool _syncingSnapshotRow;
     private bool _applyingSettings;
 
     [ObservableProperty] private string _sourceServer = "";
@@ -61,6 +63,13 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty] private SnapshotEntry? _selectedSourceSnapshot;
     [ObservableProperty] private SnapshotEntry? _selectedTargetSnapshot;
+
+    // A pairing worth running again — the weekly check between one database and one baseline —
+    // kept as references to the two sides rather than as a copy of their credentials.
+    public ObservableCollection<SavedComparison> SavedComparisons => _savedComparisons.Entries;
+    public bool HasSavedComparisons => SavedComparisons.Count > 0;
+    [ObservableProperty] private SavedComparison? _selectedSavedComparison;
+    [ObservableProperty] private string _comparisonName = "";
 
     /// <summary>Capturing needs a live database on that side, and re-capturing the side you are
     /// already reading from a file would only overwrite the baseline.</summary>
@@ -227,6 +236,8 @@ public partial class MainViewModel : ObservableObject
     public ICommand BrowseTargetSnapshotCommand { get; }
     public ICommand ForgetSourceSnapshotCommand { get; }
     public ICommand ForgetTargetSnapshotCommand { get; }
+    public ICommand SaveComparisonCommand { get; }
+    public ICommand ForgetComparisonCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand ConfirmApplyCommand { get; }
     public ICommand CancelApplyCommand { get; }
@@ -300,6 +311,8 @@ public partial class MainViewModel : ObservableObject
         BrowseTargetSnapshotCommand = new AsyncRelayCommand(() => BrowseSnapshotAsync(isSource: false), () => !IsCapturingSnapshot);
         ForgetSourceSnapshotCommand = new RelayCommand(() => ForgetSnapshot(isSource: true));
         ForgetTargetSnapshotCommand = new RelayCommand(() => ForgetSnapshot(isSource: false));
+        SaveComparisonCommand = new RelayCommand(SaveComparison);
+        ForgetComparisonCommand = new RelayCommand(ForgetComparison);
         ApplyCommand = new AsyncRelayCommand(ApplyAsync, CanApply);
         ConfirmApplyCommand = new AsyncRelayCommand(ConfirmApplyAsync);
         CancelApplyCommand = new RelayCommand(CancelApply);
@@ -341,6 +354,8 @@ public partial class MainViewModel : ObservableObject
 
         _snapshotLibrary.Load();
         _snapshotLibrary.Entries.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSnapshots));
+        _savedComparisons.Load();
+        _savedComparisons.Entries.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasSavedComparisons));
 
         LoadDisplaySettings();
 
@@ -400,8 +415,14 @@ public partial class MainViewModel : ObservableObject
         if (isSource) SourceSnapshotCaption = caption; else TargetSnapshotCaption = caption;
         // Show the card's row for whatever file is in the box, including one typed by hand or
         // written by a capture, so the list and the card never disagree about the current pick.
-        if (isSource) SelectedSourceSnapshot = _snapshotLibrary.Find(value);
-        else SelectedTargetSnapshot = _snapshotLibrary.Find(value);
+        // That is a mirror, not a choice: the flag keeps it from dragging the side into file mode.
+        _syncingSnapshotRow = true;
+        try
+        {
+            if (isSource) SelectedSourceSnapshot = _snapshotLibrary.Find(value);
+            else SelectedTargetSnapshot = _snapshotLibrary.Find(value);
+        }
+        finally { _syncingSnapshotRow = false; }
         RefreshSnapshotCommands();
     }
 
@@ -425,20 +446,26 @@ public partial class MainViewModel : ObservableObject
 
     /// <summary>The library is the shortcut to a file, not a second copy of it: choosing a row
     /// switches that side to snapshot mode and fills the path, and the path then re-syncs the
-    /// selection through <see cref="OnSnapshotPathChanged"/> — which is why that setter is a
-    /// no-op once the two already point at the same file.</summary>
+    /// selection through <see cref="OnSnapshotPathChanged"/>. The two directions need different
+    /// rules: a pick must set the mode even when the box already names that file (a capture leaves
+    /// the path there with the side still live, and a pick that only wrote the path would leave the
+    /// card comparing the database while appearing to read the baseline just chosen), while the
+    /// path's own re-sync must not — that is what keeps capturing from flipping the side it
+    /// captured from.</summary>
     partial void OnSelectedSourceSnapshotChanged(SnapshotEntry? value)
     {
-        if (value is null || string.Equals(value.Path, SourceSnapshotPath, StringComparison.OrdinalIgnoreCase)) return;
+        if (value is null || _syncingSnapshotRow) return;
         SourceIsSnapshot = true;
-        SourceSnapshotPath = value.Path;
+        if (!string.Equals(value.Path, SourceSnapshotPath, StringComparison.OrdinalIgnoreCase))
+            SourceSnapshotPath = value.Path;
     }
 
     partial void OnSelectedTargetSnapshotChanged(SnapshotEntry? value)
     {
-        if (value is null || string.Equals(value.Path, TargetSnapshotPath, StringComparison.OrdinalIgnoreCase)) return;
+        if (value is null || _syncingSnapshotRow) return;
         TargetIsSnapshot = true;
-        TargetSnapshotPath = value.Path;
+        if (!string.Equals(value.Path, TargetSnapshotPath, StringComparison.OrdinalIgnoreCase))
+            TargetSnapshotPath = value.Path;
     }
 
     /// <summary>Drop the remembered row, never the file — the .dacpac is the operator's and may
@@ -450,6 +477,159 @@ public partial class MainViewModel : ObservableObject
         if (!_snapshotLibrary.Forget(entry)) return;
         if (isSource) SelectedSourceSnapshot = null; else SelectedTargetSnapshot = null;
         StatusMessage = $"Forgotten {entry.FileName}. The file itself was left where it is.";
+        AppendLog(StatusMessage);
+    }
+
+    partial void OnSelectedSavedComparisonChanged(SavedComparison? value) => ApplySavedComparison(value);
+
+    /// <summary>
+    /// Fill both cards from a saved pairing. A side whose profile or file has gone is named and
+    /// left as it was rather than half-applied: a comparison that quietly compares something else
+    /// is worse than one that refuses to.
+    /// </summary>
+    private void ApplySavedComparison(SavedComparison? comparison)
+    {
+        if (comparison is null) return;
+        var missing = new List<string>();
+        ApplyComparisonSide(comparison, isSource: true, missing);
+        ApplyComparisonSide(comparison, isSource: false, missing);
+        // The guards travel with the pairing on purpose: they decide what a script may destroy, so
+        // re-running a comparison must not quietly widen them.
+        AllowUnsafeDrops = comparison.AllowUnsafeDrops;
+        AllowUnsafeChanges = comparison.AllowUnsafeChanges;
+        ComparisonName = comparison.Name;
+        StatusMessage = missing.Count > 0
+            ? $"Comparison '{comparison.Name}' is incomplete: {string.Join("; ", missing)}."
+            : $"Loaded comparison '{comparison.Name}': {comparison.SourceLabel} against {comparison.TargetLabel}.";
+        AppendLog(StatusMessage);
+    }
+
+    private void ApplyComparisonSide(SavedComparison comparison, bool isSource, List<string> missing)
+    {
+        var side = isSource ? "Source" : "Target";
+        var snapshotPath = isSource ? comparison.SourceSnapshotPath : comparison.TargetSnapshotPath;
+        if (!string.IsNullOrWhiteSpace(snapshotPath))
+        {
+            if (isSource) { SourceIsSnapshot = true; SourceSnapshotPath = snapshotPath; }
+            else { TargetIsSnapshot = true; TargetSnapshotPath = snapshotPath; }
+            if (!File.Exists(snapshotPath))
+                missing.Add($"the snapshot '{System.IO.Path.GetFileName(snapshotPath)}' is no longer there");
+            return;
+        }
+
+        var profileId = isSource ? comparison.SourceProfileId : comparison.TargetProfileId;
+        if (!string.IsNullOrWhiteSpace(profileId))
+        {
+            var profile = SavedConnections.FirstOrDefault(p => p.Id == profileId);
+            if (profile is null)
+            {
+                missing.Add($"the saved profile '{(isSource ? comparison.SourceLabel : comparison.TargetLabel)}' is no longer saved");
+                return;
+            }
+            if (isSource) SourceIsSnapshot = false; else TargetIsSnapshot = false;
+            _applyingProfile = true;
+            try
+            {
+                if (isSource) SelectedSavedSource = profile; else SelectedSavedTarget = profile;
+            }
+            finally { _applyingProfile = false; }
+            ApplyProfile(profile, isSource);
+            return;
+        }
+
+        var server = isSource ? comparison.SourceServer : comparison.TargetServer;
+        var database = isSource ? comparison.SourceDatabase : comparison.TargetDatabase;
+        if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database))
+        {
+            missing.Add($"the {side.ToLowerInvariant()} names neither a profile, a database nor a snapshot");
+            return;
+        }
+        if (isSource) { SourceIsSnapshot = false; SourceServer = server; SourceDatabase = database; }
+        else { TargetIsSnapshot = false; TargetServer = server; TargetDatabase = database; }
+    }
+
+    /// <summary>Why this side cannot be remembered, or null when it can. Credentials are the
+    /// reason: a pairing stores a profile's id, never its password, so a side that authenticates
+    /// with a user name has to become a profile first.</summary>
+    private string? ComparisonSideProblem(bool isSource)
+    {
+        var side = isSource ? "Source" : "Target";
+        if (isSource ? SourceIsSnapshot : TargetIsSnapshot)
+            return string.IsNullOrWhiteSpace(isSource ? SourceSnapshotPath : TargetSnapshotPath)
+                ? $"{side} reads from a snapshot but no file is named."
+                : null;
+        var server = isSource ? SourceServer : TargetServer;
+        var database = isSource ? SourceDatabase : TargetDatabase;
+        if (string.IsNullOrWhiteSpace(server) || string.IsNullOrWhiteSpace(database))
+            return $"{side} needs a database or a snapshot file before the pairing can be saved.";
+        var profile = isSource ? SelectedSavedSource : SelectedSavedTarget;
+        var auth = isSource ? SourceAuth : TargetAuth;
+        if (profile is null && auth.NeedsCredentials)
+            return $"{side} uses {auth.Display} and has no saved profile — save it as a profile first. A comparison never stores a password.";
+        return null;
+    }
+
+    private void SaveComparison()
+    {
+        var name = ComparisonName.Trim();
+        if (name.Length == 0)
+        {
+            StatusMessage = "Type a name for this comparison before saving it.";
+            return;
+        }
+        var problem = ComparisonSideProblem(isSource: true) ?? ComparisonSideProblem(isSource: false);
+        if (problem != null)
+        {
+            StatusMessage = problem;
+            AppendLog(problem);
+            return;
+        }
+
+        var comparison = new SavedComparison
+        {
+            Name = name,
+            SavedAt = DateTimeOffset.UtcNow,
+            SourceProfileId = SourceIsSnapshot ? null : SelectedSavedSource?.Id,
+            SourceSnapshotPath = SourceIsSnapshot ? SourceSnapshotPath : null,
+            SourceServer = SourceIsSnapshot || SelectedSavedSource != null ? null : SourceServer,
+            SourceDatabase = SourceIsSnapshot || SelectedSavedSource != null ? null : SourceDatabase,
+            SourceLabel = SavedComparison.DescribeSide(SourceIsSnapshot, SourceSnapshotPath, SourceServer, SourceDatabase),
+            TargetProfileId = TargetIsSnapshot ? null : SelectedSavedTarget?.Id,
+            TargetSnapshotPath = TargetIsSnapshot ? TargetSnapshotPath : null,
+            TargetServer = TargetIsSnapshot || SelectedSavedTarget != null ? null : TargetServer,
+            TargetDatabase = TargetIsSnapshot || SelectedSavedTarget != null ? null : TargetDatabase,
+            TargetLabel = SavedComparison.DescribeSide(TargetIsSnapshot, TargetSnapshotPath, TargetServer, TargetDatabase),
+            AllowUnsafeDrops = AllowUnsafeDrops,
+            AllowUnsafeChanges = AllowUnsafeChanges,
+        };
+        try
+        {
+            _savedComparisons.Save(comparison);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = ex.Message;
+            AppendLog($"Saved comparison rejected: {ex.Message}");
+            return;
+        }
+        // Selecting it re-applies the pairing, which writes its own status line — so the message
+        // that says the save worked has to come after it.
+        SelectedSavedComparison = _savedComparisons.Find(name);
+        StatusMessage = $"Saved comparison '{name}' ({comparison.SourceLabel} against {comparison.TargetLabel}).";
+        AppendLog(StatusMessage);
+    }
+
+    private void ForgetComparison()
+    {
+        var comparison = SelectedSavedComparison;
+        if (comparison is null)
+        {
+            StatusMessage = "Choose a saved comparison to forget it.";
+            return;
+        }
+        if (!_savedComparisons.Forget(comparison)) return;
+        SelectedSavedComparison = null;
+        StatusMessage = $"Forgotten comparison '{comparison.Name}'. The databases, profiles and files it pointed at are untouched.";
         AppendLog(StatusMessage);
     }
 

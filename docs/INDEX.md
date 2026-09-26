@@ -34,7 +34,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Views/DiagramWindow.axaml.cs`](files/Views/DiagramWindow.axaml.cs.md) — Diagram window code-behind: zoom (incl. Ctrl+wheel), pan, drag, save/load of the layout.
 - [`Views/ImportWizardWindow.axaml`](files/Views/ImportWizardWindow.axaml.md) — Import wizard layout: file and destination cards, editable column mapping grid, script preview pane.
 - [`Views/ImportWizardWindow.axaml.cs`](files/Views/ImportWizardWindow.axaml.cs.md) — Supplies the file picker and the script-confirmation dialog to the import view-model once its DataContext arrives.
-- [`Views/MainWindow.axaml`](files/Views/MainWindow.axaml.md) — Layout of the launcher window: source and target cards that are each a live database or a snapshot file, compare, the one script pane that toggles UP/DOWN, buttons into every other window.
+- [`Views/MainWindow.axaml`](files/Views/MainWindow.axaml.md) — Layout of the launcher window: the saved-comparisons card, source and target cards that are each a live database or a snapshot file with a remembered-baseline picker, compare, the one script pane that toggles UP/DOWN, buttons into every other window.
 - [`Views/MainWindow.axaml.cs`](files/Views/MainWindow.axaml.cs.md) — Launcher window code-behind: opens saved connections, copies and saves whichever script the pane shows, the snapshot file pickers both directions, and every other window from the menu.
 - [`Views/MoveDataWindow.axaml`](files/Views/MoveDataWindow.axaml.md) — Layout of the data-move wizard: source/target picker, table list, plan preview.
 - [`Views/MoveDataWindow.axaml.cs`](files/Views/MoveDataWindow.axaml.cs.md) — Data-move code-behind: builds the DataMovePlan, confirms, and runs DataMoveService with progress.
@@ -78,7 +78,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`ViewModels/DbManagerViewModel.cs`](files/ViewModels/DbManagerViewModel.cs.md) — Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.
 - [`ViewModels/DiagramViewModel.cs`](files/ViewModels/DiagramViewModel.cs.md) — Diagram view-model: schema load, table search, layout, persistence.
 - [`ViewModels/ImportWizardViewModel.cs`](files/ViewModels/ImportWizardViewModel.cs.md) — View-model of the import wizard: read file, review the mapping, match an existing table, then load — failing closed without a confirmation host.
-- [`ViewModels/MainViewModel.cs`](files/ViewModels/MainViewModel.cs.md) — Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.
+- [`ViewModels/MainViewModel.cs`](files/ViewModels/MainViewModel.cs.md) — Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the named pairings of those two sides that save and re-apply as references, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.
 - [`ViewModels/QueryBuilderViewModel.cs`](files/ViewModels/QueryBuilderViewModel.cs.md) — Query Constructor view-model: joins, filters, grouping, ordering, regeneration of the SQL on every change.
 - [`ViewModels/QueryViewModel.cs`](files/ViewModels/QueryViewModel.cs.md) — Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist.
 
@@ -105,6 +105,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Models/QueryResultTable.cs`](files/Models/QueryResultTable.cs.md) — One result set or affected-rows summary produced by a batch.
 - [`Models/QueryTab.cs`](files/Models/QueryTab.cs.md) — One open query tab: text, file path, dirty flag, results, execution state.
 - [`Models/RestoreModels.cs`](files/Models/RestoreModels.cs.md) — Restore domain model: BackupSetInfo, BackupFileInfo, RestorePlan and its validation rules.
+- [`Models/SavedComparison.cs`](files/Models/SavedComparison.cs.md) — One named source/target pairing, each side stored as a reference — a snapshot file, a saved profile's id, or typed server and database — which is why a pairing can never carry a password.
 - [`Models/SavedConnection.cs`](files/Models/SavedConnection.cs.md) — A saved connection profile: its authentication method, how its password is held and how it becomes a ConnectionInfo.
 - [`Models/SchemaDiffItem.cs`](files/Models/SchemaDiffItem.cs.md) — One schema-compare diff line and its Added/Removed/Modified status.
 - [`Models/SchemaSource.cs`](files/Models/SchemaSource.cs.md) — One side of a schema comparison as either a live database or a snapshot file, so compare, script and deploy never assume a reachable server.
@@ -141,6 +142,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/QuerySchemaService.cs`](files/Services/QuerySchemaService.cs.md) — Schema cache used by IntelliSense: tables, views, columns, loaded lazily per connection.
 - [`Services/RecentFilesService.cs`](files/Services/RecentFilesService.cs.md) — Most-recently-opened .sql paths, stored without file contents.
 - [`Services/ResultsExportService.cs`](files/Services/ResultsExportService.cs.md) — Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script.
+- [`Services/SavedComparisonsService.cs`](files/Services/SavedComparisonsService.cs.md) — The pairings the operator names and re-runs: alphabetical, replaced by name, capped — and stored as references (a profile id, a snapshot path), so a pairing can never hold a credential and a missing reference is named on apply instead of pruned.
 - [`Services/SavedConnectionsService.cs`](files/Services/SavedConnectionsService.cs.md) — Reads and writes saved connection profiles, including DPAPI-protected passwords.
 - [`Services/SchemaCompareService.cs`](files/Services/SchemaCompareService.cs.md) — DacFx schema compare over any pair of live databases or snapshot files, and the one comparison path behind both script directions — forward deploy, reversed rollback — with the function-before-view reorder, the deploy-database retargeting and the note a file on either side forces on the script.
 - [`Services/SchemaSnapshotService.cs`](files/Services/SchemaSnapshotService.cs.md) — Schema snapshots as .dacpac files: schema-only DAC extract with the SQL71562 verify-off retry, the capture provenance written into and read back out of the package, and the UTC-stamped file name that keeps two captures of one day apart.
@@ -170,4 +172,4 @@ One page per source file: purpose, declared types, public surface and who refere
 
 - [`Tools/DBPressureTest.ps1`](files/Tools/DBPressureTest.ps1.md) — PowerShell load generator used to exercise blocking, waits and CPU sampling.
 
-_138 pages. Regenerate after any code change with `python docs/build_docs.py`._
+_140 pages. Regenerate after any code change with `python docs/build_docs.py`._

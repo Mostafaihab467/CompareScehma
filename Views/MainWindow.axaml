@@ -81,6 +81,37 @@
                 <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" MaxHeight="420"
                               HorizontalAlignment="Stretch" VerticalAlignment="Top">
                     <StackPanel Spacing="10">
+                        <Border Classes="card" Padding="14,10">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="Saved comparisons — re-run this pairing next week without rebuilding both cards"
+                                           FontSize="11" FontWeight="Bold" Foreground="{StaticResource OnSurfaceVariant}"
+                                           IsVisible="{Binding HasSavedComparisons}" />
+                                <Grid ColumnDefinitions="*,Auto" IsVisible="{Binding HasSavedComparisons}">
+                                    <controls:SearchableComboBox ItemsSource="{Binding SavedComparisons}"
+                                              SelectedItem="{Binding SelectedSavedComparison}"
+                                              PlaceholderText="Re-run a pairing you saved…"
+                                              HorizontalAlignment="Stretch">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate DataType="models:SavedComparison">
+                                                <TextBlock Text="{Binding Display}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </controls:SearchableComboBox>
+                                    <Button Grid.Column="1" Classes="danger" Command="{Binding ForgetComparisonCommand}"
+                                            Padding="10,4" FontSize="11" Margin="6,0,0,0"
+                                            ToolTip.Tip="Remove the selected pairing from the list. The databases, profiles and snapshot files it points at are untouched."><TextBlock Text="Forget" /></Button>
+                                </Grid>
+                                <TextBlock Text="Nothing saved yet: fill both sides above and press Save pairing." FontSize="11"
+                                           Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding !HasSavedComparisons}" />
+                                <Grid ColumnDefinitions="*,Auto">
+                                    <TextBox Text="{Binding ComparisonName}" PlaceholderText="name this pairing — e.g. Nightly drift vs EgyptMart baseline"
+                                             ToolTip.Tip="Each side is stored as a reference — a saved profile or a snapshot file — so a pairing can never hold a password." />
+                                    <Button Grid.Column="1" Classes="secondary" Command="{Binding SaveComparisonCommand}"
+                                            Padding="10,4" FontSize="11" Margin="6,0,0,0"
+                                            ToolTip.Tip="Remember these two sides under this name, so next week's check is one pick"><TextBlock Text="Save pairing" /></Button>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
                         <Grid ColumnDefinitions="*,Auto,*">
                             <Border Classes="card" Padding="20" HorizontalAlignment="Stretch" VerticalAlignment="Top" MinWidth="0">
                                 <StackPanel>

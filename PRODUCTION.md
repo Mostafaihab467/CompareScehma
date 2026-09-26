@@ -47,8 +47,8 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-896 assertions, 0 failures — Tier 1, all five Tier 2 rounds, both Tier 3 rounds and the
-round-8 plan/lint fixes —
+934 assertions, 0 failures — Tier 1, all five Tier 2 rounds, the Tier 3 rounds (rollback,
+snapshots, drift, the baseline library, saved comparisons) and the round-8 plan/lint fixes —
 including a live
 `COPY_ONLY` backup of EgyptMart read
 back through `RESTORE HEADERONLY` / `FILELISTONLY` (the probe file is deleted
@@ -317,6 +317,7 @@ Seven things came out of building it:
 | Schema snapshots as files, snapshot-vs-snapshot | **Done, verified** | `Services/SchemaSnapshotService.cs` writes a live database to a `.dacpac` (schema only, permissions ignored, extraction verified) and reads one back; `Models/SchemaSource.cs` makes *either* side of a comparison a database or a file, so live-vs-live, snapshot-vs-live and file-vs-file all run through the one `CompareAsync` / `GenerateScriptBetweenAsync` path. `Capture snapshot…` on a live card, `Compare against a snapshot file` + Browse on either |
 | Drift detection ("what changed since yesterday") | **Done, verified** | The same compare, pointed at a baseline: capture once, and every later run against that file answers what the database lost (`Added` — only the baseline has it), gained (`Deleted`) and widened or narrowed (`Changed`). The file carries its own provenance, so the card states `Captured from localhost/DB at … UTC` and `4 h ago` from the package, not from a sidecar the operator can lose |
 | Snapshot diff stored as a file the operator can keep | **Done, verified** | Round 9 — see the table below |
+| The pairing itself saved as a name to re-run | **Done, verified** | Round 10 — see the table below |
 
 ## Round 8 — the two plan buttons stopped telling the same story
 
@@ -409,6 +410,63 @@ the top row returns the *existing* entry rather than a fresh instance, which is 
 bound dropdown from losing its selection mid-interaction; the assertion that proves it has to
 compare against the instance the previous `Remember` returned, not the first one.
 
+## Round 10 — a pairing the operator names once and re-runs
+
+Round 9 removed the file hunt. The cards still had to be rebuilt every time — which server,
+which database, which baseline, on which side — so the weekly drift check was still a list of
+things to remember. `Services/SavedComparisonsService.cs` stores the *pairing* under a name the
+operator chose, each side kept as one reference: a `.dacpac` path, the id of a saved profile, or
+the server and database typed into the card. One pick in the `Saved comparisons` row fills both
+cards, guards included (`50_saved_comparison.png`).
+
+- **A pairing can hold no credential, by construction.** Nothing here is a connection string: a
+  side is a file path or a profile's `Id`, and the profile's password stays in the DPAPI-protected
+  connection store. A side that authenticates with a user name and has no saved profile is
+  *refused at save time* — "…save it as a profile first. A comparison never stores a password." —
+  instead of the app inventing a second, weaker place to keep the secret. The harness reads
+  `saved_comparisons.json` and shows the profile id and the baseline name in it, and no password
+  or connection-string keyword in it, including after a refused save of a card that really had a
+  password typed in.
+- **Applying names what is missing rather than half-applying.** A pairing whose baseline was moved
+  says which file `is no longer there`; one whose profile was deleted says which profile
+  `is no longer saved`. Either way the other side is still applied and the row survives — the
+  operator named that workflow, and silently comparing something else is the one outcome worse
+  than refusing. This is the deliberate opposite of the snapshot library, which prunes a row whose
+  file is gone: a file list is a shortcut, a named pairing is something the operator wrote.
+- **Alphabetical, replaced by name, and full means full.** Newest-first is right for files and
+  wrong for workflows, so the list sorts by name and re-saving a name replaces that row
+  case-insensitively. At twenty rows a *new* name is refused with "forget one before saving
+  another" rather than evicting a pairing somebody depends on; re-saving a name the list already
+  holds is never refused.
+- **The data-loss guards travel with the pairing.** `AllowUnsafeDrops` / `AllowUnsafeChanges` are
+  saved and restored, because they decide what a script may destroy — re-running a comparison must
+  not quietly widen them. Picking a row re-applies the profile through the same `ApplyProfile`
+  path the dropdown uses, under the `_applyingProfile` guard, so the selection survives its own
+  field writes.
+
+| Feature | State | Notes |
+|---|---|---|
+| Saved comparisons (source ⇄ target) | **Done, verified** | `Services/SavedComparisonsService.cs` + `Models/SavedComparison.cs`, `MainViewModel.SavedComparisons` / `SelectedSavedComparison` / `ComparisonName` / `SaveComparisonCommand` / `ForgetComparisonCommand` — alphabetical, replaced by name case-insensitively, capped at 20 with a refusal that says so, persisted beside the other side-stores, references only |
+| Re-run a pairing from the compare card | **Done, verified** | `Views/MainWindow.axaml` — the `Saved comparisons` card: searchable list with **Forget**, name box with **Save pairing**; one pick rebuilds both sides (profile id → the saved profile, path → the baseline) and the compare runs from there; `Forget` deletes the record and touches no file, no profile and no card |
+
+Three harness facts from the round: replacing a name keeps the *newest* spelling, so the reload
+assertion reads `alpha DRIFT` after a re-save, not the `Alpha drift` it started with; the card's
+path box and its baseline row sync in *both* directions and the two directions need opposite rules
+(see below); and the list is a real side-store like the library, so the run deletes
+`saved_comparisons.json` before the window checks instead of inheriting the offline rows.
+
+The middle one took two runs to pin down. `OnSnapshotPathChanged` mirrors the file in the box into
+`Selected*Snapshot` — that is what makes a typed path light up its row — and the pick handler used
+to begin with "the two already name this file, so return". That early return was load-bearing twice
+over: it is also what lets a capture leave its side live while its row is already selected, and one
+guard doing two opposite jobs is exactly the thing the next control inherits wrong. Picking and
+mirroring are now separate: `OnSelected*SnapshotChanged` always sets file mode for a real pick, and
+the path's mirror runs under `_syncingSnapshotRow`, the same trick `_applyingProfile` uses for the
+profile dropdown. No miscompare was reachable in the shipped card — the list and the path are hidden
+while a side is live, so an operator gets there through the *Compare against a snapshot file* box,
+never through a stale row — but both halves are now asserted: a capture stores its path, mirrors its
+row and leaves the side live; ticking the box reveals the baseline it captured.
+
 ## Already production-grade
 
 Security and data-safety from the hardening pass (verified by the same harness):
@@ -430,3 +488,16 @@ file IO and missing indexes — do not rebuild these as "Activity Monitor".
 
 - The `eta` / `500600` credentials remain in **pushed git history** from before the
   defaults were cleaned; rotating them is an operator action, not a code fix.
+
+## Still open, by name
+
+All three tiers are done and verified, so this is the list of what is *not* there — the two
+things a reader would otherwise assume the tiers covered:
+
+- **The ad-hoc-query guard** FEATURES.md once scoped as "Safe Query Guard": an `UPDATE` /
+  `DELETE` with no `WHERE`, or a `DROP` typed into the editor, flagged before F5 runs it. The
+  compare and deploy path has its guards; the editor's lint (`Services/SqlLintService.cs`)
+  checks names and delimiters, not blast radius.
+- **Execution-plan graphics for a snapshot**: plans need a live engine, so a card reading from a
+  `.dacpac` has no plan to show. Nothing claims otherwise; it is listed here so nobody files it
+  as a bug in the snapshot work.
