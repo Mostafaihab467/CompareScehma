@@ -17,7 +17,9 @@
 
 - `Controls/EditorFindBar.cs`
 - `Controls/SqlHighlightedEditor.cs`
+- `Models/QueryGuard.cs`
+- `Services/QueryGuardService.cs`
 - `Services/SavedConnectionsService.cs`
 - `Services/SqlFormatter.cs`
 
-**Size:** 512 lines
+**Size:** 513 lines

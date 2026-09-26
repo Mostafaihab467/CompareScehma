@@ -143,6 +143,61 @@ public partial class QueryViewModel : ObservableObject
     public string IoTimeToggleText => ShowIoTimeStats ? "📊 IO/Time ON" : "📊 IO/Time";
 
     /// <summary>
+    /// When on (the default), a script that <see cref="QueryGuardService"/> reads as destroying
+    /// data has to be confirmed before it runs. Off means the findings are still reported in
+    /// Messages, but nothing pauses for an answer — the escape hatch for someone replaying a
+    /// known-bad maintenance script on purpose.
+    /// </summary>
+    [ObservableProperty] private bool _guardAsksBeforeDangerousScripts = true;
+
+    /// <summary>
+    /// Set by the view — shows the operator what the script will destroy and asks for an answer.
+    /// Arguments are title, the headline finding, the script. Returns true only when confirmed.
+    /// A destructive script refuses to run when no hook is installed, like every other write verb.
+    /// </summary>
+    public Func<string, string, string, Task<bool>>? ConfirmDangerousScriptAsync { get; set; }
+
+    /// <summary>
+    /// Runs the guard over a script about to execute and, when it finds destruction, gets the
+    /// operator's answer. Null means "do not run this"; otherwise the report, which the caller
+    /// writes into Messages so the run carries its own warning.
+    /// </summary>
+    private async Task<GuardReport?> ClearedToRunAsync(QueryTab tab, string sql)
+    {
+        var report = QueryGuardService.Analyze(sql);
+        if (!report.RequiresConfirmation) return report;
+
+        if (!GuardAsksBeforeDangerousScripts) return report;
+        if (ConfirmDangerousScriptAsync is null)
+        {
+            tab.StatusMessage =
+                "This script destroys data and nothing here can show you the confirmation — nothing ran.";
+            return null;
+        }
+        if (!await ConfirmDangerousScriptAsync(
+                "This script will destroy data", report.Headline, sql))
+        {
+            tab.StatusMessage = $"Stopped by the guard: {report.Headline} Nothing was executed.";
+            StatusMessage = $"{tab.Title}: stopped by the guard before executing.";
+            return null;
+        }
+        return report;
+    }
+
+    /// <summary>Writes the findings into the Messages pane so the scrollback shows what ran
+    /// unfiltered, not just that it ran. Messages rather than the status line: a run that goes
+    /// ahead overwrites the status with its own outcome, and this note is about the run.</summary>
+    private void ReportToMessages(QueryTab tab, GuardReport report)
+    {
+        if (report.IsClear) return;
+        foreach (var finding in report.Findings)
+            tab.Messages.Add($"Guard [{finding.Level}] {finding.Rule}: {finding.Message}");
+        if (report.RequiresConfirmation && !GuardAsksBeforeDangerousScripts)
+            tab.Messages.Add("Guard: asking is switched off, so this ran without a question.");
+        tab.HasMessages = true;
+    }
+
+    /// <summary>
     /// Set by the view after construction. Opens the Query Constructor dialog
     /// modal-over-this-window. Keep as a callback (not a command) so the dialog
     /// can be wired without re-tearing down the view-model on every close.
@@ -455,6 +510,9 @@ public partial class QueryViewModel : ObservableObject
             return;
         }
 
+        var guard = await ClearedToRunAsync(tab, sql);
+        if (guard is null) return;
+
         var info = SelectedConnection.ToConnectionInfo();
         var usePlan = ShowExecutionPlan;
         var useStats = ShowIoTimeStats;
@@ -467,6 +525,7 @@ public partial class QueryViewModel : ObservableObject
         tab.HasMessages = false;
         tab.Plan = null;
         tab.ShowPlanView = false;
+        ReportToMessages(tab, guard);
         tab.StatusMessage = "Executing…";
         tab.ElapsedText = string.Empty;
         ShowError = false;

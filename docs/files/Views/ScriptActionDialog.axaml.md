@@ -13,6 +13,7 @@
 - `Views/DbHealthWindow.axaml.cs`
 - `Views/DbManagerWindow.axaml.cs`
 - `Views/ImportWizardWindow.axaml.cs`
+- `Views/QueryWindow.axaml.cs`
 - `Views/ScriptActionDialog.axaml.cs`
 
 **Size:** 36 lines

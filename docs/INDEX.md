@@ -48,8 +48,8 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Views/QueryExplainDialog.axaml.cs`](files/Views/QueryExplainDialog.axaml.cs.md) — Explain dialog: headline, step-by-step breakdown and deterministic safety warnings for the selected SQL.
 - [`Views/QueryHistoryWindow.axaml`](files/Views/QueryHistoryWindow.axaml.md) — Layout of the query history window: search box and entry list.
 - [`Views/QueryHistoryWindow.axaml.cs`](files/Views/QueryHistoryWindow.axaml.cs.md) — History window code-behind: filters persisted history and copies or reopens a chosen script.
-- [`Views/QueryWindow.axaml`](files/Views/QueryWindow.axaml.md) — Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes.
-- [`Views/QueryWindow.axaml.cs`](files/Views/QueryWindow.axaml.cs.md) — Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, session restore on close.
+- [`Views/QueryWindow.axaml`](files/Views/QueryWindow.axaml.md) — Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes, and the status-bar switch that asks before a destructive script runs.
+- [`Views/QueryWindow.axaml.cs`](files/Views/QueryWindow.axaml.cs.md) — Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, session restore on close.
 - [`Views/RestoreDatabaseDialog.axaml`](files/Views/RestoreDatabaseDialog.axaml.md) — Layout of the safe restore dialog: media path, backup set picker, relocation grid, options, script preview.
 - [`Views/RestoreDatabaseDialog.axaml.cs`](files/Views/RestoreDatabaseDialog.axaml.cs.md) — Restore dialog logic (RestoreDraft, RestoreFileRow): STOPAT validation, relocation re-suggestions, REPLACE gating, warnings that block OK.
 - [`Views/ScriptActionDialog.axaml`](files/Views/ScriptActionDialog.axaml.md) — Layout of the run-or-copy script confirmation dialog.
@@ -80,7 +80,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`ViewModels/ImportWizardViewModel.cs`](files/ViewModels/ImportWizardViewModel.cs.md) — View-model of the import wizard: read file, review the mapping, match an existing table, then load — failing closed without a confirmation host.
 - [`ViewModels/MainViewModel.cs`](files/ViewModels/MainViewModel.cs.md) — Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the named pairings of those two sides that save and re-apply as references, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.
 - [`ViewModels/QueryBuilderViewModel.cs`](files/ViewModels/QueryBuilderViewModel.cs.md) — Query Constructor view-model: joins, filters, grouping, ordering, regeneration of the SQL on every change.
-- [`ViewModels/QueryViewModel.cs`](files/ViewModels/QueryViewModel.cs.md) — Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist.
+- [`ViewModels/QueryViewModel.cs`](files/ViewModels/QueryViewModel.cs.md) — Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — and the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook.
 
 ## Models
 
@@ -101,6 +101,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Models/ObjectDependencyModels.cs`](files/Models/ObjectDependencyModels.cs.md) — Object dependency graph: one Uses/Used-by edge with its sys type_desc translated for a DBA, and the whole set of neighbours around one catalog object.
 - [`Models/ObjectDesignerModels.cs`](files/Models/ObjectDesignerModels.cs.md) — DesignerKind (table, view, procedure), one DesignerColumn per table column and the DesignerSpec the designer hands back with its Execute-now choice.
 - [`Models/QueryBuilderModel.cs`](files/Models/QueryBuilderModel.cs.md) — Query Constructor state: aggregate functions, filter operators, join options.
+- [`Models/QueryGuard.cs`](files/Models/QueryGuard.cs.md) — What a script will destroy, as data: one finding (level, stable rule id, prose) and the report that says whether it needs a confirmation and what to lead a dialog with.
 - [`Models/QueryHistoryEntry.cs`](files/Models/QueryHistoryEntry.cs.md) — One persisted history entry: script, timing, server, database, outcome.
 - [`Models/QueryResultTable.cs`](files/Models/QueryResultTable.cs.md) — One result set or affected-rows summary produced by a batch.
 - [`Models/QueryTab.cs`](files/Models/QueryTab.cs.md) — One open query tab: text, file path, dirty flag, results, execution state.
@@ -138,6 +139,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/ManagerScriptBuilder.cs`](files/Services/ManagerScriptBuilder.cs.md) — Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.
 - [`Services/QueryBuilderService.cs`](files/Services/QueryBuilderService.cs.md) — Extras for the Constructor: FK-based join suggestions and per-table column lists.
 - [`Services/QueryExecutionService.cs`](files/Services/QueryExecutionService.cs.md) — Executes ad-hoc batches: GO splitting, cancellation, messages, result streaming, statistics and plan capture.
+- [`Services/QueryGuardService.cs`](files/Services/QueryGuardService.cs.md) — Reads a script's blast radius off the text before it reaches the server: DELETE/UPDATE with no outer filter (a sub-query's WHERE does not count, a CTE's does), WHERE 1=1, TRUNCATE, DROP TABLE/DATABASE, DROP COLUMN as Dangerous; DROP INDEX/PROCEDURE as Advisory. Works on string- and comment-masked text so a commented-out DELETE cannot start a warning.
 - [`Services/QueryHistoryService.cs`](files/Services/QueryHistoryService.cs.md) — Persistent, capped query history store in the data folder.
 - [`Services/QuerySchemaService.cs`](files/Services/QuerySchemaService.cs.md) — Schema cache used by IntelliSense: tables, views, columns, loaded lazily per connection.
 - [`Services/RecentFilesService.cs`](files/Services/RecentFilesService.cs.md) — Most-recently-opened .sql paths, stored without file contents.
@@ -172,4 +174,4 @@ One page per source file: purpose, declared types, public surface and who refere
 
 - [`Tools/DBPressureTest.ps1`](files/Tools/DBPressureTest.ps1.md) — PowerShell load generator used to exercise blocking, waits and CPU sampling.
 
-_140 pages. Regenerate after any code change with `python docs/build_docs.py`._
+_142 pages. Regenerate after any code change with `python docs/build_docs.py`._

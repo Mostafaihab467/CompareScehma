@@ -45,6 +45,8 @@ public partial class QueryWindow : Window
         DataContext = _vm;
         _vm.ShowKeywordExplainer = keyword => _ = AggregationExplainerDialog.ShowAsync(this, keyword);
         _vm.ShowQueryExplanation = sql => _ = QueryExplainDialog.ShowAsync(this, sql);
+        _vm.ConfirmDangerousScriptAsync = (title, warning, script) =>
+            ScriptActionDialog.ShowAsync(this, title, warning, script);
     _vm.PickSavePathAsync = async suggested =>
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions

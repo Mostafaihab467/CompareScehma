@@ -347,11 +347,14 @@
 
         <!-- ═══════════ STATUS BAR ═══════════ -->
         <Border Grid.Row="2" Background="{StaticResource SubtleHeader}" Padding="12,6" Margin="8,0,8,8" CornerRadius="4">
-            <Grid ColumnDefinitions="*,Auto">
-                <TextBlock Text="{Binding StatusMessage}" FontSize="11"
+            <Grid ColumnDefinitions="Auto,*,Auto">
+                <CheckBox Content="Guard destructive scripts" FontSize="11" VerticalAlignment="Center"
+                          Margin="2,0,12,0" IsChecked="{Binding GuardAsksBeforeDangerousScripts}"
+                          ToolTip.Tip="Ask before F5 runs a script that drops, truncates or deletes/updates without a WHERE. The finding is always written to the Messages pane; unticking this only stops the question." />
+                <TextBlock Grid.Column="1" Text="{Binding StatusMessage}" FontSize="11"
                            Foreground="{StaticResource PrimaryText}"
                            TextTrimming="CharacterEllipsis" VerticalAlignment="Center" />
-                <TextBlock Grid.Column="1" Text="{Binding ConnectedDatabaseLabel}" FontSize="11"
+                <TextBlock Grid.Column="2" Text="{Binding ConnectedDatabaseLabel}" FontSize="11"
                            Foreground="{StaticResource OnSurfaceVariant}" VerticalAlignment="Center" />
             </Grid>
         </Border>

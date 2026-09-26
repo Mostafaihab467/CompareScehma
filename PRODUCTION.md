@@ -47,8 +47,9 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-934 assertions, 0 failures — Tier 1, all five Tier 2 rounds, the Tier 3 rounds (rollback,
-snapshots, drift, the baseline library, saved comparisons) and the round-8 plan/lint fixes —
+982 assertions, 0 failures — Tier 1, all five Tier 2 rounds, the Tier 3 rounds (rollback,
+snapshots, drift, the baseline library, saved comparisons), the round-8 plan/lint fixes and
+the round-11 destructive-script guard —
 including a live
 `COPY_ONLY` backup of EgyptMart read
 back through `RESTORE HEADERONLY` / `FILELISTONLY` (the probe file is deleted
@@ -66,7 +67,9 @@ probe pair that differs in all three ways a schema can differ
 (`45_rollback_script.png`), and the same three-way drift read back out of a captured
 `.dacpac` baseline instead of a live database (`46_snapshot_drift.png`), and the same
 query through both plan buttons so the estimated diagram and the measured one are
-compared side by side (`47_estimated_plan_only.png`, `48_actual_plan_metrics.png`). No restore,
+compared side by side (`47_estimated_plan_only.png`, `48_actual_plan_metrics.png`), and the
+guard asked to stop an unfiltered `DELETE` in a real query window against a probe database it
+seeds, works and drops again (`51_query_guard.png`). No restore,
 no `KILL` and no Agent job is ever executed — all three are asserted up to the
 confirmation and declined, and a DOWN script is never executed at all: it is
 previewed, toggled against the UP text, copied and saved, and both probe databases
@@ -76,6 +79,9 @@ the source and target rows before and after every compare, script, save and copy
 requires both counts to be unchanged. Snapshots are read-only too: the capture run counts
 the live database's tables and rows before and after capturing, diffing and scripting, and
 deletes every `.dacpac` it wrote plus both probe databases before it reports done.
+The guard's two approved statements are the only destructive SQL the run ever lets execute,
+and only inside `__sc25_guard`, whose table it counts on both sides of every declined
+confirmation to prove a stop really stopped.
 
 Seven defects surfaced during that verification and are fixed:
 `RESTORE HEADERONLY` has no `Type`/`Description` columns (backup sets showed a blank
@@ -467,6 +473,69 @@ while a side is live, so an operator gets there through the *Compare against a s
 never through a stale row — but both halves are now asserted: a capture stores its path, mirrors its
 row and leaves the side live; ticking the box reveals the baseline it captured.
 
+## Round 11 (Tier 4) — the editor answers "what will this destroy?"
+
+Tiers 1 to 3 guarded the compare and deploy path. The query window was the one place an operator
+could type `DELETE FROM dbo.Line;`, press F5 and have the app post it without a question — SSMS's
+own protection there is "are you sure?", which an operator answers by reflex.
+`Services/QueryGuardService.cs` reads the damage off the text before the server sees it, and
+`QueryViewModel.ClearedToRunAsync` will not start a run until that damage has been named on screen
+and answered (`51_query_guard.png`).
+
+- **The finding is a sentence, not a flag.** The dialog leads with the worst thing in the script —
+  *"DELETE FROM dbo.Line has no WHERE, so it removes every row of the table."* — and the same text
+  then lands in the Messages pane with its rule id (`Guard [Dangerous] delete-without-where`), so
+  the scrollback records what ran unfiltered instead of only that something ran. Rule ids are
+  stable for exactly that reason: a test, a log line and a support conversation can name the same
+  finding without quoting prose that will be reworded.
+- **It claims only what the text can prove, and nothing more.** The guard never connects and never
+  counts rows: a `COUNT(*)` preview would query production behind the operator's back, be its own
+  long-running hazard on a big table, and change nothing about the decision — "no WHERE" is true at
+  one row and at ninety million. So `DELETE`/`UPDATE` with no filter, a `WHERE` made only of
+  tautologies, `TRUNCATE`, `DROP TABLE`, `DROP DATABASE` and `ALTER TABLE … DROP COLUMN` are
+  Dangerous; the rest of the schema verbs are advice.
+- **The filter that counts is the statement's own.** Parenthesised groups are dropped before the
+  `WHERE` test, so `UPDATE t SET c = (SELECT … WHERE …)` is still every row of `t` — the inner
+  predicate narrows the sub-query, not the write. A `DELETE FROM stale` through
+  `;WITH stale AS (SELECT … WHERE …)` *is* credited the CTE's predicate, because that is literally
+  the set it deletes. And because T-SQL does not require the semicolon that would make finding a
+  statement's end trivial, the splitter cuts at the next verb at bracket depth zero: that is what
+  lets `IF EXISTS (…) DELETE FROM t` be judged on the DELETE's own filter, and why `SET` is
+  deliberately not a boundary verb — cutting there would flag every filtered
+  `UPDATE … SET … WHERE …`, which is the false alarm that gets a guard switched off.
+- **A guard that halts routine work is a guard that gets switched off,** so only two levels exist
+  and only one of them stops: `DROP INDEX` and `DROP PROCEDURE` are reported and run (Advisory),
+  `WHERE 1=1` and a bare `DELETE` do not run until answered. The same is true of the status-bar
+  switch: with `GuardAsksBeforeDangerousScripts` off the findings are still written to Messages,
+  plus a line saying the run went ahead without a question — put in Messages rather than the
+  status line because a run that proceeds overwrites the status with its own outcome, and the note
+  is about the run. Turning the guard off is allowed; pretending it never spoke is not.
+- **Confirmed, declined and fail-closed all name the same script.** `QueryWindow` installs the hook
+  over the shared `ScriptActionDialog`, so the preview, the warning and what runs are one text. With
+  no host attached the run refuses itself — *"…nothing here can show you the confirmation — nothing
+  ran"* — like `KILL`, the Query Store verbs and the import wizard. The gate sits before
+  `IsExecuting`, so a decline leaves the table, the previous results and the messages exactly as
+  they were; Ctrl+Enter over a selection is the same script through the same gate; and 🌩 Estimated
+  plan is not gated at all, because compiling a `DELETE` under `SHOWPLAN_XML` destroys nothing —
+  asserted by counting the probe table's rows on both sides of it.
+
+| Feature | State | Notes |
+|---|---|---|
+| A script's blast radius read from its text | **Done, verified** | `Services/QueryGuardService.cs` + `Models/QueryGuard.cs` (`GuardLevel` / `GuardFinding` / `GuardReport.Summary` / `.Headline` / `.RequiresConfirmation`) — rules `delete-without-where`, `update-without-where`, `where-filters-nothing`, `truncate-table`, `drop-table`, `drop-database`, `alter-drop-column` as Dangerous, `drop-index` / `drop-<kind>` as Advisory; run over `SqlLintService.StripStringsAndComments` so a `DELETE` in a comment or a string literal cannot start a warning |
+| F5 asks before a script that destroys data | **Done, verified** | `QueryViewModel.ClearedToRunAsync` / `ReportToMessages` / `ConfirmDangerousScriptAsync` / `GuardAsksBeforeDangerousScripts`, hook installed in `Views/QueryWindow.axaml.cs` over `ScriptActionDialog`, switch in the status bar of `Views/QueryWindow.axaml` |
+
+Three harness facts from the round. The first version of the splitter treated *any* top-level verb
+as a boundary, including the one that opened the statement, so a `DELETE` cut itself short and its
+own `WHERE` fell outside it — every filtered delete looked dangerous; the boundary rule needs "the
+*next* verb", which is only visible when you read the assertion that failed rather than the one you
+expected. Second, that and the infinite span list it turned into (splitting at a verb and then
+re-examining the same verb forever, which the harness found as an out-of-memory) were both caught by
+running the analyzer over a table of script shapes *before* the 9-minute harness run — the same 29
+shapes are now Part 25's offline assertions. Third, the switch-off note was first written to
+`tab.StatusMessage` and the harness found it gone: everything after the guard overwrites that line
+with the run's own outcome, so a note that has to survive a run belongs in Messages — and the
+harness assertion moved with it, to the scrollback.
+
 ## Already production-grade
 
 Security and data-safety from the hardening pass (verified by the same harness):
@@ -491,13 +560,18 @@ file IO and missing indexes — do not rebuild these as "Activity Monitor".
 
 ## Still open, by name
 
-All three tiers are done and verified, so this is the list of what is *not* there — the two
-things a reader would otherwise assume the tiers covered:
+Four tiers are done and verified, so this is the list of what is *not* there — the things a reader
+would otherwise assume the tiers covered:
 
-- **The ad-hoc-query guard** FEATURES.md once scoped as "Safe Query Guard": an `UPDATE` /
-  `DELETE` with no `WHERE`, or a `DROP` typed into the editor, flagged before F5 runs it. The
-  compare and deploy path has its guards; the editor's lint (`Services/SqlLintService.cs`)
-  checks names and delimiters, not blast radius.
+- **The guard reads the script, not the server.** FEATURES.md §3 also imagined an *estimated
+  affected rows* preview and a row-level statement preview before a write commits. Neither is
+  built, deliberately: counting rows queries production behind the operator's back and is its own
+  hazard on a big table, and the finding the guard states is true whatever the count. Round 11
+  shipped the detection half only.
+- **A write hidden in a dynamic-SQL string is invisible to the guard.** `EXEC('DELETE FROM t')`
+  reads as a string, and strings are masked before analysis precisely so that a commented-out or
+  printed `DELETE` cannot start a warning. Accepted, not missed — the alternative is a guard that
+  shouts at every literal.
 - **Execution-plan graphics for a snapshot**: plans need a live engine, so a card reading from a
   `.dacpac` has no plan to show. Nothing claims otherwise; it is listed here so nobody files it
   as a bug in the snapshot work.

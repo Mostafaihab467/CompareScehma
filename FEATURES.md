@@ -27,9 +27,12 @@ Our core advantage — no competitor combines these:
 - **Migration script generator with rollback**: UP and DOWN scripts for any diff
 
 ### 3. Safe Query Guard (exclusive safety angle)
-- **Danger detection before execute**: UPDATE/DELETE without WHERE, TRUNCATE on a table
-  with FKs → inline warning + estimated affected rows (`SELECT COUNT(*)` preview)
-- **Statement preview for writes**: show exactly which rows will be affected before committing
+- ✅ **Danger detection before execute** (`QueryGuardService` + `QueryViewModel`): an
+  UPDATE/DELETE with no filter that narrows it, `WHERE 1=1`, TRUNCATE, `DROP TABLE`/`DATABASE` or a
+  dropped column stops F5 until the operator answers a dialog that names the damage. Reported in
+  the Messages pane with a stable rule id. *Not* built: the estimated-affected-rows
+  (`SELECT COUNT(*)`) preview and row-level write preview — counting queries production behind the
+  operator's back and is its own hazard, and the finding is true whatever the count.
 - Pairs with the existing "Allow unsafe changes/drops" toggles
 - Marketing angle: *"the SQL editor that protects your data"*
 
@@ -66,17 +69,19 @@ another connection/database with FK-order handling. SSMS requires manual scripti
 
 ## Recommended build order
 
-Four of the five shipped; the fifth was scoped differently from what we ended up with.
+Five of the five shipped; the fifth landed in a different shape from the one this list imagined.
 
 1. **Query history + tab sessions** — done (`Services/QueryHistoryService.cs`,
    `Services/TabSessionService.cs`, the searchable history window)
 2. **Auto-JOIN + column validation** — done (`Services/QueryBuilderService.cs` proposes the
    `JOIN … ON` candidates from FK metadata; `Services/SqlLintService.cs` reports unknown tables
    and unknown columns against the schema cache)
-3. **Safe Query Guard** — *not* built as this list imagined it (an ad-hoc `UPDATE`/`DELETE`
-   without a `WHERE` stopped before it runs). What exists instead is the guard on the compare
-   path: `AllowUnsafeDrops` / `AllowUnsafeChanges` off by default, every script
-   preview-and-confirm, `Services/ClipboardGuard.cs`. The ad-hoc-query guard is still open work.
+3. **Safe Query Guard** — done (`Services/QueryGuardService.cs`, `Models/QueryGuard.cs`,
+   `QueryViewModel.ClearedToRunAsync`): the ad-hoc `UPDATE`/`DELETE`-without-a-`WHERE` case this
+   list asked for, plus TRUNCATE / DROP / dropped column, gated before F5 posts anything. The
+   compare path keeps its own guards (`AllowUnsafeDrops` / `AllowUnsafeChanges` off by default,
+   every script preview-and-confirm, `Services/ClipboardGuard.cs`). What was *not* built is the
+   affected-rows preview — see §3.
 4. **Result → Move pipeline** — done (`Services/DataMoveService.cs`, the Move Data window,
    results-grid → plan)
 5. **Schema snapshots + migration generator** — done (`Services/SchemaSnapshotService.cs`

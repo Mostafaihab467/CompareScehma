@@ -64,6 +64,7 @@ Three conventions that matter when you change behaviour:
 | Query execution, results, plans | `Services/QueryExecutionService.cs`, `Models/QueryResultTable.cs`, `Services/ExecutionPlanService.cs` (`ReadRuntimeCounters` for the measured numbers), `Models/ExecutionPlanModel.cs`, `Controls/PlanDiagramControl.cs` |
 | Editor behaviour (find, fold, bookmarks, goto, completion, lint) | `Controls/SqlHighlightedEditor.cs` and `Controls/EditorFindBar.cs` / `EditorFolding.cs` / `EditorBookmarks.cs` / `EditorGotoLine.cs` / `SqlCompletionProvider.cs`, plus `Services/SqlLintService.cs` |
 | Tabs, session restore, history, recent files | `ViewModels/QueryViewModel.cs`, `Services/TabSessionService.cs`, `QueryHistoryService.cs`, `RecentFilesService.cs` |
+| "What will this script destroy?" guard | `Services/QueryGuardService.cs` (`Analyze`, `Statements`, `FilterOf` / `CteFilter`), `Models/QueryGuard.cs` (`GuardReport`, `GuardFinding`, `GuardLevel`), `ViewModels/QueryViewModel.cs` (`ClearedToRunAsync`, `ReportToMessages`, `GuardAsksBeforeDangerousScripts`), `Views/QueryWindow.axaml.cs` (`ConfirmDangerousScriptAsync` → `ScriptActionDialog`), `Views/QueryWindow.axaml` (status-bar switch) |
 | Health views, blocking chain, KILL, error log | `Services/DbHealthService.cs`, `ViewModels/DbHealthViewModel.cs`, `Models/DbHealthModels.cs`, `Models/HealthActionsModels.cs` |
 | Query Store: option state, regressed and top queries, force / unforce a plan | `Views/DbHealthWindow.axaml` (Query Store tab), `ViewModels/DbHealthViewModel.cs` (`LoadQueryStoreAsync`, `ForcePlanAsync`), `Services/DbHealthService.cs` (`GetQueryStoreStateAsync`, `GetRegressedQueriesAsync`, `GetTopQueriesAsync`, `GetQueryPlansAsync`), `Services/ManagerScriptBuilder.cs` (`ForceQueryPlan`, `UnforceQueryPlan`, `EnableQueryStore`) |
 | Server-level Object Explorer (databases, logins, Agent jobs, linked servers) and switching the working database | `Models/ServerBrowserModels.cs`, `DbManagerService.GetDatabasesAsync` / `GetServerSecurityAsync` / `GetAgentJobsAsync` / `GetLinkedServersAsync`, `DbManagerViewModel.Make*Folder`, `ManagerScriptBuilder.StartAgentJob` |
@@ -88,9 +89,9 @@ The app is proven by a headless harness, not by eyeballing: `ReproSsms` in the
 scratch working directory drives real windows and dialogs through Avalonia's
 headless lifetime and writes PNGs with `RenderTargetBitmap`.
 
-- 934 assertions cover Tier 1, the five Tier 2 rounds, the Tier 3 rounds — rollback, snapshots,
-  drift, the baseline library and saved comparisons — and the round-8
-  plan and lint fixes end to
+- 982 assertions cover Tier 1, the five Tier 2 rounds, the Tier 3 rounds — rollback, snapshots,
+  drift, the baseline library and saved comparisons — the round-8
+  plan and lint fixes and the round-11 destructive-script guard end to
   end, against the local instance (EgyptMart) and a snapshot database of it. Objects the
   designer and the import wizard create are created in `tempdb`, verified on the server and
   dropped again; Query Store is verified against a `__sc19_qs` probe database the run
@@ -99,13 +100,17 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   snapshot drift against a `__sc21_live` database captured to a `.dacpac`, then edited in
   those same three ways, and the snapshot library against a `__sc23_snap` capture driven
   through a real compare card (`49_snapshot_library.png`), and a saved `__sc24_cmp` ⇄ baseline
-  pairing rebuilt from one pick and compared again (`50_saved_comparison.png`) — every file the run
+  pairing rebuilt from one pick and compared again (`50_saved_comparison.png`), and the query guard
+  against a `__sc25_guard` table it seeds, is refused on, confirms, truncates and counts (`51_query_guard.png`)
+  — every file the run
   writes is deleted again.
 - It performs a live `COPY_ONLY` backup and reads it back; it never restores, never
   `KILL`s, never starts an Agent job and never executes a data-sync script — all four are
   asserted up to the confirmation and declined, and the compare run counts rows on both
   sides before and after to prove nothing was written. The only scripts it approves are
-  the Query Store force / unforce pair, and only inside the probe database it owns. A
+  the Query Store force / unforce pair and the guard's `DELETE` / `TRUNCATE`, and only
+  inside a probe database the run creates, works and drops — where the table is counted on
+  both sides of every declined confirmation. A
   rollback (DOWN) script is never executed at all, only previewed, copied and saved.
 - Never call `SavedConnectionsService.Save()` from test code, and always
   `AppLog.RedirectDirectory` to a temp probe folder. A test that needs a saved profile adds it to
@@ -123,6 +128,12 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   one real sample first — `sqlcmd -S localhost -E -d EgyptMart -y 0 -i q.sql -o out.xml` —
   and build the fixture from it. A fixture written from memory of the format passes offline
   and fails the moment a live query runs against it, which is how round 8 spent a run.
+- For pure analyzer code (the query guard's rules, the lint, the formatter), develop against a
+  throwaway console probe beside the harness — a table of `(label, input, expectation)` triples
+  over a `ProjectReference` to `SchemaCompare.csproj` — and port the triples into the harness part
+  afterwards. A full run costs ~9 minutes and stops at its first failure; a probe costs seconds and
+  shows every miss at once, which is how round 11 found its statement-boundary bug and an infinite
+  loop that the harness only reported as out-of-memory.
 
 Feature status (done/verified vs not done) lives in
 [../PRODUCTION.md](../PRODUCTION.md) — update it in the same change as the code.

@@ -459,8 +459,9 @@ public static class SqlLintService
                || schema.Equals("INFORMATION_SCHEMA", StringComparison.OrdinalIgnoreCase);
     }
 
-    /// <summary>Replace string/comment contents with spaces so regex offsets stay aligned.</summary>
-    private static string StripStringsAndComments(string sql)
+    /// <summary>Replace string/comment contents with spaces so regex offsets stay aligned.
+    /// Internal because <see cref="QueryGuardService"/> reads scripts the same way.</summary>
+    internal static string StripStringsAndComments(string sql)
     {
         var chars = sql.ToCharArray();
         var inLine = false;

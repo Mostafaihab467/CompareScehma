@@ -15,8 +15,8 @@ PURPOSES = {
     # ── Views: windows ──
     "Views/MainWindow.axaml": "Layout of the launcher window: the saved-comparisons card, source and target cards that are each a live database or a snapshot file with a remembered-baseline picker, compare, the one script pane that toggles UP/DOWN, buttons into every other window.",
     "Views/MainWindow.axaml.cs": "Launcher window code-behind: opens saved connections, copies and saves whichever script the pane shows, the snapshot file pickers both directions, and every other window from the menu.",
-    "Views/QueryWindow.axaml": "Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes.",
-    "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, session restore on close.",
+    "Views/QueryWindow.axaml": "Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes, and the status-bar switch that asks before a destructive script runs.",
+    "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, session restore on close.",
     "Views/DbManagerWindow.axaml": "Layout of Object Explorer: server/database tree, filter bar, and the Data/Structure/Definition/Execute tabs.",
     "Views/DbManagerWindow.axaml.cs": "Object Explorer code-behind: tree context menus, Script-As, dialog hosts (restore, backup, properties, script confirm), filter UI wiring.",
     "Views/DbHealthWindow.axaml": "Layout of the DB Health window: CPU/waits/processes/missing-indexes/query-store/error-log tabs, Activity Monitor style.",
@@ -73,7 +73,7 @@ PURPOSES = {
 
     # ── ViewModels ──
     "ViewModels/MainViewModel.cs": "Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the named pairings of those two sides that save and re-apply as references, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
-    "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist.",
+    "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — and the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook.",
     "ViewModels/DbManagerViewModel.cs": "Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.",
     "ViewModels/DbHealthViewModel.cs": "DB Health view-model: polling, samples, blocking chain, KILL, error log tail and the Query Store tab (state banner, regressed and top queries, plan list, force/unforce behind the confirmation host).",
     "ViewModels/DiagramViewModel.cs": "Diagram view-model: schema load, table search, layout, persistence.",
@@ -91,6 +91,7 @@ PURPOSES = {
     "Models/AuthMethod.cs": "The authentication dropdown: Windows, SQL and the Entra ID flows, each mapped to the SqlClient Authentication= value it emits.",
     "Models/AppSettings.cs": "Persisted display preferences: UI zoom and editor font size.",
     "Models/QueryTab.cs": "One open query tab: text, file path, dirty flag, results, execution state.",
+    "Models/QueryGuard.cs": "What a script will destroy, as data: one finding (level, stable rule id, prose) and the report that says whether it needs a confirmation and what to lead a dialog with.",
     "Models/QueryResultTable.cs": "One result set or affected-rows summary produced by a batch.",
     "Models/QueryHistoryEntry.cs": "One persisted history entry: script, timing, server, database, outcome.",
     "Models/SchemaDiffItem.cs": "One schema-compare diff line and its Added/Removed/Modified status.",
@@ -130,6 +131,7 @@ PURPOSES = {
     "Services/SqlBuilder.cs": "Pure T-SQL generator for the visual Query Constructor.",
     "Services/SqlExplainerService.cs": "Deterministic plain-English analysis of a script: steps, joins, effects and safety warnings.",
     "Services/SqlKeywordLibrary.cs": "Hand-written teaching content for the keyword explainer dialog.",
+    "Services/QueryGuardService.cs": "Reads a script's blast radius off the text before it reaches the server: DELETE/UPDATE with no outer filter (a sub-query's WHERE does not count, a CTE's does), WHERE 1=1, TRUNCATE, DROP TABLE/DATABASE, DROP COLUMN as Dangerous; DROP INDEX/PROCEDURE as Advisory. Works on string- and comment-masked text so a commented-out DELETE cannot start a warning.",
     "Services/SqlLintService.cs": "Editor diagnostics: unmatched delimiters, typos, unknown tables, unqualified columns — dotted names match up to four parts and sys / INFORMATION_SCHEMA views are exempt from the unknown-table rule, because catalog views are in every database and in no schema cache.",
     "Services/TsqlHighlighting.cs": "Loads the bundled TSQL.xshd into the editor's highlighting definitions.",
     "Services/LineDiffer.cs": "Line-level LCS diff used to colour source-only and target-only lines.",
