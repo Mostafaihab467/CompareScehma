@@ -18,6 +18,8 @@ public partial class QueryViewModel : ObservableObject
     private readonly SavedConnectionsService _savedService = new();
     private readonly QuerySchemaService _schemaService = new();
     private readonly RecentFilesService _recentService = new();
+    private readonly TabSessionService _sessionService = new();
+    private bool _restoringSession;
     private readonly QueryHistoryService _historyService = new();
     private int _tabCounter;
 
@@ -123,6 +125,10 @@ public partial class QueryViewModel : ObservableObject
     public ICommand CopyResultsCommand { get; }
     public ICommand CopyWithHeadersCommand { get; }
     public ICommand SaveCsvCommand { get; }
+    public ICommand SaveJsonCommand { get; }
+    public ICommand SaveMarkdownCommand { get; }
+    public ICommand SaveInsertScriptCommand { get; }
+    public ICommand FormatSqlCommand { get; }
     public ICommand ClearResultsCommand { get; }
     public ICommand ExplainCommand { get; }
     public ICommand ExplainKeywordCommand { get; }
@@ -170,7 +176,11 @@ public partial class QueryViewModel : ObservableObject
         ExecuteSelectionCommand = new AsyncRelayCommand<string?>(sel => ExecuteAsync(ActiveTab, sel));
         CopyResultsCommand  = new AsyncRelayCommand<QueryTab?>(CopyResultsAsync);
         CopyWithHeadersCommand = new AsyncRelayCommand<QueryResultTable?>(CopyWithHeadersAsync);
-        SaveCsvCommand = new AsyncRelayCommand<QueryResultTable?>(SaveCsvAsync);
+        SaveCsvCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "csv"));
+        SaveJsonCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "json"));
+        SaveMarkdownCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "md"));
+        SaveInsertScriptCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "sql"));
+        FormatSqlCommand = new RelayCommand(FormatActiveSql);
         ClearResultsCommand = new RelayCommand<QueryTab?>(ClearResults);
         ExplainCommand      = new RelayCommand(ExplainActiveTab);
         ExplainKeywordCommand = new RelayCommand(() =>
@@ -218,7 +228,84 @@ public partial class QueryViewModel : ObservableObject
         SyncRecentList();
         foreach (var entry in _historyService.Load()) History.Add(entry);
         ApplyHistoryFilter();
-        NewTab();
+        RestoreSession();
+    }
+
+    // ═══════════ tab session: remember what was open across restarts ═══════════
+
+    /// <summary>
+    /// Reopens last run's tabs. File-backed tabs re-read from disk (and drop with a
+    /// log line if the file is gone); scratch tabs restore their stored text so an
+    /// accidental close is not silent data loss.
+    /// </summary>
+    public void RestoreSession()
+    {
+        _restoringSession = true;
+        List<TabSessionEntry> entries;
+        try
+        {
+            entries = _sessionService.Load();
+        }
+        finally
+        {
+            _restoringSession = false;
+        }
+
+        var restored = 0;
+        QueryTab? active = null;
+        _restoringSession = true;
+        try
+        {
+            foreach (var entry in entries)
+            {
+                if (!string.IsNullOrWhiteSpace(entry.FilePath))
+                {
+                    if (!File.Exists(entry.FilePath))
+                    {
+                        AppLog.Warn($"[Query] Skipped tab '{entry.Title}': {entry.FilePath} no longer exists.");
+                        continue;
+                    }
+                    OpenSqlFile(entry.FilePath);
+                    var tab = Tabs.FirstOrDefault(
+                        t => string.Equals(t.FilePath, entry.FilePath, StringComparison.OrdinalIgnoreCase));
+                    if (tab != null && entry.IsActive) active = tab;
+                    restored++;
+                    continue;
+                }
+
+                var scratch = NewTab(entry.SqlText ?? "");
+                scratch.Title = string.IsNullOrWhiteSpace(entry.Title) ? scratch.Title : entry.Title;
+                scratch.IsDirty = true;
+                if (entry.IsActive) active = scratch;
+                restored++;
+            }
+
+            if (Tabs.Count == 0)
+            {
+                NewTab();
+                return;
+            }
+
+            if (active != null)
+            {
+                ActiveTab = active;
+                SelectedTabIndex = Tabs.IndexOf(active);
+            }
+            StatusMessage = restored > 0
+                ? $"Restored {restored} query tab(s) from the previous session."
+                : "Press F5 to execute.";
+        }
+        finally
+        {
+            _restoringSession = false;
+            PersistSession();
+        }
+    }
+
+    /// <summary>Called when the window closes and after any tab structure change.</summary>
+    public void PersistSession()
+    {
+        if (!_restoringSession) _sessionService.Save(Tabs, ActiveTab);
     }
 
     private void LoadSavedConnections()
@@ -292,6 +379,7 @@ public partial class QueryViewModel : ObservableObject
         ActiveTab = tab;
         SelectedTabIndex = Tabs.Count - 1;
         StatusMessage = $"New tab: {tab.Title}.";
+        PersistSession();
         return tab;
     }
 
@@ -309,6 +397,7 @@ public partial class QueryViewModel : ObservableObject
         var next = Math.Clamp(index, 0, Tabs.Count - 1);
         ActiveTab = Tabs[next];
         SelectedTabIndex = next;
+        PersistSession();
     }
 
     private void CloseOtherTabs(QueryTab? keep)
@@ -320,6 +409,7 @@ public partial class QueryViewModel : ObservableObject
         Tabs.Add(keep);
         ActiveTab = keep;
         SelectedTabIndex = 0;
+        PersistSession();
     }
 
     private void CloseAllTabs()
@@ -328,6 +418,7 @@ public partial class QueryViewModel : ObservableObject
             Cancel(t);
         Tabs.Clear();
         NewTab();
+        PersistSession();
     }
 
     private void Cancel(QueryTab? tab)
@@ -642,8 +733,9 @@ public partial class QueryViewModel : ObservableObject
             tab?.StatusMessage = "Copy failed: the system clipboard is unavailable. Nothing was changed.";
     }
 
-    /// <summary>SSMS "Save Results As…": writes the result set as a CSV file.</summary>
-    private async Task SaveCsvAsync(QueryResultTable? table)
+    /// <summary>SSMS "Save Results As…": the result set as CSV, JSON, Markdown or
+    /// INSERT scripts, chosen by the menu item that fired.</summary>
+    private async Task SaveResultAsync(QueryResultTable? table, string format)
     {
         var tab = ActiveTab;
         if (table == null || PickSavePathAsync == null) return;
@@ -652,8 +744,28 @@ public partial class QueryViewModel : ObservableObject
             if (tab != null) tab.StatusMessage = "Nothing to save — this result set has no rows.";
             return;
         }
-        var suggested = $"results_{DateTime.Now:yyyyMMdd_HHmmss}.csv";
-        var path = await PickSavePathAsync(suggested);
+
+        string body;
+        if (format == "json") body = ResultsExportService.ToJson(table);
+        else if (format == "md") body = ResultsExportService.ToMarkdown(table);
+        else if (format == "sql")
+        {
+            // The INSERT target comes from the script's own FROM clause; a join or a
+            // non-SELECT has none, and guessing a table to write into is not acceptable.
+            var target = ResultsExportService.InsertTargetFrom(tab?.SqlText);
+            if (target == null)
+            {
+                if (tab != null)
+                    tab.StatusMessage = "Cannot build INSERT scripts: this result does not come " +
+                                        "from one table, so there is no target to name.";
+                return;
+            }
+            body = ResultsExportService.ToInsertScripts(table, target);
+        }
+        else body = ResultsExportService.ToCsv(table);
+
+        var label = format switch { "json" => "JSON", "md" => "Markdown", "sql" => "INSERT script", _ => "CSV" };
+        var path = await PickSavePathAsync($"results_{DateTime.Now:yyyyMMdd_HHmmss}.{format}");
         if (string.IsNullOrWhiteSpace(path))
         {
             if (tab != null) tab.StatusMessage = "Save cancelled — no file was written.";
@@ -661,9 +773,10 @@ public partial class QueryViewModel : ObservableObject
         }
         try
         {
-            await File.WriteAllTextAsync(path, ResultsExportService.ToCsv(table), new System.Text.UTF8Encoding(true));
-            if (tab != null) tab.StatusMessage = $"Saved {table.Rows.Count:N0} row(s) to {path}";
-            StatusMessage = tab != null ? $"{tab.Title}: saved CSV to {path}" : StatusMessage;
+            await File.WriteAllTextAsync(path, body, new System.Text.UTF8Encoding(true));
+            var rows = Math.Min(table.Rows.Count, ResultsExportService.DefaultMaxRows);
+            if (tab != null) tab.StatusMessage = $"Saved {rows:N0} row(s) as {label} to {path}";
+            StatusMessage = tab != null ? $"{tab.Title}: saved {label} to {path}" : StatusMessage;
         }
         catch (Exception ex)
         {
@@ -671,8 +784,34 @@ public partial class QueryViewModel : ObservableObject
         }
     }
 
-    // ═══════════ .sql files: open / save / recents ═══════════
+    /// <summary>Beautify the active tab's script in place. Nothing is ever
+    /// rewritten — only case, whitespace and line breaks — and the tab goes dirty
+    /// so the change is undoable/saveable like any other edit.</summary>
+    private void FormatActiveSql()
+    {
+        var tab = ActiveTab;
+        if (tab == null)
+        {
+            StatusMessage = "Nothing to beautify — open a query tab first.";
+            return;
+        }
+        if (string.IsNullOrWhiteSpace(tab.SqlText))
+        {
+            tab.StatusMessage = "Nothing to beautify — this tab is empty.";
+            return;
+        }
+        var formatted = SqlFormatter.Format(tab.SqlText);
+        if (formatted.TrimEnd() == tab.SqlText.TrimEnd())
+        {
+            tab.StatusMessage = "Already beautified — nothing changed.";
+            return;
+        }
+        tab.SqlText = formatted;
+        tab.StatusMessage = "Script beautified: keywords upper-cased, one clause per line, blocks indented.";
+        StatusMessage = $"{tab.Title}: script beautified.";
+    }
 
+    // ═══════════ .sql files: open / save / recents ═══════════
     private async Task OpenSqlFileAsync()
     {
         if (PickOpenSqlPathAsync == null)

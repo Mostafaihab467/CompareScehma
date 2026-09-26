@@ -1,0 +1,67 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        x:Class="SchemaCompare.Views.DependenciesDialog"
+        Title="Object Dependencies"
+        Width="820" Height="620" MinWidth="600" MinHeight="420"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="*,Auto" Margin="14">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="🕸" FontSize="18" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding FullName}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Kind}" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0,0,0" />
+                </StackPanel>
+
+                <Border Classes="card" Padding="12">
+                    <TextBlock Text="{Binding SummaryText}" TextWrapping="Wrap" FontSize="12" />
+                </Border>
+
+                <Border Classes="card" Padding="0" IsVisible="{Binding HasUses}">
+                    <StackPanel>
+                        <TextBlock Text="This object depends on" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding Uses}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="260">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Object" Binding="{Binding ObjectName}" Width="*" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding Kind}" Width="130" />
+                                <DataGridTextColumn Header="Column / constraint" Binding="{Binding Note}" Width="1.6*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card" Padding="0" IsVisible="{Binding HasUsedBy}">
+                    <StackPanel>
+                        <TextBlock Text="Depends on this object" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding UsedBy}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="300">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Object" Binding="{Binding ObjectName}" Width="1.8*" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding Kind}" Width="150" />
+                                <DataGridTextColumn Header="How" Binding="{Binding Note}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card" Padding="12" IsVisible="{Binding !HasAny}">
+                    <TextBlock Text="Nothing in this database references it, and it references nothing — the catalog records no expression dependencies, foreign keys or triggers for it."
+                               TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" />
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="1" x:Name="CloseBtn" Classes="primary" Padding="16,7" FontSize="12"
+                HorizontalAlignment="Right" Margin="0,10,0,0">
+            <TextBlock Text="Close" />
+        </Button>
+    </Grid>
+</Window>

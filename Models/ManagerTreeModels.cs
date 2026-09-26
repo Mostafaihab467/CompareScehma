@@ -11,7 +11,13 @@ public enum NodeKind
     Table, View, Proc, Function, TriggerObj,
     ColumnsFolder, KeysFolder, IndexesFolder, TriggersFolder, StatsFolder, PartitionsFolder,
     SecurityFolder,
-    Column, Key, IndexObj, TriggerChild, Stat, Partition, DbUser, DbRole
+    Column, Key, IndexObj, TriggerChild, Stat, Partition, DbUser, DbRole,
+
+    // Server scope: the tree above the connected database (SSMS Object Explorer top level).
+    ServerRoot, DatabasesFolder, DatabaseNode,
+    ServerSecurityFolder, Login, ServerRole,
+    AgentFolder, AgentJobsFolder, AgentJob,
+    LinkedServersFolder, LinkedServer
 }
 
 /// <summary>
@@ -22,8 +28,11 @@ public enum NodeKind
 public partial class ManagerNode : ObservableObject
 {
     public NodeKind Kind { get; init; }
-    public string Label { get; init; } = "";
-    public string Detail { get; init; } = "";
+
+    // Settable (and notifying) because a folder only learns its count when it loads,
+    // and the server node picks up its version after the tree is already on screen.
+    [ObservableProperty] private string _label = "";
+    [ObservableProperty] private string _detail = "";
     public string Icon { get; init; } = "";
 
     /// <summary>Owning object schema (schema of the table this node belongs to).</summary>
@@ -42,6 +51,10 @@ public partial class ManagerNode : ObservableObject
     public bool IsDisabled { get; init; }
     public bool IsPrimaryKeyIndex { get; init; }
     public string? IndexFilter { get; init; }
+
+    /// <summary>SQL Agent job: whether the job schedule is live. Drives the
+    /// Enable/Disable menu item.</summary>
+    public bool JobEnabled { get; init; } = true;
 
     [ObservableProperty] private bool _isExpanded;
     [ObservableProperty] private bool _isLoading;
@@ -86,19 +99,32 @@ public partial class ManagerNode : ObservableObject
     /// <summary>Forces a reload regardless of expansion state (used by Refresh).</summary>
     public Task RunLoaderNow() => RunLoaderAsync();
 
-    /// <summary>Whether the tree shows an expander for this node.</summary>
+    /// <summary>Whether the tree shows an expander for this node. A non-current
+    /// database is deliberately a leaf: browsing another database's objects would
+    /// run every command against the connection that is actually open.</summary>
     public bool HasChildren => Kind is not (NodeKind.Column or NodeKind.Key or NodeKind.IndexObj
         or NodeKind.TriggerChild or NodeKind.Stat or NodeKind.Partition
-        or NodeKind.DbUser or NodeKind.DbRole);
+        or NodeKind.DbUser or NodeKind.DbRole
+        or NodeKind.DatabaseNode or NodeKind.Login or NodeKind.ServerRole
+        or NodeKind.LinkedServer or NodeKind.AgentJob);
 
     // ─── Context-menu visibility flags ───
     public bool CanOpen => Kind is NodeKind.Table or NodeKind.View or NodeKind.Proc
         or NodeKind.Function or NodeKind.TriggerObj;
+    public bool CanGetTableProperties => Kind == NodeKind.Table;
+    /// <summary>Schema-scoped programmatic objects — the only kinds the dependency
+    /// catalog can resolve by name. Triggers are excluded: they have no schema of
+    /// their own, and the table that owns them already lists them.</summary>
+    public bool CanViewDependencies => Kind is NodeKind.Table or NodeKind.View
+        or NodeKind.Proc or NodeKind.Function;
     public bool CanDatabaseProps => Kind is NodeKind.Root;
     public bool CanShrink => Kind is NodeKind.Root;
     public bool CanRestore => Kind is NodeKind.Root;
+    public bool CanBackup => Kind is NodeKind.Root;
     public bool CanNewIndex => Kind is NodeKind.Table or NodeKind.IndexesFolder;
     public bool CanCreatePartition => Kind is NodeKind.Table;
+    /// <summary>Object folders the designer can create a new object into.</summary>
+    public bool CanNewObject => Kind is NodeKind.TablesFolder or NodeKind.ViewsFolder or NodeKind.ProcsFolder;
     public bool CanScriptCreate => Kind is NodeKind.Table or NodeKind.View or NodeKind.Proc
         or NodeKind.Function or NodeKind.TriggerObj or NodeKind.IndexObj;
     public bool CanScriptData => Kind is NodeKind.Table or NodeKind.View;
@@ -115,7 +141,16 @@ public partial class ManagerNode : ObservableObject
     public bool CanUpdateStats => Kind is NodeKind.Stat or NodeKind.Table;
     public bool CanRefresh => Kind is NodeKind.Table or NodeKind.View
         or NodeKind.ColumnsFolder or NodeKind.KeysFolder or NodeKind.IndexesFolder
-        or NodeKind.TriggersFolder or NodeKind.StatsFolder or NodeKind.PartitionsFolder;
+        or NodeKind.TriggersFolder or NodeKind.StatsFolder or NodeKind.PartitionsFolder
+        or NodeKind.DatabasesFolder or NodeKind.ServerSecurityFolder or NodeKind.AgentFolder
+        or NodeKind.AgentJobsFolder or NodeKind.LinkedServersFolder;
+
+    // ─── Server-scope actions ───
+    /// <summary>A sibling database: pointing the explorer at it is the only thing
+    /// offered, because every other command runs on the open connection.</summary>
+    public bool CanSetCurrentDb => Kind == NodeKind.DatabaseNode;
+    public bool CanStartJob => Kind == NodeKind.AgentJob;
+    public bool CanToggleJob => Kind == NodeKind.AgentJob;
 
     public override string ToString() => Label;
 }
@@ -123,6 +158,12 @@ public partial class ManagerNode : ObservableObject
 // ─────────────────────────────────────────────────────────────────────────────
 // Table metadata returned by DbManagerService.GetTableMetadataAsync
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// <summary>Server-side Object Explorer filter. Name/Schema patterns are plain
+/// user text — the service escapes SQL LIKE wildcards and wraps them in %…%.
+/// <see cref="TypeLabel"/> is the object-folder label ("Tables", "Views", …) or
+/// null when every type loads.</summary>
+public sealed record ExplorerQueryFilter(string? NamePattern, string? SchemaPattern, string? TypeLabel);
 
 public record MetaKey(string Name, string Kind /* PK | UQ | FK */, List<string> Columns, string? ReferencedTable);
 

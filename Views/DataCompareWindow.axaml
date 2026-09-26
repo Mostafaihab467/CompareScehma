@@ -1,0 +1,163 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
+        x:Class="SchemaCompare.Views.DataCompareWindow"
+        Title="Compare Data" Width="1180" Height="800" MinWidth="700" MinHeight="460"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+  <LayoutTransformControl>
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+    </LayoutTransformControl.LayoutTransform>
+    <Grid RowDefinitions="Auto,*">
+      <Border Background="{StaticResource HeaderGradient}" Padding="22,14">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel>
+            <TextBlock Text="Compare Data" FontSize="22" FontWeight="Bold" Foreground="White" />
+            <TextBlock Text="Pair rows on the primary key between two databases, then generate a script. Nothing is executed."
+                       Foreground="#E0D4FF" FontSize="12" Margin="0,3,0,0" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="secondary" Click="Close_Click"><TextBlock Text="Close" /></Button>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*" Margin="18,14,18,12">
+        <Grid ColumnDefinitions="*,12,*">
+          <Border Classes="card" Padding="14">
+            <StackPanel Spacing="6">
+              <TextBlock Text="SOURCE DATABASE" FontWeight="Bold" Foreground="{StaticResource Primary500}" />
+              <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSavedSource}" PlaceholderText="Saved connection">
+                <ComboBox.ItemTemplate><DataTemplate DataType="models:SavedConnection"><TextBlock Text="{Binding DisplayName}" /></DataTemplate></ComboBox.ItemTemplate>
+              </controls:SearchableComboBox>
+              <TextBox Text="{Binding SourceServer}" PlaceholderText="Server" />
+              <TextBox Text="{Binding SourceDatabase}" PlaceholderText="Database" />
+              <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding SourceAuth}" HorizontalAlignment="Stretch" FontSize="12">
+                <ComboBox.ItemTemplate><DataTemplate DataType="models:AuthMethod"><TextBlock Text="{Binding Display}" /></DataTemplate></ComboBox.ItemTemplate>
+              </ComboBox>
+              <Grid ColumnDefinitions="*,*" IsVisible="{Binding SourceAuth.NeedsCredentials}">
+                <TextBox Text="{Binding SourceUsername}" PlaceholderText="{Binding SourceAuth.CredentialHint}" />
+                <TextBox Grid.Column="1" Text="{Binding SourcePassword}" PasswordChar="*" PlaceholderText="Password" Margin="6,0,0,0" />
+              </Grid>
+            </StackPanel>
+          </Border>
+          <Border Grid.Column="2" Classes="card" Padding="14">
+            <StackPanel Spacing="6">
+              <TextBlock Text="TARGET DATABASE" FontWeight="Bold" Foreground="{StaticResource Amber}" />
+              <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSavedTarget}" PlaceholderText="Saved connection">
+                <ComboBox.ItemTemplate><DataTemplate DataType="models:SavedConnection"><TextBlock Text="{Binding DisplayName}" /></DataTemplate></ComboBox.ItemTemplate>
+              </controls:SearchableComboBox>
+              <TextBox Text="{Binding TargetServer}" PlaceholderText="Server" />
+              <TextBox Text="{Binding TargetDatabase}" PlaceholderText="Database" />
+              <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding TargetAuth}" HorizontalAlignment="Stretch" FontSize="12">
+                <ComboBox.ItemTemplate><DataTemplate DataType="models:AuthMethod"><TextBlock Text="{Binding Display}" /></DataTemplate></ComboBox.ItemTemplate>
+              </ComboBox>
+              <Grid ColumnDefinitions="*,*" IsVisible="{Binding TargetAuth.NeedsCredentials}">
+                <TextBox Text="{Binding TargetUsername}" PlaceholderText="{Binding TargetAuth.CredentialHint}" />
+                <TextBox Grid.Column="1" Text="{Binding TargetPassword}" PasswordChar="*" PlaceholderText="Password" Margin="6,0,0,0" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <Border Grid.Row="1" Classes="card" Padding="14,10" Margin="0,10,0,0">
+          <StackPanel Spacing="8">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Classes="primary" Command="{Binding DiscoverCommand}"><TextBlock Text="1. List shared tables" /></Button>
+                <Button Classes="secondary" Command="{Binding CompareCommand}"><TextBlock Text="2. Compare rows" /></Button>
+                <Button Classes="secondary" Command="{Binding GenerateScriptCommand}"><TextBlock Text="3. Sync script" /></Button>
+                <Button Classes="secondary" Command="{Binding CopyScriptCommand}" IsVisible="{Binding HasScript}"><TextBlock Text="Copy script" /></Button>
+                <Button Classes="secondary" Command="{Binding SaveScriptCommand}" IsVisible="{Binding HasScript}"><TextBlock Text="Save script…" /></Button>
+              </StackPanel>
+            </ScrollViewer>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="Rows per table:" VerticalAlignment="Center" FontSize="12" />
+              <ComboBox ItemsSource="{Binding RowLimitOptions}" SelectedItem="{Binding RowLimit}" Width="110" FontSize="12" />
+              <CheckBox IsChecked="{Binding IncludeDeletes}" Content="Include DELETE for target-only rows" FontSize="12" />
+            </StackPanel>
+            <TextBlock Text="{Binding SummaryText}" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding SummaryText}" />
+            <Border IsVisible="{Binding ShowError}" Background="{StaticResource ErrorPanelBg}"
+                    BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1" CornerRadius="6" Padding="10">
+              <TextBox Text="{Binding ErrorMessage}" Classes="errorText" />
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnDefinitions="2*,8,1.4*,8,1.8*" Margin="0,10,0,0">
+          <Border Classes="card" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+              <Border Background="{StaticResource SubtleHeader}" Padding="12,8">
+                <TextBlock Text="Tables (tick the ones to compare)" FontWeight="Bold" />
+              </Border>
+              <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+                <ItemsControl ItemsSource="{Binding Tables}" Margin="6">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate DataType="models:DataCompareTable">
+                      <Border Padding="10,7" Margin="3,2" CornerRadius="8" Background="{StaticResource InputBackground}">
+                        <Grid ColumnDefinitions="Auto,*,Auto">
+                          <CheckBox IsChecked="{Binding IsSelected}" IsEnabled="{Binding IsComparable}" VerticalAlignment="Center" />
+                          <StackPanel Grid.Column="1" Margin="9,0,0,0">
+                            <TextBlock Text="{Binding FullName}" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding StatusText}" FontSize="11" TextWrapping="Wrap"
+                                       Foreground="{StaticResource OnSurfaceVariant}" />
+                          </StackPanel>
+                          <TextBlock Grid.Column="2" Text="{Binding VerdictText}" FontSize="11"
+                                     VerticalAlignment="Center" Margin="8,0,0,0" />
+                        </Grid>
+                      </Border>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </ScrollViewer>
+            </Grid>
+          </Border>
+
+          <GridSplitter Grid.Column="1" Width="8" ResizeDirection="Columns" />
+
+          <Border Grid.Column="2" Classes="card" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+              <Border Background="{StaticResource SubtleHeader}" Padding="12,8">
+                <TextBlock Text="Differing rows" FontWeight="Bold" />
+              </Border>
+              <TextBlock Grid.Row="1" Text="Select a table on the left to see its differing rows."
+                         Margin="12" FontSize="12" TextWrapping="Wrap"
+                         Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding !HasSelectedTable}" />
+              <DataGrid Grid.Row="1" ItemsSource="{Binding SelectedRows}" AutoGenerateColumns="False"
+                        IsReadOnly="True" GridLinesVisibility="All" FontSize="12">
+                <DataGrid.Columns>
+                  <DataGridTextColumn Header="Row" Binding="{Binding KeyValue}" Width="1.3*" />
+                  <DataGridTextColumn Header="Action" Binding="{Binding Action}" Width="Auto" />
+                  <DataGridTextColumn Header="What differs" Binding="{Binding Detail}" Width="*" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </Grid>
+          </Border>
+
+          <GridSplitter Grid.Column="3" Width="8" ResizeDirection="Columns" />
+
+          <Border Grid.Column="4" Classes="card" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+              <Border Background="{StaticResource CodeBg}" Padding="12,8">
+                <TextBlock Text="Synchronization script (review before running)" FontWeight="Bold" Foreground="#CDD6F4" />
+              </Border>
+              <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <TextBox Text="{Binding ScriptText}" Classes="codeBox" IsReadOnly="True" AcceptsReturn="True"
+                         TextWrapping="NoWrap" MinHeight="140"
+                         PlaceholderText="Compare at least one table, then press '3. Sync script'." />
+              </ScrollViewer>
+            </Grid>
+          </Border>
+        </Grid>
+
+        <Border Grid.Row="2" IsVisible="{Binding IsBusy}" Background="#B30B0B10" ZIndex="100">
+          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="Comparing…" FontSize="18" FontWeight="Bold" Foreground="{StaticResource Primary500}" />
+            <TextBlock Text="{Binding StatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </LayoutTransformControl>
+</Window>

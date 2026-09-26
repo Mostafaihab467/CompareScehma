@@ -14,7 +14,7 @@ namespace SchemaCompare.Services;
 /// exception and terminates the whole process — i.e. Ctrl+X / Cut closes the app.
 /// (Upstream: AvaloniaUI/Avalonia issue #21296 / PR #21665.)
 ///
-/// <see cref="MainWindow"/> cancels the built-in handlers via the
+/// <see cref="SchemaCompare.Views.MainWindow"/> cancels the built-in handlers via the
 /// CuttingToClipboard/CopyingToClipboard/PastingFromClipboard routed events and re-does
 /// the operation through these guarded helpers instead.
 /// </summary>

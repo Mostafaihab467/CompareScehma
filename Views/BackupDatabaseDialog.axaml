@@ -1,0 +1,63 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
+        x:Class="SchemaCompare.Views.BackupDatabaseDialog"
+        Title="Back up database"
+        Width="760" Height="560" MinWidth="600" MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14">
+
+        <TextBlock x:Name="NoticeText" FontSize="12" TextWrapping="Wrap"
+                   Foreground="{StaticResource OnSurfaceVariant}" Margin="2,0,2,8" />
+
+        <Border Grid.Row="1" Classes="card" Padding="10,8">
+            <Grid ColumnDefinitions="Auto,*" RowDefinitions="Auto,Auto,Auto,Auto" Margin="0">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Backup type" FontSize="12"
+                           VerticalAlignment="Center" Margin="0,0,10,0" />
+                <ComboBox Grid.Row="0" Grid.Column="1" x:Name="TypeBox" FontSize="12"
+                          HorizontalAlignment="Stretch" SelectedIndex="0">
+                    <ComboBoxItem Content="Full database" />
+                    <ComboBoxItem Content="Transaction log" />
+                </ComboBox>
+
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="File on server" FontSize="12"
+                           VerticalAlignment="Center" Margin="0,10,10,0" />
+                <TextBox Grid.Row="1" Grid.Column="1" x:Name="PathBox" FontSize="12" Margin="0,10,0,0"
+                         PlaceholderText="path the SQL Server service can write to" />
+
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Description" FontSize="12"
+                           VerticalAlignment="Center" Margin="0,10,10,0" />
+                <TextBox Grid.Row="2" Grid.Column="1" x:Name="DescriptionBox" FontSize="12"
+                         Margin="0,10,0,0" PlaceholderText="optional, stored with the backup set" />
+
+                <StackPanel Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" Orientation="Horizontal"
+                            Spacing="16" Margin="0,12,0,0">
+                    <CheckBox x:Name="CompressBox" FontSize="12" Content="Compress" IsChecked="True" />
+                    <CheckBox x:Name="ChecksumBox" FontSize="12" Content="Checksum" IsChecked="True" />
+                    <CheckBox x:Name="VerifyBox" FontSize="12" Content="Verify after" IsChecked="True" />
+                    <CheckBox x:Name="CopyOnlyBox" FontSize="12" Content="Copy-only" />
+                    <CheckBox x:Name="OverwriteBox" FontSize="12" Content="Overwrite media" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <TextBlock Grid.Row="2" x:Name="ErrorText" FontSize="12" TextWrapping="Wrap"
+                   Foreground="{StaticResource Error}" Margin="2,8,2,0" IsVisible="False" />
+
+        <Border Grid.Row="2" Classes="card" Padding="0" Margin="0,26,0,0" VerticalAlignment="Stretch">
+            <controls:SqlHighlightedEditor x:Name="PreviewBox" IsReadOnly="True" EnableLint="False" />
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right"
+                    Spacing="8" Margin="0,10,0,0">
+            <Button x:Name="CancelBtn" Padding="14,7" FontSize="12">
+                <TextBlock Text="Cancel" />
+            </Button>
+            <Button x:Name="OkBtn" Classes="primary" Padding="14,7" FontSize="12">
+                <TextBlock Text="Review backup" />
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

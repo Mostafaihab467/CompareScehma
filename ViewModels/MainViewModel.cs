@@ -20,15 +20,20 @@ public partial class MainViewModel : ObservableObject
 
     [ObservableProperty] private string _sourceServer = "";
     [ObservableProperty] private string _sourceDatabase = "";
+    [ObservableProperty] private AuthMethod _sourceAuth = AuthMethod.Windows;
     [ObservableProperty] private bool _sourceUseWindowsAuth = true;
     [ObservableProperty] private string _sourceUsername = "";
     [ObservableProperty] private string _sourcePassword = "";
 
     [ObservableProperty] private string _targetServer = "";
     [ObservableProperty] private string _targetDatabase = "";
+    [ObservableProperty] private AuthMethod _targetAuth = AuthMethod.Windows;
     [ObservableProperty] private bool _targetUseWindowsAuth = true;
     [ObservableProperty] private string _targetUsername = "";
     [ObservableProperty] private string _targetPassword = "";
+
+    /// <summary>The authentication dropdown contents — Windows, SQL and the Entra ID flows.</summary>
+    public IReadOnlyList<AuthMethod> AuthMethods { get; } = AuthMethod.All;
 
     // Per-connection TLS posture (see ConnectionInfo). TrustServerCertificate stays
     // on by default so local instances without a trusted cert keep working.
@@ -81,6 +86,38 @@ public partial class MainViewModel : ObservableObject
     [ObservableProperty] private string _selectedObjectName = "";
     [ObservableProperty] private string _selectedObjectType = "";
     [ObservableProperty] private string _fullDeployScript = "";
+    [ObservableProperty] private string _rollbackScript = "";
+    [ObservableProperty] private bool _showingRollbackScript;
+
+    /// <summary>What the script pane shows and what Copy puts on the clipboard — never both at once.</summary>
+    public string DisplayedScript => ShowingRollbackScript ? RollbackScript : FullDeployScript;
+    public string ScriptPaneTitle => ShowingRollbackScript ? "Rollback Script (DOWN)" : "Deployment Script";
+    public string ScriptDirectionText => ShowingRollbackScript ? "Show deployment (UP)" : "Show rollback (DOWN)";
+    public bool HasRollbackScript => RollbackScript.Length > 0;
+
+    /// <summary>Either direction is enough to open the pane — DOWN is often the only one wanted.</summary>
+    public bool HasScriptPane => HasFullScript || HasRollbackScript;
+
+    partial void OnRollbackScriptChanged(string value)
+    {
+        OnPropertyChanged(nameof(DisplayedScript));
+        OnPropertyChanged(nameof(HasRollbackScript));
+        OnPropertyChanged(nameof(HasScriptPane));
+    }
+
+    partial void OnHasFullScriptChanged(bool value) => OnPropertyChanged(nameof(HasScriptPane));
+
+    partial void OnFullDeployScriptChanged(string value)
+    {
+        OnPropertyChanged(nameof(DisplayedScript));
+    }
+
+    partial void OnShowingRollbackScriptChanged(bool value)
+    {
+        OnPropertyChanged(nameof(DisplayedScript));
+        OnPropertyChanged(nameof(ScriptPaneTitle));
+        OnPropertyChanged(nameof(ScriptDirectionText));
+    }
 
     [ObservableProperty] private bool _hasSelection;
     [ObservableProperty] private bool _hasFullScript;
@@ -138,6 +175,7 @@ public partial class MainViewModel : ObservableObject
 
     public ICommand CompareCommand { get; }
     public ICommand GenerateScriptCommand { get; }
+    public ICommand GenerateRollbackScriptCommand { get; }
     public ICommand ApplyCommand { get; }
     public ICommand ConfirmApplyCommand { get; }
     public ICommand CancelApplyCommand { get; }
@@ -156,6 +194,8 @@ public partial class MainViewModel : ObservableObject
     public ICommand DeleteSavedProfileCommand { get; }
     public ICommand OpenSchemaCompareCommand { get; }
     public ICommand OpenMoveDataCommand { get; }
+    public ICommand OpenDataCompareCommand { get; }
+    public ICommand OpenImportWizardCommand { get; }
     public ICommand OpenBackupCommand { get; }
     public ICommand OpenDiagramCommand { get; }
     public ICommand OpenDbManagerCommand { get; }
@@ -173,6 +213,10 @@ public partial class MainViewModel : ObservableObject
     public ICommand SelectNoDataTablesCommand { get; }
     /// <summary>Supplied by the main window so navigation can open the separate data-sync window.</summary>
     public Action? OpenMoveDataWindowAction { get; set; }
+    /// <summary>Supplied by the main window so navigation can open the row-level data compare window.</summary>
+    public Action? OpenDataCompareWindowAction { get; set; }
+    /// <summary>Supplied by the main window so navigation can open the CSV import wizard.</summary>
+    public Action? OpenImportWindowAction { get; set; }
     public Action? OpenBackupWindowAction { get; set; }
     public Action? OpenDiagramWindowAction { get; set; }
     public Action? OpenDbManagerWindowAction { get; set; }
@@ -190,6 +234,7 @@ public partial class MainViewModel : ObservableObject
     {
         CompareCommand = new AsyncRelayCommand(CompareAsync, CanCompare);
         GenerateScriptCommand = new AsyncRelayCommand(GenerateScriptAsync, () => HasResults && !IsComparing);
+        GenerateRollbackScriptCommand = new AsyncRelayCommand(GenerateRollbackScriptAsync, () => HasResults && !IsComparing);
         ApplyCommand = new AsyncRelayCommand(ApplyAsync, () => HasResults && !IsComparing);
         ConfirmApplyCommand = new AsyncRelayCommand(ConfirmApplyAsync);
         CancelApplyCommand = new RelayCommand(CancelApply);
@@ -208,6 +253,8 @@ public partial class MainViewModel : ObservableObject
         DeleteSavedProfileCommand = new RelayCommand<object?>(DeleteProfile);
         OpenSchemaCompareCommand = new RelayCommand(() => IsMoveDataPage = false);
         OpenMoveDataCommand = new RelayCommand(() => OpenMoveDataWindowAction?.Invoke());
+        OpenDataCompareCommand = new RelayCommand(() => OpenDataCompareWindowAction?.Invoke());
+        OpenImportWizardCommand = new RelayCommand(() => OpenImportWindowAction?.Invoke());
         OpenBackupCommand = new RelayCommand(() => OpenBackupWindowAction?.Invoke());
         OpenDiagramCommand = new RelayCommand(() => OpenDiagramWindowAction?.Invoke());
         OpenDbManagerCommand = new RelayCommand(() => OpenDbManagerWindowAction?.Invoke());
@@ -234,6 +281,7 @@ public partial class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(IsComparing));
             ((AsyncRelayCommand)CompareCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)GenerateScriptCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)GenerateRollbackScriptCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)ApplyCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)AnalyzeDataMoveCommand).NotifyCanExecuteChanged();
             ((RelayCommand)StartDataMoveCommand).NotifyCanExecuteChanged();
@@ -241,6 +289,7 @@ public partial class MainViewModel : ObservableObject
         _hasResultsChanged = () =>
         {
             ((AsyncRelayCommand)GenerateScriptCommand).NotifyCanExecuteChanged();
+            ((AsyncRelayCommand)GenerateRollbackScriptCommand).NotifyCanExecuteChanged();
             ((AsyncRelayCommand)ApplyCommand).NotifyCanExecuteChanged();
         };
     }
@@ -258,6 +307,24 @@ public partial class MainViewModel : ObservableObject
     partial void OnShowDeletedChanged(bool value) => ApplyFilter();
     partial void OnSourceUseWindowsAuthChanged(bool value) { OnPropertyChanged(nameof(SourceUseWindowsAuth)); ShowError = false; ClearSourceSelectionOnManualEdit(); }
     partial void OnTargetUseWindowsAuthChanged(bool value) { OnPropertyChanged(nameof(TargetUseWindowsAuth)); ShowError = false; ClearTargetSelectionOnManualEdit(); }
+
+    // The dropdown is the single UI source of truth for auth; UseWindowsAuth is kept in
+    // sync because saved profiles, auditing and ConnectionInfo still speak in those terms.
+    partial void OnSourceAuthChanged(AuthMethod value)
+    {
+        SourceUseWindowsAuth = value.IsWindows;
+        if (!value.NeedsCredentials) SourcePassword = "";
+        ShowError = false;
+        ClearSourceSelectionOnManualEdit();
+    }
+
+    partial void OnTargetAuthChanged(AuthMethod value)
+    {
+        TargetUseWindowsAuth = value.IsWindows;
+        if (!value.NeedsCredentials) TargetPassword = "";
+        ShowError = false;
+        ClearTargetSelectionOnManualEdit();
+    }
 
     partial void OnSourceServerChanged(string value) => ClearSourceSelectionOnManualEdit();
     partial void OnSourceDatabaseChanged(string value) => ClearSourceSelectionOnManualEdit();
@@ -383,7 +450,8 @@ public partial class MainViewModel : ObservableObject
             {
                 SourceServer = profile.Server;
                 SourceDatabase = profile.Database;
-                SourceUseWindowsAuth = profile.UseWindowsAuth;
+                // Auth first: the hook clears the password for flows that have none.
+                SourceAuth = profile.Auth;
                 SourceUsername = profile.Username;
                 SourcePassword = profile.Password;
                 SourceEncryptConnection = profile.EncryptConnection;
@@ -394,7 +462,7 @@ public partial class MainViewModel : ObservableObject
             {
                 TargetServer = profile.Server;
                 TargetDatabase = profile.Database;
-                TargetUseWindowsAuth = profile.UseWindowsAuth;
+                TargetAuth = profile.Auth;
                 TargetUsername = profile.Username;
                 TargetPassword = profile.Password;
                 TargetEncryptConnection = profile.EncryptConnection;
@@ -415,6 +483,7 @@ public partial class MainViewModel : ObservableObject
         var server = isSource ? SourceServer : TargetServer;
         var database = isSource ? SourceDatabase : TargetDatabase;
         var useWinAuth = isSource ? SourceUseWindowsAuth : TargetUseWindowsAuth;
+        var auth = isSource ? SourceAuth : TargetAuth;
         var username = isSource ? SourceUsername : TargetUsername;
         var password = isSource ? SourcePassword : TargetPassword;
         var encrypt = isSource ? SourceEncryptConnection : TargetEncryptConnection;
@@ -428,7 +497,8 @@ public partial class MainViewModel : ObservableObject
             return;
         }
 
-        var existing = SavedConnections.FirstOrDefault(c => c.Matches(server, database, useWinAuth, username));
+        var existing = SavedConnections.FirstOrDefault(c =>
+            c.Matches(server, database, useWinAuth, username, auth.AuthenticationMethod));
         if (existing != null)
         {
             _applyingProfile = true;
@@ -437,6 +507,7 @@ public partial class MainViewModel : ObservableObject
                 existing.Server = server.Trim();
                 existing.Database = database.Trim();
                 existing.UseWindowsAuth = useWinAuth;
+                existing.Authentication = auth.AuthenticationMethod;
                 existing.Username = username?.Trim() ?? string.Empty;
                 existing.Password = password ?? string.Empty;
                 existing.EncryptConnection = encrypt;
@@ -461,6 +532,7 @@ public partial class MainViewModel : ObservableObject
                 Server = server.Trim(),
                 Database = database.Trim(),
                 UseWindowsAuth = useWinAuth,
+                Authentication = auth.AuthenticationMethod,
                 Username = username?.Trim() ?? string.Empty,
                 Password = password ?? string.Empty,
                 EncryptConnection = encrypt,
@@ -625,6 +697,7 @@ public partial class MainViewModel : ObservableObject
         IsComparing = true; ProgressValue = 0; Differences.Clear(); FilteredDifferences.Clear();
         HasResults = false; ShowError = false; ErrorMessage = "";
         FullDeployScript = ""; HasFullScript = false; SelectedDiff = null;
+        RollbackScript = ""; ShowingRollbackScript = false;
         HasSourceScript = false; HasTargetScript = false;
         StatusMessage = "Comparing...";
         AppendLog($"--- Compare started: {sourceInfo.Server}/{sourceInfo.Database} -> {targetInfo.Server}/{targetInfo.Database} ---");
@@ -664,6 +737,35 @@ public partial class MainViewModel : ObservableObject
         }
         catch (Exception ex) { StatusMessage = $"Error generating script: {ex.Message}"; AppendLog($"Script generation ERROR: {ex.Message}"); }
         finally { IsComparing = false; }
+    }
+
+    private async Task GenerateRollbackScriptAsync()
+    {
+        if (!HasResults) return;
+        IsComparing = true; StatusMessage = "Generating rollback script...";
+        AppendLog("Generating rollback (DOWN) script...");
+        try
+        {
+            RollbackScript = await _compareService.GenerateRollbackScriptAsync(GetSourceInfo(), GetTargetInfo(), allowUnsafeChanges: AllowUnsafeChanges);
+            ShowingRollbackScript = true;
+            StatusMessage = "Rollback script generated.";
+            // The reversed diff only exists while the target is behind, so the text is worth
+            // keeping even though the app never runs it.
+            AppendLog($"Rollback script generated ({RollbackScript.Length:N0} chars). Save it now — once the deploy runs, the reversed diff is empty.");
+        }
+        catch (Exception ex) { StatusMessage = $"Error generating rollback script: {ex.Message}"; AppendLog($"Rollback generation ERROR: {ex.Message}"); }
+        finally { IsComparing = false; }
+    }
+
+    /// <summary>Name for the script the pane is currently showing, direction included.</summary>
+    public string ScriptSuggestedFileName =>
+        $"{(ShowingRollbackScript ? "rollback" : "deploy")}-{TargetDatabaseForFileName()}-{DateTime.UtcNow:yyyyMMdd-HHmm}.sql";
+
+    private string TargetDatabaseForFileName()
+    {
+        var name = GetTargetInfo().Database;
+        foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
+        return string.IsNullOrWhiteSpace(name) ? "target" : name;
     }
 
     private void CancelApply() => ShowApplyConfirmation = false;
@@ -711,9 +813,11 @@ public partial class MainViewModel : ObservableObject
     }
 
     /// <summary>Server/database only — audit lines must never carry credentials.</summary>
-    private string SourceAuditLabel() => $"{SourceServer?.Trim()}/{SourceDatabase?.Trim()} (WinAuth={SourceUseWindowsAuth})";
+    // An audit line names the server, the database and the auth mode only — never a user
+    // name or a password, because these labels are written to the log file.
+    private string SourceAuditLabel() => $"{SourceServer?.Trim()}/{SourceDatabase?.Trim()} ({SourceAuth.Short})";
 
-    private string TargetAuditLabel() => $"{TargetServer?.Trim()}/{TargetDatabase?.Trim()} (WinAuth={TargetUseWindowsAuth})";
+    private string TargetAuditLabel() => $"{TargetServer?.Trim()}/{TargetDatabase?.Trim()} ({TargetAuth.Short})";
 
     private void InvalidateDataMovePlan()
     {
@@ -866,13 +970,20 @@ public partial class MainViewModel : ObservableObject
     private ConnectionInfo GetSourceInfo() => new()
     {
         Server = SourceServer, Database = SourceDatabase, UseWindowsAuth = SourceUseWindowsAuth,
+        Authentication = SourceAuth.AuthenticationMethod,
         Username = SourceUsername, Password = SourcePassword,
         EncryptConnection = SourceEncryptConnection, TrustServerCertificate = SourceTrustServerCertificate
     };
 
+    /// <summary>The two connections as other windows see them, so a window opened from
+    /// here starts on the databases the user is already working with.</summary>
+    public ConnectionInfo CurrentSourceConnection() => GetSourceInfo();
+    public ConnectionInfo CurrentTargetConnection() => GetTargetInfo();
+
     private ConnectionInfo GetTargetInfo() => new()
     {
         Server = TargetServer, Database = TargetDatabase, UseWindowsAuth = TargetUseWindowsAuth,
+        Authentication = TargetAuth.AuthenticationMethod,
         Username = TargetUsername, Password = TargetPassword,
         EncryptConnection = TargetEncryptConnection, TrustServerCertificate = TargetTrustServerCertificate
     };

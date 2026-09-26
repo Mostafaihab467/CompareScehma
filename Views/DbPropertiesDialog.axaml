@@ -1,0 +1,99 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        x:Class="SchemaCompare.Views.DbPropertiesDialog"
+        Title="Database Properties"
+        Width="700" Height="600" MinWidth="580" MinHeight="480"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Design.DataContext>
+        <models:DatabaseProperties Name="(design)" />
+    </Design.DataContext>
+
+    <Grid RowDefinitions="*,Auto" Margin="14">
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="🗄" FontSize="18" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding Name}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock Text="Database Properties" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0,0,0" />
+                </StackPanel>
+
+                <!-- ═══ General ═══ -->
+                <Border Classes="card" Padding="12">
+                    <StackPanel Spacing="4">
+                        <TextBlock Text="General" FontWeight="Bold" FontSize="13" Margin="0,0,0,4" />
+                        <Grid ColumnDefinitions="190,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
+                            <TextBlock Text="Created:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Column="1" Text="{Binding CreatedText}" Margin="0,2" />
+                            <TextBlock Grid.Row="1" Text="Compatibility level:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding CompatibilityLevel}" Margin="0,2" />
+                            <TextBlock Grid.Row="2" Text="Collation:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="2" Grid.Column="1" Text="{Binding Collation}" Margin="0,2" />
+                            <TextBlock Grid.Row="3" Text="Recovery model:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding RecoveryModel}" Margin="0,2" />
+                            <TextBlock Grid.Row="4" Text="State:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="4" Grid.Column="1" Text="{Binding State}" Margin="0,2" />
+                            <TextBlock Grid.Row="5" Text="User access:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding UserAccess}" Margin="0,2" />
+                            <TextBlock Grid.Row="6" Text="Log reuse wait:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding LogReuseWait}" Margin="0,2" />
+                            <TextBlock Grid.Row="7" Text="READ_COMMITTED_SNAPSHOT:" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2" />
+                            <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding RcsiText}" Margin="0,2" />
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Size ═══ -->
+                <Border Classes="card" Padding="12">
+                    <StackPanel Orientation="Horizontal" Spacing="24">
+                        <StackPanel>
+                            <TextBlock Text="Data size" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                            <TextBlock Text="{Binding DataSizeText}" FontSize="16" FontWeight="Bold"
+                                       Foreground="{StaticResource Primary500}" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="Space free (data)" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                            <TextBlock Text="{Binding DataFreeText}" FontSize="16" FontWeight="Bold" />
+                        </StackPanel>
+                        <StackPanel>
+                            <TextBlock Text="Log used / total" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                            <TextBlock Text="{Binding LogText}" FontSize="16" FontWeight="Bold"
+                                       Foreground="{StaticResource Amber}" />
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Files ═══ -->
+                <Border Classes="card" Padding="0">
+                    <StackPanel>
+                        <TextBlock Text="Files" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding Files}" AutoGenerateColumns="False"
+                                  CanUserReorderColumns="False" CanUserResizeColumns="True"
+                                  IsReadOnly="True" GridLinesVisibility="All" FontSize="12" MaxHeight="220">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Logical Name" Binding="{Binding Name}" Width="160" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding TypeDesc}" Width="90" />
+                                <DataGridTextColumn Header="State" Binding="{Binding StateDesc}" Width="90" />
+                                <DataGridTextColumn Header="Size MB" Binding="{Binding SizeMb, StringFormat='{}{0:N1}'}" Width="90" />
+                                <DataGridTextColumn Header="Used MB" Binding="{Binding UsedMb, StringFormat='{}{0:N1}'}" Width="90" />
+                                <DataGridTextColumn Header="Free" Binding="{Binding FreeText}" Width="100" />
+                                <DataGridTextColumn Header="Autogrowth" Binding="{Binding GrowthText}" Width="120" />
+                                <DataGridTextColumn Header="Path" Binding="{Binding PhysicalName}" Width="360" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="1" x:Name="CloseBtn" Classes="primary" Padding="16,7" FontSize="12"
+                HorizontalAlignment="Right" Margin="0,10,0,0">
+            <TextBlock Text="Close" />
+        </Button>
+    </Grid>
+</Window>

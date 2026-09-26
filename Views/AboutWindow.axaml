@@ -1,0 +1,63 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SchemaCompare.Views.AboutWindow"
+        Title="About Schema Compare"
+        Width="640" Height="600" MinWidth="520" MinHeight="440"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="*,Auto" Margin="14">
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Border Width="44" Height="44" CornerRadius="10" Background="{StaticResource HeaderGradient}"
+                            VerticalAlignment="Center">
+                        <TextBlock Text="🗄" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock x:Name="TitleText" FontSize="17" FontWeight="Bold" />
+                        <TextBlock x:Name="SubtitleText" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </StackPanel>
+
+                <Border Classes="card" Padding="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Run-time information" FontWeight="Bold" FontSize="13" />
+                        <TextBlock Text="Copy this block into a bug report. It contains no saved passwords or query text."
+                                   FontSize="11" Foreground="{StaticResource OnSurfaceVariant}" TextWrapping="Wrap" />
+                        <TextBox x:Name="DiagnosticsBox" IsReadOnly="True" TextWrapping="Wrap" FontFamily="Consolas,Menlo,monospace" FontSize="12"
+                                 MinHeight="150" AcceptsReturn="True" />
+                    </StackPanel>
+                </Border>
+
+                <Border Classes="card" Padding="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Recent log entries" FontWeight="Bold" FontSize="13" />
+                        <TextBox x:Name="LogTailBox" IsReadOnly="True" TextWrapping="NoWrap" FontFamily="Consolas,Menlo,monospace" FontSize="11"
+                                 MinHeight="130" AcceptsReturn="True" ScrollViewer.HorizontalScrollBarVisibility="Auto" />
+                    </StackPanel>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid Grid.Row="1" ColumnDefinitions="*,Auto" Margin="0,12,0,0">
+            <TextBlock x:Name="FeedbackText" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                       VerticalAlignment="Center" TextWrapping="Wrap" MaxWidth="260" HorizontalAlignment="Left" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right">
+                <Button x:Name="OpenFolderButton" Classes="secondary" ToolTip.Tip="Open the folder holding settings, saved profiles and logs">
+                    <TextBlock Text="Open data folder" />
+                </Button>
+                <Button x:Name="CopyButton" Classes="secondary">
+                    <TextBlock Text="Copy diagnostics" />
+                </Button>
+                <Button x:Name="CloseButton" Classes="primary">
+                    <TextBlock Text="Close" />
+                </Button>
+            </StackPanel>
+        </Grid>
+
+    </Grid>
+</Window>

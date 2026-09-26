@@ -1,0 +1,146 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
+        x:Class="SchemaCompare.Views.ImportWizardWindow"
+        Title="Import Data" Width="1180" Height="800" MinWidth="720" MinHeight="480"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+  <LayoutTransformControl>
+    <LayoutTransformControl.LayoutTransform>
+      <ScaleTransform ScaleX="{Binding UiScale}" ScaleY="{Binding UiScale}" />
+    </LayoutTransformControl.LayoutTransform>
+    <Grid RowDefinitions="Auto,*">
+      <Border Background="{StaticResource HeaderGradient}" Padding="22,14">
+        <Grid ColumnDefinitions="*,Auto">
+          <StackPanel>
+            <TextBlock Text="Import Data" FontSize="22" FontWeight="Bold" Foreground="White" />
+            <TextBlock Text="Read a delimited file, map its columns to a table, then bulk-load the rows. Nothing is written until the script is confirmed."
+                       Foreground="#E0D4FF" FontSize="12" Margin="0,3,0,0" />
+          </StackPanel>
+          <Button Grid.Column="1" Classes="secondary" Click="Close_Click"><TextBlock Text="Close" /></Button>
+        </Grid>
+      </Border>
+
+      <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*,Auto" Margin="18,14,18,12">
+        <Grid ColumnDefinitions="*,12,*">
+          <Border Classes="card" Padding="14">
+            <StackPanel Spacing="6">
+              <TextBlock Text="FILE" FontWeight="Bold" Foreground="{StaticResource Primary500}" />
+              <Grid ColumnDefinitions="*,Auto">
+                <TextBox Text="{Binding FilePath}" PlaceholderText="C:\data\orders.csv" />
+                <Button Grid.Column="1" Classes="secondary" Click="Browse_Click" Margin="6,0,0,0">
+                  <TextBlock Text="Browse…" />
+                </Button>
+              </Grid>
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <TextBlock Text="Delimiter:" VerticalAlignment="Center" FontSize="12" />
+                <ComboBox ItemsSource="{Binding DelimiterOptions}" SelectedIndex="{Binding DelimiterIndex}"
+                          Width="120" FontSize="12" />
+                <CheckBox IsChecked="{Binding HasHeaderRow}" Content="First row is a header" FontSize="12" />
+              </StackPanel>
+              <TextBlock Text="Quoted fields may hold the delimiter, a doubled quote or a line break. An empty field becomes NULL when the column allows it."
+                         FontSize="11" TextWrapping="Wrap" Foreground="{StaticResource OnSurfaceVariant}" />
+            </StackPanel>
+          </Border>
+
+          <Border Grid.Column="2" Classes="card" Padding="14">
+            <StackPanel Spacing="6">
+              <TextBlock Text="DESTINATION DATABASE" FontWeight="Bold" Foreground="{StaticResource Amber}" />
+              <controls:SearchableComboBox ItemsSource="{Binding SavedConnections}" SelectedItem="{Binding SelectedSaved}" PlaceholderText="Saved connection">
+                <ComboBox.ItemTemplate><DataTemplate DataType="models:SavedConnection"><TextBlock Text="{Binding DisplayName}" /></DataTemplate></ComboBox.ItemTemplate>
+              </controls:SearchableComboBox>
+              <TextBox Text="{Binding Server}" PlaceholderText="Server" />
+              <TextBox Text="{Binding Database}" PlaceholderText="Database" />
+              <ComboBox ItemsSource="{Binding AuthMethods}" SelectedItem="{Binding Auth}" HorizontalAlignment="Stretch" FontSize="12">
+                <ComboBox.ItemTemplate><DataTemplate DataType="models:AuthMethod"><TextBlock Text="{Binding Display}" /></DataTemplate></ComboBox.ItemTemplate>
+              </ComboBox>
+              <Grid ColumnDefinitions="*,*" IsVisible="{Binding Auth.NeedsCredentials}">
+                <TextBox Text="{Binding Username}" PlaceholderText="{Binding Auth.CredentialHint}" />
+                <TextBox Grid.Column="1" Text="{Binding Password}" PasswordChar="*" PlaceholderText="Password" Margin="6,0,0,0" />
+              </Grid>
+            </StackPanel>
+          </Border>
+        </Grid>
+
+        <Border Grid.Row="1" Classes="card" Padding="14,10" Margin="0,10,0,0">
+          <StackPanel Spacing="8">
+            <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Classes="primary" Command="{Binding ReadFileCommand}"><TextBlock Text="1. Read file" /></Button>
+                <Button Classes="secondary" Command="{Binding PreviewCommand}"><TextBlock Text="2. Preview script" /></Button>
+                <Button Classes="secondary" Command="{Binding MatchTargetCommand}"><TextBlock Text="3. Match existing table" /></Button>
+                <Button Classes="secondary" Command="{Binding LoadCommand}"><TextBlock Text="4. Load data" /></Button>
+              </StackPanel>
+            </ScrollViewer>
+            <StackPanel Orientation="Horizontal" Spacing="10">
+              <TextBlock Text="Schema:" VerticalAlignment="Center" FontSize="12" />
+              <TextBox Text="{Binding Schema}" Width="90" FontSize="12" />
+              <TextBlock Text="Table:" VerticalAlignment="Center" FontSize="12" />
+              <TextBox Text="{Binding TableName}" Width="240" FontSize="12" />
+              <CheckBox IsChecked="{Binding CreateNewTable}" Content="Create the table if it is not there" FontSize="12" />
+            </StackPanel>
+            <TextBlock Text="{Binding SummaryText}" TextWrapping="Wrap" FontSize="12"
+                       Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding SummaryText}" />
+            <Border IsVisible="{Binding ShowError}" Background="{StaticResource ErrorPanelBg}"
+                    BorderBrush="{StaticResource ErrorPanelBorder}" BorderThickness="1" CornerRadius="6" Padding="10">
+              <TextBox Text="{Binding ErrorMessage}" Classes="errorText" />
+            </Border>
+          </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="2" ColumnDefinitions="3*,8,2*" Margin="0,10,0,0">
+          <Border Classes="card" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+              <Border Background="{StaticResource SubtleHeader}" Padding="12,8">
+                <TextBlock Text="Column mapping (edit a name or type to override the guess)" FontWeight="Bold" />
+              </Border>
+              <TextBlock Grid.Row="1" Text="Press '1. Read file' to see the columns and the types inferred from the sample."
+                         Margin="12" FontSize="12" TextWrapping="Wrap"
+                         Foreground="{StaticResource OnSurfaceVariant}" IsVisible="{Binding !HasColumns}" />
+              <DataGrid Grid.Row="1" ItemsSource="{Binding Columns}" SelectedItem="{Binding SelectedColumn}"
+                        AutoGenerateColumns="False" GridLinesVisibility="All" FontSize="12"
+                        CanUserSortColumns="True" CanUserReorderColumns="False">
+                <DataGrid.Columns>
+                  <DataGridCheckBoxColumn Header="Load" Binding="{Binding Include}" Width="66" />
+                  <DataGridCheckBoxColumn Header="Key" Binding="{Binding IsKey}" Width="58" />
+                  <DataGridTextColumn Header="File column" Binding="{Binding Header}" Width="1*" IsReadOnly="True" />
+                  <DataGridTextColumn Header="Table column" Binding="{Binding TargetName}" Width="1.1*" />
+                  <DataGridTextColumn Header="Type" Binding="{Binding SqlType}" Width="0.9*" />
+                  <DataGridCheckBoxColumn Header="Null" Binding="{Binding Nullable}" Width="58" />
+                  <DataGridTextColumn Header="Why" Binding="{Binding Note}" Width="1.7*" IsReadOnly="True" />
+                </DataGrid.Columns>
+              </DataGrid>
+            </Grid>
+          </Border>
+
+          <GridSplitter Grid.Column="1" Width="8" ResizeDirection="Columns" />
+
+          <Border Grid.Column="2" Classes="card" Padding="0">
+            <Grid RowDefinitions="Auto,*">
+              <Border Background="{StaticResource CodeBg}" Padding="12,8">
+                <TextBlock Text="Script (review before running)" FontWeight="Bold" Foreground="#CDD6F4" />
+              </Border>
+              <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                <TextBox Text="{Binding ScriptText}" Classes="codeBox" IsReadOnly="True" AcceptsReturn="True"
+                         TextWrapping="NoWrap" MinHeight="140"
+                         PlaceholderText="Read the file first." />
+              </ScrollViewer>
+            </Grid>
+          </Border>
+        </Grid>
+
+        <Border Grid.Row="3" Classes="card" Padding="12,8" Margin="0,10,0,0">
+          <TextBlock Text="{Binding StatusMessage}" FontSize="12" TextWrapping="Wrap" />
+        </Border>
+
+        <Border Grid.Row="2" Grid.RowSpan="2" IsVisible="{Binding IsBusy}" Background="#B30B0B10" ZIndex="100">
+          <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+            <TextBlock Text="Working…" FontSize="18" FontWeight="Bold" Foreground="{StaticResource Primary500}" />
+            <TextBlock Text="{Binding StatusMessage}" Margin="0,8,0,0" TextWrapping="Wrap" />
+          </StackPanel>
+        </Border>
+      </Grid>
+    </Grid>
+  </LayoutTransformControl>
+</Window>

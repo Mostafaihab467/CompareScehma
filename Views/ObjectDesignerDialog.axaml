@@ -1,0 +1,96 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
+        x:Class="SchemaCompare.Views.ObjectDesignerDialog"
+        Title="New Object"
+        Width="900" Height="720" MinWidth="720" MinHeight="540"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14">
+
+        <!-- Header -->
+        <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+            <TextBlock x:Name="IconText" Text="🗂" FontSize="20" VerticalAlignment="Center" />
+            <TextBlock x:Name="HeaderText" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
+        </StackPanel>
+
+        <!-- Definition -->
+        <Border Grid.Row="1" Classes="card" Padding="12,10">
+            <StackPanel Spacing="8">
+                <Grid ColumnDefinitions="Auto,180,14,Auto,110,14,Auto,*" ColumnSpacing="8">
+                    <TextBlock Text="Object type:" VerticalAlignment="Center" FontSize="12" />
+                    <controls:SearchableComboBox x:Name="KindBox" Grid.Column="1" SelectedIndex="0" FontSize="12">
+                        <ComboBoxItem Content="Table" />
+                        <ComboBoxItem Content="View" />
+                        <ComboBoxItem Content="Stored Procedure" />
+                    </controls:SearchableComboBox>
+                    <TextBlock Grid.Column="3" Text="Schema:" VerticalAlignment="Center" FontSize="12" />
+                    <TextBox x:Name="SchemaBox" Grid.Column="4" Text="dbo" FontSize="12" />
+                    <TextBlock Grid.Column="6" Text="Name:" VerticalAlignment="Center" FontSize="12" />
+                    <TextBox x:Name="NameBox" Grid.Column="7" Watermark="required" FontSize="12" />
+                </Grid>
+
+                <!-- Table: one row per column -->
+                <StackPanel x:Name="ColumnsPanel" Spacing="6">
+                    <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="6">
+                        <TextBlock Text="Columns" FontWeight="SemiBold" FontSize="12" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" x:Name="AddColBtn" Classes="secondary" Padding="10,4" FontSize="12">
+                            <TextBlock Text="+ Add column" />
+                        </Button>
+                        <Button Grid.Column="2" x:Name="RemoveColBtn" Classes="danger" Padding="10,4" FontSize="12">
+                            <TextBlock Text="✕ Remove" />
+                        </Button>
+                    </Grid>
+                    <DataGrid x:Name="ColumnsGrid" AutoGenerateColumns="False"
+                              CanUserResizeColumns="True" GridLinesVisibility="All" FontSize="12"
+                              MaxHeight="240" MinHeight="120">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Column" Binding="{Binding Name}" Width="1.4*" />
+                            <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="1.2*" />
+                            <DataGridCheckBoxColumn Header="Null" Binding="{Binding Nullable}" Width="52" />
+                            <DataGridCheckBoxColumn Header="Key" Binding="{Binding IsKey}" Width="52" />
+                            <DataGridCheckBoxColumn Header="Identity" Binding="{Binding IsIdentity}" Width="76" />
+                            <DataGridTextColumn Header="Default" Binding="{Binding Default}" Width="1.2*" />
+                        </DataGrid.Columns>
+                    </DataGrid>
+                    <TextBlock FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                               Text="Type is written as SQL knows it (nvarchar(100), decimal(18,2)…); Key builds the primary key; a default of 0, N'x' or getdate() all work."
+                               TextWrapping="Wrap" />
+                </StackPanel>
+
+                <!-- View / procedure: free T-SQL body -->
+                <StackPanel x:Name="BodyPanel" IsVisible="False" Spacing="4">
+                    <TextBlock x:Name="BodyHint" FontWeight="SemiBold" FontSize="12" />
+                    <Border Height="230">
+                        <controls:SqlHighlightedEditor x:Name="BodyEditor" EnableLint="False" />
+                    </Border>
+                </StackPanel>
+
+                <TextBlock x:Name="NoteText" FontSize="11" Foreground="{StaticResource WarningPanelText}"
+                           TextWrapping="Wrap" IsVisible="False" />
+            </StackPanel>
+        </Border>
+
+        <!-- Script preview -->
+        <Border Grid.Row="2" Classes="card" Padding="0" Margin="0,8,0,0">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="{StaticResource SubtleHeader}" Padding="10,6">
+                    <TextBlock Text="T-SQL preview" FontWeight="Bold" FontSize="12" />
+                </Border>
+                <controls:SqlHighlightedEditor x:Name="Preview" Grid.Row="1" IsReadOnly="True" EnableLint="False" />
+            </Grid>
+        </Border>
+
+        <!-- Buttons -->
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,10,0,0">
+            <Button x:Name="CancelBtn" Padding="14,7" FontSize="12"><TextBlock Text="Cancel" /></Button>
+            <Button x:Name="ScriptBtn" Classes="secondary" Padding="14,7" FontSize="12">
+                <TextBlock Text="📄  Script to Definition Tab" />
+            </Button>
+            <Button x:Name="ExecuteBtn" Classes="primary" Padding="14,7" FontSize="12">
+                <TextBlock Text="▶  Execute" />
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

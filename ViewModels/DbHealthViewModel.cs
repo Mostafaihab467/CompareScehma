@@ -119,15 +119,68 @@ public partial class DbHealthViewModel : ObservableObject
         OnPropertyChanged(nameof(HasSelectedMissingIndex));
     [ObservableProperty] private string _warningsText = "";
 
+    // ── session actions ──
+    [ObservableProperty] private HealthProcessRow? _selectedProcess;
+    public bool HasSelectedProcess => SelectedProcess != null;
+    public ObservableCollection<BlockingChainLink> BlockingChain { get; } = [];
+    [ObservableProperty] private string _blockingChainText = "";
+    public bool HasBlockingChain => BlockingChain.Count > 0;
+
+    // ── error log ──
+    public ObservableCollection<HealthErrorLogRow> ErrorLog { get; } = [];
+    public int[] ErrorLogTailOptions { get; } = [200, 500, 1000, 2000];
+    private List<HealthErrorLogRow> _errorLogRaw = [];
+    [ObservableProperty] private int _errorLogTail = 500;
+    [ObservableProperty] private string? _errorLogFilter;
+    [ObservableProperty] private bool _errorLogOnlyErrors;
+    [ObservableProperty] private string _errorLogSummaryText =
+        "Not loaded. Reading the error log needs permission on the server log.";
+
+    // ── Query Store (one database, on demand) ──
+    [ObservableProperty] private string? _queryStoreDatabase;
+    public int[] QueryStoreWindowOptions { get; } = [4, 12, 24, 48, 168, 720];
+    [ObservableProperty] private int _queryStoreWindowHours = 24;
+    /// <summary>Labels shown in the picker; the matching keys are what the service maps.</summary>
+    public string[] QueryStoreRankOptions { get; } =
+        ["Total duration", "Avg duration", "Total CPU", "Avg CPU", "Logical reads", "Executions"];
+    private static readonly string[] QueryStoreRankKeys =
+        ["duration", "avg_duration", "cpu", "avg_cpu", "reads", "executions"];
+    [ObservableProperty] private int _queryStoreRankIndex;
+    public ObservableCollection<QueryStoreRegressedRow> QueryStoreRegressed { get; } = [];
+    public ObservableCollection<QueryStoreTopRow> QueryStoreTop { get; } = [];
+    public ObservableCollection<QueryStorePlanRow> QueryStorePlans { get; } = [];
+    [ObservableProperty] private QueryStoreRegressedRow? _selectedRegressed;
+    [ObservableProperty] private QueryStoreTopRow? _selectedTop;
+    [ObservableProperty] private QueryStorePlanRow? _selectedPlan;
+    [ObservableProperty] private string _queryStoreStateText =
+        "Pick a database and load its Query Store — it is off by default, and an off database has no history to show.";
+    [ObservableProperty] private bool _queryStoreIsOn;
+    [ObservableProperty] private string _queryStoreSummaryText = "";
+    [ObservableProperty] private string _queryStoreQueryText = "";
+    public bool HasQueryStorePlans => QueryStorePlans.Count > 0;
+
     public ICommand ConnectCommand { get; }
     public ICommand RefreshNowCommand { get; }
     public ICommand TogglePauseCommand { get; }
     public ICommand RefreshDeadlocksCommand { get; }
     public ICommand CopyErrorCommand { get; }
     public ICommand CopyMissingIndexScriptCommand { get; }
+    public ICommand ShowBlockingChainCommand { get; }
+    public ICommand KillSessionCommand { get; }
+    public ICommand LoadErrorLogCommand { get; }
+    public ICommand LoadQueryStoreCommand { get; }
+    public ICommand ForcePlanCommand { get; }
+    public ICommand UnforcePlanCommand { get; }
+    public ICommand EnableQueryStoreCommand { get; }
 
     /// <summary>Set by the view to enable copying the error text.</summary>
     public Func<string, Task<bool>>? CopyToClipboardAsync { get; set; }
+
+    /// <summary>
+    /// Set by the view to confirm a statement before it runs. Left null the window
+    /// refuses destructive actions rather than guessing on the operator's behalf.
+    /// </summary>
+    public Func<string, string, string, Task<bool>>? ConfirmScriptAsync { get; set; }
 
     public DbHealthViewModel()
     {
@@ -137,6 +190,13 @@ public partial class DbHealthViewModel : ObservableObject
         RefreshDeadlocksCommand = new AsyncRelayCommand(RefreshDeadlocksAsync);
         CopyErrorCommand = new AsyncRelayCommand(CopyErrorAsync);
         CopyMissingIndexScriptCommand = new AsyncRelayCommand(CopyMissingIndexScriptAsync);
+        ShowBlockingChainCommand = new RelayCommand(ShowBlockingChain);
+        KillSessionCommand = new AsyncRelayCommand(KillSessionAsync);
+        LoadErrorLogCommand = new AsyncRelayCommand(LoadErrorLogAsync);
+        LoadQueryStoreCommand = new AsyncRelayCommand(LoadQueryStoreAsync);
+        ForcePlanCommand = new AsyncRelayCommand(ForcePlanAsync);
+        UnforcePlanCommand = new AsyncRelayCommand(UnforcePlanAsync);
+        EnableQueryStoreCommand = new AsyncRelayCommand(EnableQueryStoreAsync);
 
         foreach (var c in _savedService.Load())
             SavedConnections.Add(c);
@@ -293,9 +353,13 @@ public partial class DbHealthViewModel : ObservableObject
             new ChartSeries { Points = [.. _lockWaits], Stroke = Brush("#E5B567"), Label = "Lock Waits/s" }
         ];
 
-        // Process grid (fast section — every tick)
+        // Process grid (fast section — every tick). The rows are new objects each
+        // tick, so re-match the selection by session id to keep it stable.
+        var keepSession = SelectedProcess?.SessionId;
         Processes.Clear();
         foreach (var p in snap.Processes) Processes.Add(p);
+        if (keepSession is { } spid)
+            SelectedProcess = Processes.FirstOrDefault(p => p.SessionId == spid);
         ApplyProcessFilter();
 
         if (slow)
@@ -486,6 +550,158 @@ public partial class DbHealthViewModel : ObservableObject
         StatusMessage = $"CREATE INDEX script copied — {row.Table} ({row.ImpactText} impact).";
     }
 
+    // ═══════════ session actions: blocking chain + KILL ═══════════
+
+    partial void OnSelectedProcessChanged(HealthProcessRow? value)
+    {
+        OnPropertyChanged(nameof(HasSelectedProcess));
+        if (value == null)
+        {
+            BlockingChain.Clear();
+            BlockingChainText = "";
+            OnPropertyChanged(nameof(HasBlockingChain));
+        }
+    }
+
+    /// <summary>
+    /// Walks blocking_session_id from the selected session up to the head blocker.
+    /// Read from the cached Processes sample, so it never touches the server.
+    /// </summary>
+    private void ShowBlockingChain()
+    {
+        if (SelectedProcess is not { } row)
+        {
+            StatusMessage = "Select a session in the grid to trace its blocker.";
+            return;
+        }
+
+        var chain = DbHealthService.DescribeBlockingChain(Processes, row.SessionId);
+        BlockingChain.Clear();
+        foreach (var link in chain)
+            BlockingChain.Add(link);
+        OnPropertyChanged(nameof(HasBlockingChain));
+
+        var head = chain.Count > 0 ? chain[0] : null;
+        var heldByHead = head == null ? 0 : Processes.Count(p => p.BlockingSessionId == head.SessionId);
+        BlockingChainText = chain.Count switch
+        {
+            0 => $"Session {row.SessionId} was not in the last sample, so its blocker cannot be traced.",
+            1 when heldByHead > 0 =>
+                $"Session {row.SessionId} is not itself blocked, but {heldByHead} session(s) wait on it.",
+            1 => $"Session {row.SessionId} is not blocked by another session.",
+            _ => $"{chain.Count}-session chain: head blocker spid {head!.SessionId} " +
+                 $"({head.Database}/{head.Login}, {heldByHead} direct victim(s)) blocks through to spid {row.SessionId}."
+        };
+        StatusMessage = chain.Count > 1
+            ? $"Blocking chain for session {row.SessionId} traced back to session {head!.SessionId}."
+            : BlockingChainText;
+    }
+
+    private async Task KillSessionAsync()
+    {
+        if (SelectedConnection == null || SelectedProcess is not { } row)
+        {
+            StatusMessage = "Select a session in the grid before using Kill session.";
+            return;
+        }
+        if (ConfirmScriptAsync == null)
+        {
+            StatusMessage = "Kill needs a confirmation host, and this window has none attached.";
+            return;
+        }
+
+        var script = $"KILL {row.SessionId};";
+        var warning =
+            $"KILL ends session {row.SessionId} ({row.Login} @ {row.Host}, database {row.Database}) and rolls back " +
+            "everything it was doing. An open transaction is undone — that can take far longer than the original work — " +
+            "and its uncommitted changes are lost.";
+        if (row.IsBlocked)
+            warning += $"\nThis session is itself waiting on session {row.BlockingSessionId}.";
+        else
+        {
+            var victims = Processes.Count(p => p.BlockingSessionId == row.SessionId);
+            if (victims > 0)
+                warning += $"\n⚠ {victims} other session(s) are waiting on it; killing it frees them.";
+        }
+
+        if (!await ConfirmScriptAsync("Kill session", warning, script))
+        {
+            StatusMessage = $"Kill of session {row.SessionId} cancelled.";
+            return;
+        }
+
+        try
+        {
+            var info = SelectedConnection.ToConnectionInfo();
+            await _service.KillSessionAsync(info, row.SessionId, _cts.Token);
+            AppLog.Info($"KILL {row.SessionId} ({row.Login}@{row.Host}, {row.Database}) issued from DB Health.");
+            StatusMessage = $"✓ KILL {row.SessionId} accepted — refresh to confirm the session is gone.";
+            BlockingChain.Clear();
+            OnPropertyChanged(nameof(HasBlockingChain));
+            await RefreshTickAsync(forceSlow: false);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ShowError = true;
+            ErrorMessage = ex.Message;
+            AppLog.Error("DbHealthViewModel", ex, $"KILL {row.SessionId} failed");
+            StatusMessage = $"KILL {row.SessionId} failed — see the error banner.";
+        }
+    }
+
+    // ═══════════ error log ═══════════
+
+    partial void OnErrorLogOnlyErrorsChanged(bool value) => RebuildErrorLog();
+
+    private async Task LoadErrorLogAsync()
+    {
+        if (SelectedConnection == null)
+        {
+            StatusMessage = "Connect to a server before loading its error log.";
+            return;
+        }
+        try
+        {
+            var info = SelectedConnection.ToConnectionInfo();
+            var filter = ErrorLogFilter?.Trim();
+            StatusMessage = $"Reading the last {ErrorLogTail} error-log record(s){(string.IsNullOrEmpty(filter) ? "" : $" matching “{filter}”")}…";
+            _errorLogRaw = await _service.ReadErrorLogAsync(info, ErrorLogTail, filter, _cts.Token);
+            RebuildErrorLog();
+            ShowError = false;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ErrorLogSummaryText = $"Error log could not be read from {SelectedConnection.DisplayName}.";
+            ShowError = true;
+            ErrorMessage = ex.Message;
+            AppLog.Error("DbHealthViewModel", ex, "Error log read failed");
+            StatusMessage = "Error log read failed — see the error banner.";
+        }
+    }
+
+    private void RebuildErrorLog()
+    {
+        ErrorLog.Clear();
+        foreach (var row in _errorLogRaw)
+        {
+            if (ErrorLogOnlyErrors && !row.IsError) continue;
+            ErrorLog.Add(row);
+        }
+        if (_errorLogRaw.Count == 0)
+        {
+            ErrorLogSummaryText = ErrorLogFilter is { Length: > 0 } f
+                ? $"No error-log records match “{f}” in the last {ErrorLogTail}."
+                : "The error log returned no records.";
+            return;
+        }
+        var errors = _errorLogRaw.Count(r => r.IsError);
+        ErrorLogSummaryText = ErrorLogOnlyErrors
+            ? $"{ErrorLog.Count} record(s) of severity 11+ shown from {_errorLogRaw.Count} read."
+            : $"{ErrorLog.Count} of {_errorLogRaw.Count} record(s) shown • {errors} at severity 11+.";
+    }
+
     private void ClearHistory()
     {
         Processes.Clear();
@@ -495,6 +711,22 @@ public partial class DbHealthViewModel : ObservableObject
         Deadlocks.Clear();
         FileIo.Clear();
         MissingIndexes.Clear();
+        BlockingChain.Clear();
+        BlockingChainText = "";
+        ErrorLog.Clear();
+        _errorLogRaw = [];
+        ErrorLogSummaryText = "Not loaded. Reading the error log needs permission on the server log.";
+        QueryStoreRegressed.Clear();
+        QueryStoreTop.Clear();
+        QueryStorePlans.Clear();
+        SelectedRegressed = null;
+        SelectedTop = null;
+        SelectedPlan = null;
+        QueryStoreIsOn = false;
+        QueryStoreQueryText = "";
+        QueryStoreSummaryText = "";
+        QueryStoreStateText = "Pick a database and load its Query Store — it is off by default, " +
+                              "and an off database has no history to show.";
         _waitsRaw = [];
         _expensiveRaw = [];
         _fileIoRaw = [];
@@ -508,6 +740,255 @@ public partial class DbHealthViewModel : ObservableObject
     {
         _cts.Cancel();
         _service.Dispose();
+    }
+
+    // ═══════════ Query Store ═══════════
+
+    /// <summary>How much worse the second half of the window has to be before a query is
+    /// called regressed. SSMS's report has the same knob; 20 % keeps noise out.</summary>
+    public double[] QueryStoreChangeOptions { get; } = [5, 10, 20, 50];
+    [ObservableProperty] private double _queryStoreMinChange = 20;
+
+    /// <summary>The database the tab reads. "(All databases)" filters the other grids;
+    /// Query Store is a per-database store, so the tab falls back to the database the
+    /// connection names rather than guessing across all of them.</summary>
+    private ConnectionInfo? QueryStoreTarget()
+    {
+        if (SelectedConnection == null) return null;
+        var db = string.IsNullOrWhiteSpace(QueryStoreDatabase) || QueryStoreDatabase == "(All databases)"
+            ? SelectedConnection.Database
+            : QueryStoreDatabase;
+        return string.IsNullOrWhiteSpace(db) ? null : SelectedConnection.ToConnectionInfo().ForDatabase(db);
+    }
+
+    private long? SelectedQueryId => SelectedRegressed?.QueryId ?? SelectedTop?.QueryId;
+
+    private async Task LoadQueryStoreAsync()
+    {
+        if (SelectedConnection == null)
+        {
+            StatusMessage = "Connect to a server before reading its Query Store.";
+            return;
+        }
+        var target = QueryStoreTarget();
+        if (target == null)
+        {
+            QueryStoreIsOn = false;
+            QueryStoreStateText = "Query Store belongs to one database — name the database to read.";
+            return;
+        }
+
+        try
+        {
+            IsRefreshing = true;
+            StatusMessage = $"Reading Query Store for [{target.Database}]…";
+            var state = await _service.GetQueryStoreStateAsync(target, _cts.Token);
+            QueryStoreStateText = state.Summary;
+            QueryStoreIsOn = state.IsOn;
+            QueryStoreRegressed.Clear();
+            QueryStoreTop.Clear();
+            QueryStorePlans.Clear();
+            SelectedPlan = null;
+            QueryStoreQueryText = "";
+
+            if (!state.IsOn)
+            {
+                QueryStoreSummaryText =
+                    "Nothing was captured, so there is nothing to rank. Enabling Query Store collects from " +
+                    "now on — it cannot recover what happened before.";
+                StatusMessage = $"Query Store is {state.ActualState} on [{target.Database}].";
+                return;
+            }
+
+            var rank = QueryStoreRankIndex >= 0 && QueryStoreRankIndex < QueryStoreRankKeys.Length
+                ? QueryStoreRankKeys[QueryStoreRankIndex] : "duration";
+            var regressed = await _service.GetRegressedQueriesAsync(
+                target, QueryStoreWindowHours, QueryStoreMinChange, 1, 50, _cts.Token);
+            var top = await _service.GetTopQueriesAsync(
+                target, QueryStoreWindowHours, rank, 50, _cts.Token);
+            foreach (var r in regressed) QueryStoreRegressed.Add(r);
+            foreach (var t in top) QueryStoreTop.Add(t);
+
+            QueryStoreSummaryText =
+                $"{regressed.Count} of {top.Count} query/plan pair(s) in the last {QueryStoreWindowHours} h got more than " +
+                $"{QueryStoreMinChange:0.#}% slower between the first and the second half of the window. " +
+                $"Ranked by {QueryStoreRankOptions[Math.Clamp(QueryStoreRankIndex, 0, QueryStoreRankOptions.Length - 1)]}.";
+            StatusMessage = $"Query Store — {top.Count} ranked query/plan pair(s) on [{target.Database}].";
+            AppLog.Info($"Query Store read for [{target.Database}]: {state.ActualState}, " +
+                        $"{regressed.Count} regressed, {top.Count} ranked.");
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ShowError = true;
+            ErrorMessage = ex.Message;
+            AppLog.Error("DbHealthViewModel", ex, $"Query Store load for [{target.Database}] failed");
+            QueryStoreSummaryText = $"Query Store could not be read on [{target.Database}].";
+            StatusMessage = "Query Store failed — see the error banner.";
+        }
+        finally
+        {
+            IsRefreshing = false;
+            // The plan pane was emptied at the top of the load, so its "select a query"
+            // hint has to be re-evaluated on every path out of here, not only when the
+            // store is off — otherwise it keeps a stale "plans are showing" value.
+            OnPropertyChanged(nameof(HasQueryStorePlans));
+        }
+    }
+
+    partial void OnSelectedRegressedChanged(QueryStoreRegressedRow? value)
+    {
+        if (value == null) return;
+        SelectedTop = null;
+        QueryStoreQueryText = value.QueryText;
+        _ = LoadPlansAsync(value.QueryId);
+    }
+
+    partial void OnSelectedTopChanged(QueryStoreTopRow? value)
+    {
+        if (value == null) return;
+        SelectedRegressed = null;
+        QueryStoreQueryText = value.QueryText;
+        _ = LoadPlansAsync(value.QueryId);
+    }
+
+    private async Task LoadPlansAsync(long queryId)
+    {
+        var target = QueryStoreTarget();
+        if (target == null) return;
+        try
+        {
+            QueryStorePlans.Clear();
+            SelectedPlan = null;
+            var plans = await _service.GetQueryPlansAsync(target, queryId, QueryStoreWindowHours, _cts.Token);
+            foreach (var p in plans) QueryStorePlans.Add(p);
+            SelectedPlan = plans.FirstOrDefault(p => !p.IsForced) ?? plans.FirstOrDefault();
+            QueryStoreSummaryText = plans.Count switch
+            {
+                > 1 => $"{plans.Count} plans are stored for query {queryId}. Forcing pins one of them; " +
+                       "the server stops recompiling this query until the plan is released.",
+                1 => $"Query {queryId} has one plan ({plans[0].StatusText}).",
+                _ => $"Query {queryId} has no plans.",
+            };
+            OnPropertyChanged(nameof(HasQueryStorePlans));
+        }
+        catch (Exception ex)
+        {
+            AppLog.Error("DbHealthViewModel", ex, $"Query Store plans of {queryId}");
+            QueryStoreSummaryText = $"The plans of query {queryId} could not be read.";
+        }
+    }
+
+    private async Task ForcePlanAsync()
+    {
+        var target = QueryStoreTarget();
+        if (target == null || SelectedQueryId is not { } queryId || SelectedPlan is not { } plan)
+        {
+            StatusMessage = "Select a query in either grid, then the plan to pin.";
+            return;
+        }
+        var script = ManagerScriptBuilder.ForceQueryPlan(queryId, plan.PlanId);
+        var warning =
+            $"Pins plan {plan.PlanId} to query {queryId} in [{target.Database}]. The optimiser has to use this plan " +
+            "for every execution until it is released, so a bad choice degrades the whole workload, and the pin " +
+            "survives a restart. Forcing fails silently in the sense that the server records the reason instead of " +
+            "applying it — check the plan list afterwards.";
+        await RunQueryStoreScriptAsync("Force plan", warning, script, target, queryId);
+    }
+
+    private async Task UnforcePlanAsync()
+    {
+        var target = QueryStoreTarget();
+        if (target == null || SelectedQueryId is not { } queryId || SelectedPlan is not { } plan)
+        {
+            StatusMessage = "Select a query in either grid, then the forced plan to release.";
+            return;
+        }
+        if (!plan.IsForced)
+        {
+            StatusMessage = $"Plan {plan.PlanId} of query {queryId} is not forced — there is nothing to release.";
+            return;
+        }
+        var script = ManagerScriptBuilder.UnforceQueryPlan(queryId, plan.PlanId);
+        var warning =
+            $"Releases the pinned plan of query {queryId} in [{target.Database}]. The next execution recompiles, " +
+            "and the optimiser picks a plan again — which is the point, unless the pinned plan was holding a " +
+            "regression back.";
+        await RunQueryStoreScriptAsync("Unforce plan", warning, script, target, queryId);
+    }
+
+    private async Task EnableQueryStoreAsync()
+    {
+        var target = QueryStoreTarget();
+        if (target == null)
+        {
+            StatusMessage = "Name the database to enable Query Store on.";
+            return;
+        }
+        string script;
+        try
+        {
+            script = ManagerScriptBuilder.EnableQueryStore(target.Database);
+        }
+        catch (Exception ex)
+        {
+            ShowError = true;
+            ErrorMessage = ex.Message;
+            return;
+        }
+        var warning =
+            $"Turns Query Store on for [{target.Database}]: runtime statistics for every query are kept " +
+            "(up to 1024 MB, cleaned by size), flushed every 15 minutes, and it adds work to compile and " +
+            "capture. It collects from now on and recovers nothing from before.";
+        await RunQueryStoreScriptAsync("Enable Query Store", warning, script, target, queryId: null);
+    }
+
+    /// <summary>Confirmation first, then the exact script that was shown, then a reload of
+    /// what changed. With no confirmation host attached nothing is attempted.</summary>
+    private async Task RunQueryStoreScriptAsync(
+        string title, string warning, string script, ConnectionInfo target, long? queryId)
+    {
+        if (ConfirmScriptAsync == null)
+        {
+            StatusMessage = $"{title} needs a confirmation host, and this window has none attached.";
+            return;
+        }
+
+        if (!await ConfirmScriptAsync(title, warning, script))
+        {
+            StatusMessage = $"{title} cancelled — Query Store was not touched.";
+            return;
+        }
+
+        try
+        {
+            IsRefreshing = true;
+            await _service.RunQueryStoreScriptAsync(target, script, _cts.Token);
+            AppLog.Info($"{title} on [{target.Database}] issued from DB Health.");
+            StatusMessage = $"✓ {title} applied to [{target.Database}].";
+            if (queryId is { } qid)
+            {
+                var keep = SelectedPlan?.PlanId ?? 0;
+                await LoadPlansAsync(qid);
+                SelectedPlan = QueryStorePlans.FirstOrDefault(p => p.PlanId == keep) ?? SelectedPlan;
+            }
+            else
+            {
+                await LoadQueryStoreAsync();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            ShowError = true;
+            ErrorMessage = ex.Message;
+            AppLog.Error("DbHealthViewModel", ex, $"{title} on [{target.Database}] failed");
+            StatusMessage = $"{title} failed — see the error banner.";
+        }
+        finally
+        {
+            IsRefreshing = false;
+        }
     }
 
     // ═══════════ misc ═══════════

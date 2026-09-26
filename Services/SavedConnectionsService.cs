@@ -49,6 +49,7 @@ public sealed class SavedConnectionsService
                 Password = Decrypt(d.EncryptedPassword ?? string.Empty),
                 EncryptConnection = d.EncryptConnection,
                 TrustServerCertificate = d.TrustServerCertificate ?? true,
+                Authentication = d.Authentication ?? string.Empty,
             }).ToList();
             if (_sawLegacyPlaintext)
                 LastWarning = "saved_connections.json holds password(s) written unencrypted by an older version. " +
@@ -86,6 +87,7 @@ public sealed class SavedConnectionsService
                 EncryptedPassword = secret,
                 EncryptConnection = c.EncryptConnection,
                 TrustServerCertificate = c.TrustServerCertificate,
+                Authentication = c.Authentication,
             };
         }).ToList();
         var json = JsonSerializer.Serialize(dtos, JsonOptions);
@@ -147,6 +149,7 @@ public sealed class SavedConnectionsService
         public string EncryptedPassword { get; set; } = string.Empty;
         public bool EncryptConnection { get; set; }
         public bool? TrustServerCertificate { get; set; }
+        public string? Authentication { get; set; }
     }
 
     /// <summary>Minimal DPAPI wrapper (Crypt32) — no NuGet dependency required.</summary>

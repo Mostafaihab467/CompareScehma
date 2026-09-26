@@ -38,7 +38,9 @@ public class SchemaCompareService
             comparison.Options.BlockOnPossibleDataLoss = !allowUnsafeChanges;
 
             ct.ThrowIfCancellationRequested();
-            progress?.Report("Running comparison (this may take a moment)...");
+            progress?.Report(
+                $"Comparing {sourceInfo.Database} against {targetInfo.Database} with DacFx " +
+                $"(drops {(allowUnsafeDrops ? "allowed" : "blocked")}, data loss {(allowUnsafeChanges ? "allowed" : "blocked")})...");
             var result = comparison.Compare();
             ct.ThrowIfCancellationRequested();
 
@@ -133,13 +135,50 @@ public class SchemaCompareService
         }).ConfigureAwait(false);
     }
 
-    public async Task<string> GenerateScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
+    /// <summary>
+    /// UP script: makes <paramref name="targetInfo"/> look like <paramref name="sourceInfo"/>.
+    /// </summary>
+    public Task<string> GenerateScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeDrops = false, bool allowUnsafeChanges = false)
+        => GenerateScriptBetweenAsync(sourceInfo, targetInfo, targetInfo.Database, allowUnsafeDrops, allowUnsafeChanges);
+
+    /// <summary>
+    /// DOWN script: the same comparison read the other way round, so whatever the deploy
+    /// creates this drops and whatever it drops this recreates — headed at the target, which
+    /// is the database that was changed and therefore the one to run it against.
+    ///
+    /// It is only a rollback while the target still holds the state described here. Generate
+    /// it *before* deploying: afterwards the target matches the source, the reversed diff is
+    /// empty, and the undo window is gone. Reversing an <c>ALTER COLUMN</c> that widened or
+    /// lengthened a column can also truncate live rows, so this text is a preview and a copy
+    /// buffer, never something the app executes.
+    ///
+    /// There is deliberately no <c>allowUnsafeDrops</c> parameter: reversing the deploy means
+    /// dropping the objects it added, so a rollback that honoured the drop guard would undo
+    /// nothing. The data-loss guard still applies unless the operator lifted it for the deploy.
+    /// </summary>
+    public Task<string> GenerateRollbackScriptAsync(ConnectionInfo sourceInfo, ConnectionInfo targetInfo, bool allowUnsafeChanges = false)
+        => GenerateScriptBetweenAsync(targetInfo, sourceInfo, targetInfo.Database, allowUnsafeDrops: true, allowUnsafeChanges,
+            rollbackHeader: $"-- ROLLBACK (DOWN) for {targetInfo.Server}/{targetInfo.Database}\r\n" +
+                            $"-- Reversed from the UP diff {sourceInfo.Server}/{sourceInfo.Database} -> {targetInfo.Server}/{targetInfo.Database}.\r\n" +
+                            $"-- Generated {DateTime.UtcNow:yyyy-MM-dd HH:mm} UTC and only valid while the target is still in its pre-deploy state.\r\n" +
+                            "-- This script DROPS the objects the deploy added — that is its purpose. Reverting a widening\r\n" +
+                            "-- change can also truncate data. Review before running.\r\n\r\n");
+
+    /// <summary>
+    /// Single source of truth for both directions: <paramref name="desired"/> is the DacFx
+    /// "source" (the model to move towards) and <paramref name="current"/> the "target" (the
+    /// database the script rewrites). Deploy and rollback differ only in which side is which,
+    /// so the preview, the confirmation dialog and the executed batches cannot drift apart.
+    /// </summary>
+    private async Task<string> GenerateScriptBetweenAsync(
+        ConnectionInfo desired, ConnectionInfo current, string deployDatabase,
+        bool allowUnsafeDrops, bool allowUnsafeChanges, string rollbackHeader = "")
     {
         return await Task.Run(() =>
         {
             var comparison = new SchemaComparison(
-                new SchemaCompareDatabaseEndpoint(sourceInfo.ConnectionString),
-                new SchemaCompareDatabaseEndpoint(targetInfo.ConnectionString));
+                new SchemaCompareDatabaseEndpoint(desired.ConnectionString),
+                new SchemaCompareDatabaseEndpoint(current.ConnectionString));
             comparison.Options.IgnoreAnsiNulls  = false;
             comparison.Options.IgnoreComments   = false;
             comparison.Options.IgnoreWhitespace = true;
@@ -148,12 +187,40 @@ public class SchemaCompareService
 
             var result = comparison.Compare();
             if (result == null) throw new InvalidOperationException("Comparison returned no result.");
-            var scriptResult = result.GenerateScript(targetInfo.Database);
+            if (!result.Differences.Any())
+                return rollbackHeader + NothingToScript(deployDatabase, isRollback: rollbackHeader.Length > 0);
+            var scriptResult = result.GenerateScript(deployDatabase);
             if (!scriptResult.Success)
                 throw new InvalidOperationException(scriptResult.Message ?? scriptResult.Exception?.Message ?? "Script generation failed");
 
-            return ReorderScriptBatches(scriptResult.Script, targetInfo.Database);
+            return rollbackHeader + RetargetScriptHeader(ReorderScriptBatches(scriptResult.Script, deployDatabase), deployDatabase);
         });
+    }
+
+    /// <summary>
+    /// DacFx refuses to generate a script from a comparison that found nothing — it throws
+    /// "Performing script generation is not possible for this comparison result" — which the
+    /// app used to surface as a red error for the entirely normal case of two databases that
+    /// already match. An empty diff is an answer, not a failure.
+    /// </summary>
+    private static string NothingToScript(string deployDatabase, bool isRollback) =>
+        $"-- {(isRollback ? "Rollback" : "Deployment")} script for {deployDatabase}\r\n" +
+        $"-- The compared schemas match: there is nothing to {(isRollback ? "undo" : "deploy")}.\r\n";
+
+    /// <summary>
+    /// DacFx writes the database it modelled into the script's <c>:setvar</c> lines and its
+    /// header comment, and <c>GenerateScript(name)</c> only rewrites the <c>USE</c> statement.
+    /// Read forwards those agree by accident; reversed, the body would name the source while
+    /// the <c>USE</c> named the target — so every script states in its own header the database
+    /// it has to be run against.
+    /// </summary>
+    private static string RetargetScriptHeader(string script, string deployDatabase)
+    {
+        if (string.IsNullOrWhiteSpace(deployDatabase)) return script;
+        script = Regex.Replace(script, @"(?<=:setvar\s+DatabaseName\s+"")[^""]*(?="")", _ => deployDatabase);
+        script = Regex.Replace(script, @"(?<=:setvar\s+DefaultFilePrefix\s+"")[^""]*(?="")", _ => deployDatabase);
+        script = Regex.Replace(script, @"(?<=Deployment script for )\S+", _ => deployDatabase);
+        return script;
     }
 
     public async Task<(bool Success, string Script)> ApplyChangesAsync(

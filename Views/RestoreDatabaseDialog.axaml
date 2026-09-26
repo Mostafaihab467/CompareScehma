@@ -1,0 +1,91 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:controls="clr-namespace:SchemaCompare.Controls"
+        x:Class="SchemaCompare.Views.RestoreDatabaseDialog"
+        Title="Restore database"
+        Width="880" Height="700" MinWidth="680" MinHeight="520"
+        WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="Auto,*,Auto" Margin="14">
+
+        <StackPanel Spacing="6">
+            <TextBlock x:Name="SourceText" FontSize="12" Foreground="{StaticResource OnSurfaceVariant}"
+                       TextTrimming="CharacterEllipsis" />
+
+            <Border Classes="card" Padding="10,8">
+                <Grid ColumnDefinitions="Auto,*,Auto" RowDefinitions="Auto,Auto,Auto" Margin="0">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Backup set" FontSize="12"
+                               VerticalAlignment="Center" Margin="0,0,10,0" />
+                    <ComboBox Grid.Row="0" Grid.Column="1" x:Name="SetBox" HorizontalAlignment="Stretch"
+                              FontSize="12" VerticalAlignment="Center" />
+                    <TextBlock Grid.Row="0" Grid.Column="2" Text="Restore as" FontSize="12"
+                               VerticalAlignment="Center" Margin="14,0,8,0" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="Database" FontSize="12"
+                               VerticalAlignment="Center" Margin="0,8,10,0" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Grid.ColumnSpan="2" x:Name="TargetBox"
+                             FontSize="12" Margin="0,8,0,0" VerticalAlignment="Center"
+                             Watermark="new or existing database name" />
+
+                    <StackPanel Grid.Row="2" Grid.Column="0" Grid.ColumnSpan="3"
+                                Orientation="Horizontal" Spacing="18" Margin="0,10,0,0">
+                        <CheckBox x:Name="RelocateBox" FontSize="12" IsChecked="True"
+                                  Content="Relocate files to this instance's default folders" />
+                        <CheckBox x:Name="StopAtBox" FontSize="12" Content="Point in time (STOPAT)" />
+                        <TextBox x:Name="StopAtText" Width="150" FontSize="12" IsEnabled="False"
+                                 Watermark="yyyy-MM-dd HH:mm:ss" />
+                        <CheckBox x:Name="ReplaceBox" FontSize="12"
+                                  Content="Overwrite the existing database" IsEnabled="False" />
+                        <CheckBox x:Name="NoRecoveryBox" FontSize="12"
+                                  Content="Leave restoring (more backups follow)" />
+                    </StackPanel>
+                </Grid>
+            </Border>
+
+            <TextBlock x:Name="WarningText" FontSize="12" TextWrapping="Wrap" Margin="2,2,2,0"
+                       Foreground="{StaticResource Error}" IsVisible="False" />
+        </StackPanel>
+
+        <Grid Grid.Row="1" RowDefinitions="Auto,*" Margin="0,10,0,0">
+            <TextBlock Grid.Row="0" Text="Files in the selected set" FontSize="12" FontWeight="SemiBold"
+                       Margin="2,0,0,6" />
+            <Border Grid.Row="1" Classes="card" Padding="0">
+                <DataGrid x:Name="FilesGrid" FontSize="12" HeadersVisibility="Column"
+                          AutoGenerateColumns="False" CanUserResizeColumns="True"
+                          CanUserSortColumns="False" GridLinesVisibility="Horizontal"
+                          IsReadOnly="True">
+                    <DataGrid.Columns>
+                        <DataGridTextColumn Header="Logical name" Width="*" Binding="{Binding LogicalName}"
+                                            IsReadOnly="True" />
+                        <DataGridTextColumn Header="Type" Width="70" Binding="{Binding TypeText}"
+                                            IsReadOnly="True" />
+                        <DataGridTextColumn Header="Size" Width="80" Binding="{Binding SizeText}"
+                                            IsReadOnly="True" />
+                        <DataGridTextColumn Header="Backup was taken from" Width="2*"
+                                            Binding="{Binding SourcePath}" IsReadOnly="True" />
+                        <DataGridTextColumn Header="Restore to" Width="2*"
+                                            Binding="{Binding DestinationPath, Mode=TwoWay}" />
+                    </DataGrid.Columns>
+                </DataGrid>
+            </Border>
+        </Grid>
+
+        <Grid Grid.Row="2" RowDefinitions="Auto,Auto" Margin="0,10,0,0">
+            <Border Classes="card" Padding="0" Height="150">
+                <controls:SqlHighlightedEditor x:Name="PreviewBox" IsReadOnly="True" EnableLint="False" />
+            </Border>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                        Spacing="8" Margin="0,10,0,0">
+                <TextBlock x:Name="PlanSummary" FontSize="11" VerticalAlignment="Center"
+                           HorizontalAlignment="Left" Foreground="{StaticResource OnSurfaceVariant}" />
+                <Button x:Name="CancelBtn" Padding="14,7" FontSize="12">
+                    <TextBlock Text="Cancel" />
+                </Button>
+                <Button x:Name="OkBtn" Classes="primary" Padding="14,7" FontSize="12">
+                    <TextBlock Text="Review restore" />
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

@@ -2,6 +2,8 @@ using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
 
+using SchemaCompare.Views;
+
 namespace SchemaCompare;
 
 public partial class App : Application

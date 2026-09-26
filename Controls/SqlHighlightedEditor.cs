@@ -9,6 +9,8 @@ using AvaloniaEdit.Document;
 using AvaloniaEdit.Rendering;
 using SchemaCompare.Services;
 
+using SchemaCompare.Views;
+
 namespace SchemaCompare.Controls;
 
 /// <summary>
@@ -45,6 +47,9 @@ public sealed class SqlHighlightedEditor : UserControl
     private readonly SqlSquiggleRenderer _squiggles = new();
     private readonly SqlLineHighlightRenderer _lines = new();
     private readonly EditorFindBar _findBar;
+    private readonly EditorFolding _folding;
+    private readonly EditorBookmarks _bookmarks;
+    private readonly EditorGotoLine _gotoLine;
     private readonly DispatcherTimer _lintTimer = new() { Interval = TimeSpan.FromMilliseconds(350) };
     private readonly Popup _lintTip;
     private readonly TextBlock _lintTipText = new() { TextWrapping = TextWrapping.Wrap, FontSize = 11, MaxWidth = 420 };
@@ -97,12 +102,24 @@ public sealed class SqlHighlightedEditor : UserControl
     /// <summary>Find &amp; replace strip shared by every SQL surface.</summary>
     public EditorFindBar FindBar => _findBar;
 
+    /// <summary>Collapse/expand comments, BEGIN…END blocks and GO batches (Ctrl+M).</summary>
+    public EditorFolding Folding => _folding;
+
+    /// <summary>Per-line bookmarks with next/prev navigation (Ctrl+B / Ctrl+K).</summary>
+    public EditorBookmarks Bookmarks => _bookmarks;
+
+    /// <summary>Ctrl+G go-to-line overlay.</summary>
+    public EditorGotoLine GotoLine => _gotoLine;
+
     public SqlHighlightedEditor()
     {
         TsqlHighlighting.Apply(_editor);
         _editor.TextArea.TextView.BackgroundRenderers.Add(_lines);
         _editor.TextArea.TextView.BackgroundRenderers.Add(_squiggles);
         _findBar = new EditorFindBar(_editor);
+        _folding = new EditorFolding(_editor);
+        _bookmarks = new EditorBookmarks(_editor);
+        _gotoLine = new EditorGotoLine(_editor);
 
         // Dedicated hover popup for lint squiggles. A ToolTip forced open via
         // SetIsOpen on every PointerMoved sticks/flickers because it re-shows
@@ -124,7 +141,7 @@ public sealed class SqlHighlightedEditor : UserControl
         _lintTipText.Foreground = ResolveBrush("ErrorPanelText", Color.Parse("#FCA5A5"));
 
         // Popup must live in the tree to resolve its TopLevel for positioning.
-        Content = new Panel { Children = { _editor, _lintTip, _findBar.Host } };
+        Content = new Panel { Children = { _editor, _lintTip, _findBar.Host, _gotoLine.Host } };
 
         _editor.TextChanged += (_, _) =>
         {
@@ -154,12 +171,7 @@ public sealed class SqlHighlightedEditor : UserControl
 
     private void OnEditorKeyDown(object? sender, KeyEventArgs e)
     {
-        // The completion popup owns Escape/F3 while it is open.
-        if (!SqlCompletionProvider.IsPopupOpen && _findBar.HandleKeyDown(e))
-        {
-            e.Handled = true;
-            return;
-        }
+        HandleEditorChord(e);
         if (!EnableIntelliSense) return;
         if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key == Key.Space)
         {
@@ -167,6 +179,24 @@ public sealed class SqlHighlightedEditor : UserControl
             SqlCompletionProvider.Show(_editor.TextArea, _editor.CaretOffset);
             e.Handled = true;
         }
+    }
+
+    /// <summary>
+    /// Routes Ctrl+F/H, F3, Ctrl+M, Ctrl+B/K and Ctrl+G to the shared editor
+    /// helpers. Also called from QueryWindow when focus sits on the result grid,
+    /// so the chords work without clicking into the script first.
+    /// </summary>
+    public bool HandleEditorChord(KeyEventArgs e)
+    {
+        // The completion popup owns Escape/F3 while it is open.
+        if (SqlCompletionProvider.IsPopupOpen) return false;
+        if (_findBar.HandleKeyDown(e) || _folding.HandleKeyDown(e) ||
+            _bookmarks.HandleKeyDown(e) || _gotoLine.HandleKeyDown(e))
+        {
+            e.Handled = true;
+            return true;
+        }
+        return false;
     }
 
     private void ApplyIntelliSense()

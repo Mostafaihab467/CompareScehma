@@ -23,3 +23,4 @@ build-out/
 verify-out/
 harnessbuild/
 build-verify/
+__pycache__/

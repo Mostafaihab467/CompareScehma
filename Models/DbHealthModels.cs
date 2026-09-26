@@ -244,3 +244,130 @@ public sealed class DbHealthSnapshot
     /// <summary>Sections that could not be read (permissions / Azure limits).</summary>
     public List<string> Warnings { get; init; } = [];
 }
+
+// ═══════════════════ Query Store (one database at a time) ═══════════════════
+
+/// <summary>What <c>sys.database_query_store_options</c> says about one database. Query
+/// Store is off by default, so "no rows" is usually a configuration fact rather than an
+/// empty result — the tab has to name it instead of showing a blank grid.</summary>
+public sealed class QueryStoreState
+{
+    public string Database { get; init; } = "";
+    public string DesiredState { get; init; } = "";
+    public string ActualState { get; init; } = "";
+    public string AdditionalInfo { get; init; } = "";
+    public string QueryCaptureMode { get; init; } = "";
+    public string WaitStatsCapture { get; init; } = "";
+    public string SizeBasedCleanup { get; init; } = "";
+    public long CurrentStorageMb { get; init; }
+    public long MaxStorageMb { get; init; }
+    public long FlushIntervalSeconds { get; init; }
+    public long IntervalLengthMinutes { get; init; }
+    public long StaleQueryThresholdDays { get; init; }
+    public int MaxPlansPerQuery { get; init; }
+
+    public bool IsOn => ActualState.Equals("READ_WRITE", StringComparison.OrdinalIgnoreCase)
+                     || ActualState.Equals("READ_ONLY", StringComparison.OrdinalIgnoreCase);
+    public bool IsReadOnly => ActualState.Equals("READ_ONLY", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The state plus the reason it is not collecting, in one line.</summary>
+    public string Summary
+    {
+        get
+        {
+            if (string.IsNullOrEmpty(ActualState))
+                return $"Query Store has no options for [{Database}] — the database is offline or the view is not readable.";
+            if (!IsOn)
+                return $"Query Store is {ActualState} on [{Database}] (desired: {DesiredState}). " +
+                       "Nothing has been captured, so there is no history to list." +
+                       (string.IsNullOrEmpty(AdditionalInfo) ? "" : $" The server said: {AdditionalInfo}");
+            var s = $"Query Store is {ActualState} on [{Database}] — {CurrentStorageMb:N0} of {MaxStorageMb:N0} MB used, " +
+                    $"one statistics interval per {IntervalLengthMinutes} min, flushed every {Math.Max(1, FlushIntervalSeconds / 60)} min.";
+            if (!QueryCaptureMode.Equals("ALL", StringComparison.OrdinalIgnoreCase) && QueryCaptureMode.Length > 0)
+                s += $" Capture mode: {QueryCaptureMode}.";
+            if (IsReadOnly)
+                s += " It is read-only, so a plan cannot be forced until it is writable again.";
+            if (!string.IsNullOrEmpty(AdditionalInfo))
+                s += $" Note: {AdditionalInfo}";
+            return s;
+        }
+    }
+}
+
+/// <summary>One query whose average duration in the second half of the window is worse
+/// than in the first half — the "Regressed Queries" report.</summary>
+public sealed class QueryStoreRegressedRow
+{
+    public long QueryId { get; init; }
+    public long PlanId { get; init; }
+    public string ObjectName { get; init; } = "";
+    public string QueryText { get; init; } = "";
+    public double BeforeExecutions { get; init; }
+    public double AfterExecutions { get; init; }
+    public double BeforeAvgMs { get; init; }
+    public double AfterAvgMs { get; init; }
+    public double BeforeCpuMs { get; init; }
+    public double AfterCpuMs { get; init; }
+    public double BeforeReads { get; init; }
+    public double AfterReads { get; init; }
+    public DateTime? LastExecutedUtc { get; init; }
+    public bool IsForced { get; init; }
+    public int ForceFailureCount { get; init; }
+    public string ForceFailureReason { get; init; } = "";
+
+    public double ChangePercent => BeforeAvgMs <= 0 ? 0 : (AfterAvgMs - BeforeAvgMs) / BeforeAvgMs * 100;
+    public string ChangeText => $"{ChangePercent:+0;-0;0.0}%";
+    public string DurationText => $"{BeforeAvgMs:N1} → {AfterAvgMs:N1} ms";
+    public string CpuText => $"{BeforeCpuMs:N1} → {AfterCpuMs:N1} ms";
+    public string ReadsText => $"{BeforeReads:N0} → {AfterReads:N0}";
+    public string OneLineQuery => OneLine(QueryText);
+
+    internal static string OneLine(string text)
+    {
+        var flat = new string((text ?? "").Where(c => !char.IsControl(c) || c == '\n').ToArray())
+            .Replace("\r", " ").Replace("\n", " ").Trim();
+        while (flat.Contains("  ")) flat = flat.Replace("  ", " ");
+        return flat.Length <= 200 ? flat : flat[..200] + "…";
+    }
+}
+
+/// <summary>One query/plan pair ranked by a resource the operator picked — the
+/// "Top Resource Consuming Queries" report.</summary>
+public sealed class QueryStoreTopRow
+{
+    public long QueryId { get; init; }
+    public long PlanId { get; init; }
+    public string ObjectName { get; init; } = "";
+    public string QueryText { get; init; } = "";
+    public double Executions { get; init; }
+    public double AvgMs { get; init; }
+    public double TotalMs { get; init; }
+    public double AvgCpuMs { get; init; }
+    public double AvgReads { get; init; }
+    public double AvgWrites { get; init; }
+    public double AvgRows { get; init; }
+    public DateTime? LastExecutedUtc { get; init; }
+    public bool IsForced { get; init; }
+    public string ForceFailureReason { get; init; } = "";
+    public string OneLineQuery => QueryStoreRegressedRow.OneLine(QueryText);
+}
+
+/// <summary>Every plan Query Store holds for one query, which is what a plan choice is
+/// made from: cost, whether it is already forced, and why forcing failed before.</summary>
+public sealed class QueryStorePlanRow
+{
+    public long PlanId { get; init; }
+    public DateTime? CreatedUtc { get; init; }
+    public DateTime? LastExecutedUtc { get; init; }
+    public double Executions { get; init; }
+    public double AvgMs { get; init; }
+    public int Compiles { get; init; }
+    public bool IsForced { get; init; }
+    public int ForceFailureCount { get; init; }
+    public string ForceFailureReason { get; init; } = "";
+    public string PlanXml { get; init; } = "";
+
+    public string StatusText => IsForced
+        ? (ForceFailureCount > 0 ? $"forced — {ForceFailureCount} failure(s): {ForceFailureReason}" : "forced")
+        : ForceFailureCount > 0 ? $"not forced ({ForceFailureCount} past failure(s))" : "not forced";
+}

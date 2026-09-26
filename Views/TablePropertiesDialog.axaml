@@ -1,0 +1,205 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        xmlns:models="clr-namespace:SchemaCompare.Models"
+        mc:Ignorable="d"
+        x:Class="SchemaCompare.Views.TablePropertiesDialog"
+        Title="Table Properties"
+        Width="860" Height="700" MinWidth="640" MinHeight="480"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="*,Auto" Margin="14">
+
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                    <TextBlock Text="🗂" FontSize="18" VerticalAlignment="Center" />
+                    <TextBlock Text="{Binding FullName}" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" />
+                    <TextBlock Text="Table Properties" FontSize="12" VerticalAlignment="Center"
+                               Foreground="{StaticResource OnSurfaceVariant}" Margin="6,0,0,0" />
+                </StackPanel>
+
+                <!-- ═══ Space & rows ═══ -->
+                <Border Classes="card" Padding="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Storage" FontWeight="Bold" FontSize="13" />
+                        <StackPanel Orientation="Horizontal" Spacing="24">
+                            <StackPanel>
+                                <TextBlock Text="Row count" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                                <TextBlock Text="{Binding RowsText}" FontSize="16" FontWeight="Bold"
+                                           Foreground="{StaticResource Primary500}" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Reserved" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                                <TextBlock Text="{Binding ReservedText}" FontSize="16" FontWeight="Bold" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Data" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                                <TextBlock Text="{Binding DataText}" FontSize="16" FontWeight="Bold" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Index" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                                <TextBlock Text="{Binding IndexText}" FontSize="16" FontWeight="Bold" />
+                            </StackPanel>
+                            <StackPanel>
+                                <TextBlock Text="Unused" FontSize="10" Foreground="{StaticResource OnSurfaceVariant}" />
+                                <TextBlock Text="{Binding UnusedText}" FontSize="16" FontWeight="Bold" />
+                            </StackPanel>
+                        </StackPanel>
+                        <TextBlock Text="{Binding SpaceSummaryText}" FontSize="11"
+                                   Foreground="{StaticResource OnSurfaceVariant}" />
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Columns ═══ -->
+                <Border Classes="card" Padding="0">
+                    <StackPanel>
+                        <TextBlock Text="Columns" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding Columns}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="240">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="#" Binding="{Binding OrdinalPosition}" Width="40" />
+                                <DataGridTextColumn Header="Column" Binding="{Binding Name}" Width="170" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding DisplayType}" Width="130" />
+                                <DataGridTextColumn Header="Nullable" Binding="{Binding NullableDisplay}" Width="90" />
+                                <DataGridTextColumn Header="PK" Binding="{Binding PkDisplay}" Width="44" />
+                                <DataGridTextColumn Header="Identity" Binding="{Binding IdentityDisplay}" Width="70" />
+                                <DataGridTextColumn Header="Default" Binding="{Binding DefaultValue}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Keys ═══ -->
+                <Border Classes="card" Padding="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Keys &amp; Constraints" FontWeight="Bold" FontSize="13" />
+                        <Grid ColumnDefinitions="150,*">
+                            <TextBlock Text="Primary key:" Foreground="{StaticResource OnSurfaceVariant}" />
+                            <TextBlock Grid.Column="1" Text="{Binding PrimaryKeyText}" />
+                        </Grid>
+
+                        <TextBlock Text="Foreign keys (this table →):" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,0" />
+                        <DataGrid ItemsSource="{Binding ForeignKeys}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="160">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Constraint" Binding="{Binding Name}" Width="200" />
+                                <DataGridTextColumn Header="Columns" Binding="{Binding Columns}" Width="200" />
+                                <DataGridTextColumn Header="References" Binding="{Binding ReferencedTable}" Width="180" />
+                                <DataGridTextColumn Header="Referenced columns" Binding="{Binding ReferencedColumns}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Referenced by (→ this table):" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,0" />
+                        <DataGrid ItemsSource="{Binding ReferencedBy}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="160">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Constraint" Binding="{Binding Name}" Width="200" />
+                                <DataGridTextColumn Header="Referenced columns" Binding="{Binding Columns}" Width="180" />
+                                <DataGridTextColumn Header="From table" Binding="{Binding ParentTable}" Width="180" />
+                                <DataGridTextColumn Header="Foreign columns" Binding="{Binding ParentColumns}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Check constraints:" FontSize="11" FontWeight="SemiBold" Margin="0,4,0,0" />
+                        <ItemsControl ItemsSource="{Binding Checks}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="models:TableCheckRow">
+                                    <TextBlock Margin="8,1" FontSize="12" TextWrapping="Wrap">
+                                        <Run Text="{Binding Name}" FontWeight="SemiBold" /><Run Text=" — " /><Run Text="{Binding Definition}" />
+                                    </TextBlock>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Indexes ═══ -->
+                <Border Classes="card" Padding="0">
+                    <StackPanel>
+                        <TextBlock Text="Indexes (usage since last SQL Server restart)" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding Indexes}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="220">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="180" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding KindText}" Width="140" />
+                                <DataGridTextColumn Header="Unique" Binding="{Binding UniqueText}" Width="64" />
+                                <DataGridTextColumn Header="State" Binding="{Binding DisabledText}" Width="84" />
+                                <DataGridTextColumn Header="Key columns" Binding="{Binding KeyColumns}" Width="180" />
+                                <DataGridTextColumn Header="Included" Binding="{Binding IncludedColumns}" Width="140" />
+                                <DataGridTextColumn Header="Seeks" Binding="{Binding UserSeeks, StringFormat='{}{0:N0}'}" Width="80" />
+                                <DataGridTextColumn Header="Scans" Binding="{Binding UserScans, StringFormat='{}{0:N0}'}" Width="80" />
+                                <DataGridTextColumn Header="Lookups" Binding="{Binding UserLookups, StringFormat='{}{0:N0}'}" Width="84" />
+                                <DataGridTextColumn Header="Updates" Binding="{Binding UserUpdates, StringFormat='{}{0:N0}'}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Triggers & Statistics ═══ -->
+                <Border Classes="card" Padding="0">
+                    <StackPanel>
+                        <TextBlock Text="Triggers" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding Triggers}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="140">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Trigger" Binding="{Binding Name}" Width="200" />
+                                <DataGridTextColumn Header="Timing" Binding="{Binding Timing}" Width="110" />
+                                <DataGridTextColumn Header="Events" Binding="{Binding Events}" Width="*" />
+                                <DataGridTextColumn Header="State" Binding="{Binding DisabledText}" Width="90" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                        <TextBlock Text="Statistics" FontWeight="Bold" FontSize="13" Margin="12,10,12,4" />
+                        <DataGrid ItemsSource="{Binding Statistics}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="180">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Statistic" Binding="{Binding Name}" Width="200" />
+                                <DataGridTextColumn Header="Columns" Binding="{Binding Columns}" Width="200" />
+                                <DataGridTextColumn Header="Rows" Binding="{Binding RowsText}" Width="90" />
+                                <DataGridTextColumn Header="Filter" Binding="{Binding FilterText}" Width="80" />
+                                <DataGridTextColumn Header="Last updated (STATS_DATE)" Binding="{Binding UpdatedText}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══ Partitions ═══ -->
+                <Border Classes="card" Padding="12">
+                    <StackPanel Spacing="6">
+                        <TextBlock Text="Partitioning" FontWeight="Bold" FontSize="13" />
+                        <Grid ColumnDefinitions="150,*">
+                            <TextBlock Text="Partitioning:" Foreground="{StaticResource OnSurfaceVariant}" />
+                            <TextBlock Grid.Column="1" Text="{Binding PartitioningText}" />
+                        </Grid>
+                        <DataGrid ItemsSource="{Binding Partitions}" AutoGenerateColumns="False"
+                                  IsReadOnly="True" CanUserSortColumns="True" CanUserReorderColumns="False"
+                                  GridLinesVisibility="All" FontSize="12" MaxHeight="180">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Partition" Binding="{Binding Number}" Width="80" />
+                                <DataGridTextColumn Header="Rows" Binding="{Binding Rows, StringFormat='{}{0:N0}'}" Width="100" />
+                                <DataGridTextColumn Header="Boundary" Binding="{Binding Boundary}" Width="160" />
+                                <DataGridTextColumn Header="Function" Binding="{Binding FunctionName}" Width="150" />
+                                <DataGridTextColumn Header="Scheme" Binding="{Binding SchemeName}" Width="150" />
+                                <DataGridTextColumn Header="Filegroup" Binding="{Binding Filegroup}" Width="*" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <Button Grid.Row="1" x:Name="CloseBtn" Classes="primary" Padding="16,7" FontSize="12"
+                HorizontalAlignment="Right" Margin="0,10,0,0">
+            <TextBlock Text="Close" />
+        </Button>
+    </Grid>
+</Window>

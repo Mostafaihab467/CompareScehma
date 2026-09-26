@@ -1,3 +1,4 @@
+using Microsoft.Data.SqlClient;
 using Microsoft.SqlServer.Dac;
 using SchemaCompare.Models;
 
@@ -28,6 +29,43 @@ public sealed class DatabaseBackupService
             return "Backup completed. Schema verification was skipped because procedures or views reference objects as [Database].[schema].[object]. Rewrite those as [schema].[object] for a fully validated package.";
         }
     });
+
+    /// <summary>
+    /// Runs a native backup on the server itself and streams the server's own
+    /// percent-complete messages back as progress. Returns the verified outcome.
+    /// </summary>
+    public async Task<string> BackupAsync(
+        ConnectionInfo database, BackupRequest request, IProgress<string>? progress = null,
+        CancellationToken ct = default)
+    {
+        request.Validate();
+
+        // BACKUP writes from the SQL Server service account, so the path is resolved
+        // against that machine; connecting to the database itself keeps the name simple.
+        await using var conn = new SqlConnection(database.ConnectionString);
+        conn.InfoMessage += (_, e) =>
+        {
+            foreach (SqlError error in e.Errors)
+                if (!string.IsNullOrWhiteSpace(error.Message)) progress?.Report(error.Message);
+        };
+        await conn.OpenAsync(ct);
+
+        progress?.Report(
+            $"{database.Server} is writing {(request.LogBackup ? "a log backup" : "a full backup")} of [{request.Database}] to {request.FilePath}.");
+        await using (var cmd = new SqlCommand(ManagerScriptBuilder.BackupDatabase(request), conn) { CommandTimeout = 0 })
+            await cmd.ExecuteNonQueryAsync(ct);
+
+        if (!request.VerifyAfterBackup)
+            return $"Backup of [{request.Database}] written to {request.FilePath} (not verified).";
+
+        progress?.Report($"RESTORE VERIFYONLY is reading {Path.GetFileName(request.FilePath)} back from the server.");
+        await using (var verify = new SqlCommand(
+                         ManagerScriptBuilder.VerifyBackup(request.FilePath, request.Checksum), conn)
+                     { CommandTimeout = 0 })
+            await verify.ExecuteNonQueryAsync(ct);
+
+        return $"Backup of [{request.Database}] written to {request.FilePath} and verified.";
+    }
 
     /// <summary>
     /// DAC export treats [ThisDatabase].[dbo].[Table] as an "external" reference and fails SQL71562

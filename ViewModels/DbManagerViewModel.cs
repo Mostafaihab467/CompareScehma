@@ -5,6 +5,8 @@ using CommunityToolkit.Mvvm.Input;
 using SchemaCompare.Models;
 using SchemaCompare.Services;
 
+using SchemaCompare.Views;
+
 namespace SchemaCompare.ViewModels;
 
 public enum ManagerTab { Data, Structure, Definition, Execute }
@@ -12,6 +14,7 @@ public enum ManagerTab { Data, Structure, Definition, Execute }
 public partial class DbManagerViewModel : ObservableObject
 {
     private readonly DbManagerService _service = new();
+    private readonly DatabaseBackupService _backupService = new();
     private readonly SavedConnectionsService _savedService = new();
 
     private CancellationTokenSource? _cts;
@@ -33,15 +36,66 @@ public partial class DbManagerViewModel : ObservableObject
     [ObservableProperty] private string _searchText = string.Empty;
     [ObservableProperty] private bool _isLoadingTree;
 
+    // ─── Object Explorer filter (applied server-side when folders load) ───
+    [ObservableProperty] private string _objectNameFilter = string.Empty;
+    [ObservableProperty] private string _objectSchemaFilter = string.Empty;
+    [ObservableProperty] private string _objectTypeFilter = "(All types)";
+    [ObservableProperty] private bool _isExplorerFilterActive;
+    [ObservableProperty] private string _explorerFilterBadge = string.Empty;
+    public string[] ObjectTypeFilterOptions { get; } =
+        ["(All types)", "Tables", "Views", "Stored Procedures", "Functions", "Triggers"];
+    public ICommand ClearExplorerFilterCommand { get; }
+
     private ConnectionInfo? _connInfo;
+
+    /// <summary>Set when the explorer is pointed at a sibling database. It overrides
+    /// the saved profile for every command, so the tree, the data grid and the
+    /// generated scripts can never disagree about which database they address.
+    /// The stored profile itself is never rewritten.</summary>
+    private string? _activeDatabase;
+
+    /// <summary>The connection every command in this window uses.</summary>
+    private ConnectionInfo CurrentConnection()
+    {
+        var info = SelectedConnection?.ToConnectionInfo() ?? _connInfo
+            ?? throw new InvalidOperationException("Connect to a server first.");
+        return _activeDatabase == null ||
+               string.Equals(_activeDatabase, info.Database, StringComparison.OrdinalIgnoreCase)
+            ? info
+            : info.ForDatabase(_activeDatabase);
+    }
+
+    /// <summary>The database node the explorer is working in, or null before the
+    /// tree loads. Callers must not assume it is a top-level root any more — the
+    /// server node and the Databases folder sit above it.</summary>
+    public ManagerNode? CurrentDatabaseNode => FindDatabaseRoot();
+
+    /// <summary>The database node the tree is currently working in. The server root
+    /// and the Databases folder sit above it, so this has to search.</summary>
+    private ManagerNode? FindDatabaseRoot()
+    {
+        var queue = new Queue<ManagerNode>(ManagerTreeRoots);
+        while (queue.Count > 0)
+        {
+            var node = queue.Dequeue();
+            if (node.Kind == NodeKind.Root) return node;
+            foreach (var child in node.Children) queue.Enqueue(child);
+        }
+        return null;
+    }
     private string? _pendingDefinition;
 
     // Dialog hosts (wired by DbManagerWindow)
     public Func<string, string, TableMetadata, Task<IndexSpec?>>? ShowNewIndexDialogAsync;
     public Func<string, string, TableMetadata, Task<PartitionSpec?>>? ShowPartitionDialogAsync;
+    public Func<DesignerKind, Task<DesignerSpec?>>? ShowObjectDesignerAsync;
     public Func<string, string, string, Task<bool>>? ShowScriptConfirmAsync;
     public Func<DatabaseProperties, Task>? ShowDbPropertiesAsync;
+    public Func<TableProperties, Task>? ShowTablePropertiesAsync;
+    public Func<ObjectDependencies, Task>? ShowDependenciesAsync;
     public Func<Task<string?>>? PickBackupFileAsync;
+    public Func<RestoreDraft, Task<RestorePlan?>>? ShowRestoreDialogAsync;
+    public Func<BackupDraft, Task<BackupRequest?>>? ShowBackupDialogAsync;
 
     // -------------------------------------------------------------------------
     // Active tab
@@ -136,9 +190,13 @@ public partial class DbManagerViewModel : ObservableObject
 
     // Explorer context actions
     public ICommand OpenNodeCommand { get; }
+    public ICommand DoubleTapNodeCommand { get; }
+    public ICommand TablePropertiesCommand { get; }
+    public ICommand ViewDependenciesCommand { get; }
     public ICommand SelectTopRowsCommand { get; }
     public ICommand EditTopRowsCommand { get; }
     public ICommand NewIndexCommand { get; }
+    public ICommand NewObjectCommand { get; }
     public ICommand CreatePartitionCommand { get; }
     public ICommand ScriptCreateCommand { get; }
     public ICommand ScriptSelectCommand { get; }
@@ -157,6 +215,12 @@ public partial class DbManagerViewModel : ObservableObject
     public ICommand DatabasePropertiesCommand { get; }
     public ICommand ShrinkDatabaseCommand { get; }
     public ICommand RestoreDatabaseCommand { get; }
+    public ICommand BackupDatabaseCommand { get; }
+
+    // Server-scope actions
+    public ICommand UseAsCurrentDatabaseCommand { get; }
+    public ICommand StartAgentJobCommand { get; }
+    public ICommand ToggleAgentJobCommand { get; }
 
     public DbManagerViewModel()
     {
@@ -175,13 +239,18 @@ public partial class DbManagerViewModel : ObservableObject
         SwitchToExecuteTabCommand   = new AsyncRelayCommand(() => SwitchTabAsync(ManagerTab.Execute));
         SearchCommand               = new AsyncRelayCommand(SearchAsync);
         ClearSearchCommand          = new AsyncRelayCommand(ClearSearchAsync);
+        ClearExplorerFilterCommand  = new RelayCommand(ClearExplorerFilter);
         SaveTableChangesCommand     = new AsyncRelayCommand(SaveTableChangesAsync, () => HasPendingEdits);
         DeleteRowCommand            = new AsyncRelayCommand(DeleteSelectedRowAsync, () => HasSelectedRow);
 
         OpenNodeCommand         = new AsyncRelayCommand<ManagerNode?>(OpenNodeAsync);
+        DoubleTapNodeCommand    = new AsyncRelayCommand<ManagerNode?>(DoubleTapNodeAsync);
+        TablePropertiesCommand  = new AsyncRelayCommand<ManagerNode?>(TablePropertiesAsync);
+        ViewDependenciesCommand = new AsyncRelayCommand<ManagerNode?>(ViewDependenciesAsync);
         SelectTopRowsCommand    = new RelayCommand<ManagerNode?>(n => OpenWithTopN(n, 1000));
         EditTopRowsCommand      = new RelayCommand<ManagerNode?>(n => OpenWithTopN(n, 200));
         NewIndexCommand         = new AsyncRelayCommand<ManagerNode?>(NewIndexAsync);
+        NewObjectCommand        = new AsyncRelayCommand<ManagerNode?>(NewObjectAsync);
         CreatePartitionCommand  = new AsyncRelayCommand<ManagerNode?>(CreatePartitionAsync);
         ScriptCreateCommand     = new AsyncRelayCommand<ManagerNode?>(ScriptCreateAsync);
         ScriptSelectCommand     = new AsyncRelayCommand<ManagerNode?>(ScriptSelectAsync);
@@ -208,6 +277,10 @@ public partial class DbManagerViewModel : ObservableObject
         DatabasePropertiesCommand = new AsyncRelayCommand<ManagerNode?>(DatabasePropertiesAsync);
         ShrinkDatabaseCommand   = new AsyncRelayCommand<ManagerNode?>(ShrinkDatabaseAsync);
         RestoreDatabaseCommand  = new AsyncRelayCommand<ManagerNode?>(RestoreDatabaseAsync);
+        BackupDatabaseCommand   = new AsyncRelayCommand<ManagerNode?>(BackupDatabaseAsync);
+        UseAsCurrentDatabaseCommand = new AsyncRelayCommand<ManagerNode?>(UseAsCurrentDatabaseAsync);
+        StartAgentJobCommand        = new AsyncRelayCommand<ManagerNode?>(StartAgentJobAsync);
+        ToggleAgentJobCommand       = new AsyncRelayCommand<ManagerNode?>(ToggleAgentJobAsync);
 
         LoadSavedConnections();
     }
@@ -244,10 +317,11 @@ public partial class DbManagerViewModel : ObservableObject
         {
             IsLoadingTree = true;
             StatusMessage = $"Connecting to {SelectedConnection.DisplayName}…";
-            var info = SelectedConnection.ToConnectionInfo();
+            // Connect always lands on the database the profile names.
+            _activeDatabase = null;
+            var info = CurrentConnection();
             await LoadObjectTreeAsync(info, ct);
             IsConnected = true;
-            ConnectedDatabaseLabel = $"{info.Server} / {info.Database}";
             StatusMessage = "Connected. Click an object to explore.";
         });
         IsLoadingTree = false;
@@ -260,7 +334,7 @@ public partial class DbManagerViewModel : ObservableObject
         {
             IsLoadingTree = true;
             StatusMessage = "Refreshing…";
-            var info = SelectedConnection.ToConnectionInfo();
+            var info = CurrentConnection();
             await LoadObjectTreeAsync(info, ct);
             StatusMessage = "Object tree refreshed.";
         });
@@ -270,29 +344,381 @@ public partial class DbManagerViewModel : ObservableObject
     private async Task LoadObjectTreeAsync(ConnectionInfo info, CancellationToken ct)
     {
         _connInfo = info;
+        _activeDatabase = info.Database;
+        UpdateExplorerFilterState();
         ManagerTreeRoots.Clear();
+        ConnectedDatabaseLabel = $"{info.Server} / {info.Database}";
 
-        var root = new ManagerNode
+        // Server scope sits above the database: the same tree SSMS opens with.
+        var serverRoot = new ManagerNode
         {
-            Kind = NodeKind.Root,
-            Label = $"{info.Server} / {info.Database}",
-            Icon = "🗄",
+            Kind = NodeKind.ServerRoot,
+            Label = info.Server,
+            Detail = info.SafeForLog,
+            Icon = "🖥",
             IsExpanded = true
         };
-        ManagerTreeRoots.Add(root);
+        ManagerTreeRoots.Add(serverRoot);
 
-        var tables = await _service.GetObjectsAsync(info, DbObjectType.Table, ct);
-        var views  = await _service.GetObjectsAsync(info, DbObjectType.View, ct);
-        var procs  = await _service.GetObjectsAsync(info, DbObjectType.StoredProcedure, ct);
-        var funcs  = await _service.GetObjectsAsync(info, DbObjectType.Function, ct);
-        var trigs  = await _service.GetObjectsAsync(info, DbObjectType.Trigger, ct);
+        // The Databases folder holds the connected database, so it loads with the
+        // tree; the other server folders stay lazy.
+        var databases = MakeDatabasesFolder(serverRoot);
+        serverRoot.Children.Add(databases);
+        serverRoot.Children.Add(MakeServerSecurityFolder(serverRoot));
+        serverRoot.Children.Add(MakeAgentFolder(serverRoot));
+        serverRoot.Children.Add(MakeLinkedServersFolder(serverRoot));
+        await LoadDatabasesFolderAsync(databases, info, ct);
 
-        root.Children.Add(MakeObjectFolder("Tables", "🗂", NodeKind.TablesFolder, tables, true));
-        root.Children.Add(MakeObjectFolder("Views", "👁", NodeKind.ViewsFolder, views, false));
-        root.Children.Add(MakeObjectFolder("Stored Procedures", "⚙", NodeKind.ProcsFolder, procs, false));
-        root.Children.Add(MakeObjectFolder("Functions", "𝑓", NodeKind.FunctionsFolder, funcs, false));
-        root.Children.Add(MakeObjectFolder("Triggers", "⚡", NodeKind.TriggersFolder, trigs, false));
-        root.Children.Add(MakeSecurityFolder());
+        _ = AttachServerOverviewAsync(serverRoot, info);
+    }
+
+    /// <summary>Annotates the server node with what the instance says about itself.
+    /// A version probe must never fail a connection, so a failure only costs the label.</summary>
+    private async Task AttachServerOverviewAsync(ManagerNode serverRoot, ConnectionInfo info)
+    {
+        try
+        {
+            var overview = await _service.GetServerOverviewAsync(info, CancellationToken.None);
+            serverRoot.Detail = $"SQL Server {overview.Version} · {overview.Edition}";
+            serverRoot.Label = string.IsNullOrWhiteSpace(overview.Version)
+                ? info.Server
+                : $"{info.Server} ({overview.Version})";
+        }
+        catch (Exception ex)
+        {
+            AppLog.Info($"[Manager] Server overview unavailable: {ex.Message}");
+        }
+    }
+
+    // ─── Server-scope folders (all lazy, all read-only) ──────────────────────
+
+    /// <summary>The connected database keeps its own node — and the object folders
+    /// already loaded under it — so a refresh reloads the siblings alongside it.</summary>
+    private ManagerNode MakeDatabasesFolder(ManagerNode parent)
+    {
+        var folder = new ManagerNode
+        {
+            Kind = NodeKind.DatabasesFolder, Label = "Databases", Icon = "🗃",
+            Parent = parent, IsExpanded = true
+        };
+        folder.Loader = ct =>
+        {
+            if (_connInfo == null) return Task.CompletedTask;
+            return LoadDatabasesFolderAsync(folder, _connInfo, ct);
+        };
+        return folder;
+    }
+
+    /// <summary>Databases in SSMS order of importance: the one the explorer is
+    /// working in first and fully loaded, then every sibling as a leaf.</summary>
+    private async Task LoadDatabasesFolderAsync(ManagerNode folder, ConnectionInfo info, CancellationToken ct)
+    {
+        folder.Children.Clear();
+        folder.IsLoading = true;
+        try
+        {
+            var current = new ManagerNode
+            {
+                Kind = NodeKind.Root, Label = info.Database, Name = info.Database,
+                Icon = "🗄", Parent = folder, IsExpanded = true
+            };
+            folder.Children.Add(current);
+            await LoadDatabaseFoldersAsync(current, info, ct);
+
+            var dbs = await _service.GetDatabasesAsync(info, ct);
+            foreach (var db in dbs)
+            {
+                if (string.Equals(db.Name, info.Database, StringComparison.OrdinalIgnoreCase)) continue;
+                folder.Children.Add(new ManagerNode
+                {
+                    Kind = NodeKind.DatabaseNode, Label = db.Name,
+                    Detail = $"{db.State} · {db.SizeMb:N0} MB",
+                    Icon = db.IsOnline ? "🗄" : "⏸",
+                    Name = db.Name, Parent = folder
+                });
+            }
+            folder.Label = $"Databases ({dbs.Count})";
+        }
+        finally
+        {
+            folder.IsLoading = false;
+        }
+    }
+
+    /// <summary>Server logins and server roles. Distinct from the database Security
+    /// folder: these come from sys.server_principals on master.</summary>
+    private ManagerNode MakeServerSecurityFolder(ManagerNode parent)
+    {
+        var folder = new ManagerNode
+        {
+            Kind = NodeKind.ServerSecurityFolder, Label = "Security", Icon = "🛡", Parent = parent
+        };
+        folder.Children.Add(new ManagerNode { Kind = NodeKind.Column, Label = "Loading…", Icon = "⏳" });
+        folder.Loader = async ct =>
+        {
+            folder.Children.Clear();
+            if (_connInfo == null) return;
+            folder.IsLoading = true;
+            try
+            {
+                var (logins, roles) = await _service.GetServerSecurityAsync(_connInfo, ct);
+
+                var loginsFolder = new ManagerNode
+                {
+                    Kind = NodeKind.ServerSecurityFolder, Label = $"Logins ({logins.Count})",
+                    Icon = "👤", Parent = folder
+                };
+                foreach (var l in logins)
+                    loginsFolder.Children.Add(new ManagerNode
+                    {
+                        Kind = NodeKind.Login, Label = l.Label,
+                        Detail = $"{l.TypeDesc} · default {l.DefaultDatabase}",
+                        Icon = l.IsDisabled ? "⏸" : l.IsWindowsLogin ? "🖥" : "👤",
+                        Name = l.Name, Parent = loginsFolder
+                    });
+
+                var rolesFolder = new ManagerNode
+                {
+                    Kind = NodeKind.ServerSecurityFolder, Label = $"Server Roles ({roles.Count})",
+                    Icon = "🛡", Parent = folder
+                };
+                foreach (var r in roles)
+                    rolesFolder.Children.Add(new ManagerNode
+                    {
+                        Kind = NodeKind.ServerRole, Label = r.Name, Detail = r.TypeDesc,
+                        Icon = "🛡", Name = r.Name, Parent = rolesFolder
+                    });
+
+                folder.Children.Add(loginsFolder);
+                folder.Children.Add(rolesFolder);
+            }
+            finally
+            {
+                folder.IsLoading = false;
+            }
+        };
+        return folder;
+    }
+
+    /// <summary>SQL Agent: the job list, or an explicit statement that this instance
+    /// has no Agent rather than a swallowed error.</summary>
+    private ManagerNode MakeAgentFolder(ManagerNode parent)
+    {
+        var folder = new ManagerNode
+        {
+            Kind = NodeKind.AgentFolder, Label = "SQL Agent", Icon = "🤖", Parent = parent
+        };
+        folder.Children.Add(new ManagerNode { Kind = NodeKind.Column, Label = "Loading…", Icon = "⏳" });
+        folder.Loader = async ct =>
+        {
+            folder.Children.Clear();
+            if (_connInfo == null) return;
+            folder.IsLoading = true;
+            try
+            {
+                var jobs = await _service.GetAgentJobsAsync(_connInfo, ct);
+                if (jobs == null)
+                {
+                    folder.Children.Add(new ManagerNode
+                    {
+                        Kind = NodeKind.Column, Icon = "ℹ",
+                        Label = "SQL Agent is not available on this instance"
+                    });
+                    return;
+                }
+
+                var jobsFolder = new ManagerNode
+                {
+                    Kind = NodeKind.AgentJobsFolder, Label = $"Jobs ({jobs.Count})",
+                    Icon = "📋", Parent = folder
+                };
+                foreach (var j in jobs)
+                    jobsFolder.Children.Add(new ManagerNode
+                    {
+                        Kind = NodeKind.AgentJob, Label = j.Name, Detail = j.Detail,
+                        Icon = j.Enabled ? "▶" : "⏸",
+                        Name = j.Name, JobEnabled = j.Enabled, Parent = jobsFolder
+                    });
+                folder.Children.Add(jobsFolder);
+            }
+            finally
+            {
+                folder.IsLoading = false;
+            }
+        };
+        return folder;
+    }
+
+    private ManagerNode MakeLinkedServersFolder(ManagerNode parent)
+    {
+        var folder = new ManagerNode
+        {
+            Kind = NodeKind.LinkedServersFolder, Label = "Linked Servers", Icon = "🔗", Parent = parent
+        };
+        folder.Children.Add(new ManagerNode { Kind = NodeKind.Column, Label = "Loading…", Icon = "⏳" });
+        folder.Loader = async ct =>
+        {
+            folder.Children.Clear();
+            if (_connInfo == null) return;
+            folder.IsLoading = true;
+            try
+            {
+                var servers = await _service.GetLinkedServersAsync(_connInfo, ct);
+                foreach (var s in servers)
+                    folder.Children.Add(new ManagerNode
+                    {
+                        Kind = NodeKind.LinkedServer,
+                        Label = s.Name,
+                        Detail = s.IsLocal ? "(local) — this instance" : $"{s.Product} · {s.DataSource}",
+                        Icon = s.IsLocal ? "🖥" : "🌐",
+                        Name = s.Name, Parent = folder
+                    });
+                folder.Label = $"Linked Servers ({servers.Count})";
+            }
+            finally
+            {
+                folder.IsLoading = false;
+            }
+        };
+        return folder;
+    }
+
+    /// <summary>Fills a database node with the object folders. Shared by the initial
+    /// load and by re-expanding the Databases folder after a refresh.</summary>
+    private async Task LoadDatabaseFoldersAsync(ManagerNode dbNode, ConnectionInfo info, CancellationToken ct)
+    {
+        var filter = BuildExplorerFilter();
+        var only = filter.TypeLabel;
+        bool Show(string label) => only == null || only == label;
+
+        if (Show("Tables"))
+            dbNode.Children.Add(MakeObjectFolder("Tables", "🗂", NodeKind.TablesFolder,
+                await _service.GetObjectsAsync(info, DbObjectType.Table, ct, filter), true));
+        if (Show("Views"))
+            dbNode.Children.Add(MakeObjectFolder("Views", "👁", NodeKind.ViewsFolder,
+                await _service.GetObjectsAsync(info, DbObjectType.View, ct, filter), false));
+        if (Show("Stored Procedures"))
+            dbNode.Children.Add(MakeObjectFolder("Stored Procedures", "⚙", NodeKind.ProcsFolder,
+                await _service.GetObjectsAsync(info, DbObjectType.StoredProcedure, ct, filter), false));
+        if (Show("Functions"))
+            dbNode.Children.Add(MakeObjectFolder("Functions", "𝑓", NodeKind.FunctionsFolder,
+                await _service.GetObjectsAsync(info, DbObjectType.Function, ct, filter), false));
+        if (Show("Triggers"))
+            dbNode.Children.Add(MakeObjectFolder("Triggers", "⚡", NodeKind.TriggersFolder,
+                await _service.GetObjectsAsync(info, DbObjectType.Trigger, ct, filter), false));
+        dbNode.Children.Add(MakeSecurityFolder());
+    }
+
+    // ─── Explorer filter application ─────────────────────────────────────────
+
+    private ExplorerQueryFilter BuildExplorerFilter() => new(
+        string.IsNullOrWhiteSpace(ObjectNameFilter) ? null : ObjectNameFilter.Trim(),
+        string.IsNullOrWhiteSpace(ObjectSchemaFilter) ? null : ObjectSchemaFilter.Trim(),
+        ObjectTypeFilter is "Tables" or "Views" or "Stored Procedures" or "Functions" or "Triggers"
+            ? ObjectTypeFilter
+            : null);
+
+    private void UpdateExplorerFilterState()
+    {
+        var parts = new List<string>();
+        if (!string.IsNullOrWhiteSpace(ObjectNameFilter)) parts.Add($"name ~ {ObjectNameFilter.Trim()}");
+        if (!string.IsNullOrWhiteSpace(ObjectSchemaFilter)) parts.Add($"schema ~ {ObjectSchemaFilter.Trim()}");
+        var type = BuildExplorerFilter().TypeLabel;
+        if (type != null) parts.Add(type);
+
+        IsExplorerFilterActive = parts.Count > 0;
+        ExplorerFilterBadge = parts.Count == 0 ? "" : "Filtered: " + string.Join(", ", parts);
+    }
+
+    partial void OnObjectNameFilterChanged(string value) => _ = ApplyExplorerFilterAsync();
+    partial void OnObjectSchemaFilterChanged(string value) => _ = ApplyExplorerFilterAsync();
+    partial void OnObjectTypeFilterChanged(string value) => _ = ApplyExplorerFilterAsync();
+
+    private bool _suppressFilterRefresh;
+    private bool _filterRefreshRunning;
+    private bool _filterRefreshPending;
+
+    /// <summary>Re-queries the tree with the current filter while keeping the nodes
+    /// the user already expanded open — no reconnect needed. Rapid successive edits
+    /// coalesce into one trailing reload.</summary>
+    private async Task ApplyExplorerFilterAsync()
+    {
+        UpdateExplorerFilterState();
+        if (_suppressFilterRefresh || !IsConnected || SelectedConnection == null) return;
+        if (_filterRefreshRunning) { _filterRefreshPending = true; return; }
+        _filterRefreshRunning = true;
+        try
+        {
+            do
+            {
+                _filterRefreshPending = false;
+                await RefreshTreeWithFilterAsync();
+            }
+            while (_filterRefreshPending);
+        }
+        finally
+        {
+            _filterRefreshRunning = false;
+        }
+    }
+
+    private async Task RefreshTreeWithFilterAsync()
+    {
+        var info = CurrentConnection();
+        await RunSafeAsync(async ct =>
+        {
+            IsLoadingTree = true;
+            try
+            {
+                await LoadExpandedAsync(info, ct);
+                StatusMessage = IsExplorerFilterActive
+                    ? $"Object tree refreshed — {ExplorerFilterBadge}."
+                    : "Object tree refreshed — filter cleared, full object list restored.";
+            }
+            finally
+            {
+                IsLoadingTree = false;
+            }
+        });
+    }
+
+    /// <summary>Reloads the tree and re-expands the table/view nodes that were
+    /// open before, matched by schema + name.</summary>
+    private async Task LoadExpandedAsync(ConnectionInfo info, CancellationToken ct)
+    {
+        var oldRoot = FindDatabaseRoot();
+        if (oldRoot == null)
+        {
+            await LoadObjectTreeAsync(info, ct);
+            return;
+        }
+        var openNodes = oldRoot.Children.ToDictionary(
+            folder => folder.Kind,
+            folder => folder.Children.Where(n => n.IsExpanded)
+                       .Select(n => (n.Schema, n.Name))
+                       .ToHashSet());
+
+        await LoadObjectTreeAsync(info, ct);
+
+        var root = FindDatabaseRoot();
+        if (root == null) return;
+        foreach (var folder in root.Children)
+        {
+            if (!openNodes.TryGetValue(folder.Kind, out var keys)) continue;
+            foreach (var node in folder.Children)
+                if (keys.Contains((node.Schema, node.Name)))
+                    node.IsExpanded = true;
+        }
+    }
+
+    private void ClearExplorerFilter()
+    {
+        _suppressFilterRefresh = true;
+        ObjectNameFilter = string.Empty;
+        ObjectSchemaFilter = string.Empty;
+        ObjectTypeFilter = "(All types)";
+        _suppressFilterRefresh = false;
+        _ = ApplyExplorerFilterAsync();
     }
 
     /// <summary>SSMS-style Security folder: Users + Roles, read-only, lazy-loaded
@@ -564,6 +990,134 @@ public partial class DbManagerViewModel : ObservableObject
             _ = OpenNodeAsync(value);
     }
 
+    /// <summary>Tree double-click: tables open their Properties dialog (SSMS-style);
+    /// a sibling database becomes the explorer's working database; every other
+    /// openable node keeps the default open-in-tabs behavior.</summary>
+    private async Task DoubleTapNodeAsync(ManagerNode? node)
+    {
+        if (node == null) return;
+        if (node.Kind == NodeKind.Table)
+        {
+            await TablePropertiesAsync(node);
+            return;
+        }
+        if (node.CanSetCurrentDb)
+        {
+            await UseAsCurrentDatabaseAsync(node);
+            return;
+        }
+        await OpenNodeAsync(node);
+    }
+
+    /// <summary>Points the explorer at a sibling database. Everything else in the
+    /// window follows it, because each command resolves its connection through
+    /// <see cref="CurrentConnection"/>; the saved profile is left untouched.</summary>
+    private async Task UseAsCurrentDatabaseAsync(ManagerNode? node)
+    {
+        if (node == null || !node.CanSetCurrentDb) return;
+        await RunSafeAsync(async ct =>
+        {
+            _activeDatabase = node.Name;
+            SelectedObject  = null;
+            StatusMessage   = $"Switching the explorer to {node.Name}…";
+            await LoadObjectTreeAsync(CurrentConnection(), ct);
+            StatusMessage = $"Object Explorer is working in {node.Name}.";
+        });
+    }
+
+    // ─── SQL Agent job actions (confirm-gated, like every other script) ──────
+
+    private async Task StartAgentJobAsync(ManagerNode? node)
+    {
+        if (node == null || node.Kind != NodeKind.AgentJob) return;
+        await RunAgentJobActionAsync(node, "Start job",
+            $"msdb.dbo.sp_start_job runs “{node.Name}” on the server immediately," +
+            " under the SQL Agent service account.",
+            ManagerScriptBuilder.StartAgentJob);
+    }
+
+    private async Task ToggleAgentJobAsync(ManagerNode? node)
+    {
+        if (node == null || node.Kind != NodeKind.AgentJob) return;
+        var enable = !node.JobEnabled;
+        await RunAgentJobActionAsync(node, enable ? "Enable job" : "Disable job",
+            enable
+                ? $"msdb.dbo.sp_update_job puts “{node.Name}” back on its schedule."
+                : $"msdb.dbo.sp_update_job stops “{node.Name}” from running on its schedule;" +
+                  " starting it by hand still works.",
+            job => ManagerScriptBuilder.SetAgentJobEnabled(job, enable));
+    }
+
+    private async Task RunAgentJobActionAsync(ManagerNode node, string title, string warning,
+        Func<string, string> build)
+    {
+        if (_connInfo == null) return;
+        string script;
+        try
+        {
+            script = build(node.Name);
+        }
+        catch (InvalidOperationException ex)
+        {
+            StatusMessage = ex.Message;
+            return;
+        }
+
+        if (!await ConfirmAsync(title, warning, script))
+            return;
+
+        await RunSafeAsync(async ct =>
+        {
+            StatusMessage = $"{title}: {node.Name}…";
+            await _service.ExecuteRawScriptAsync(_connInfo, script, ct);
+            StatusMessage = $"✓ {title} accepted for {node.Name}.";
+            // The job list is what changed, and it lives on the folder that owns the loader.
+            for (var p = node.Parent; p != null; p = p.Parent)
+            {
+                if (p.Loader == null) continue;
+                await ReloadFolderAsync(p);
+                break;
+            }
+        });
+    }
+
+    private async Task TablePropertiesAsync(ManagerNode? node)
+    {
+        if (node == null || _connInfo == null || !node.CanGetTableProperties) return;
+        if (ShowTablePropertiesAsync == null)
+        {
+            StatusMessage = "Properties dialog unavailable.";
+            return;
+        }
+        TableProperties? props = null;
+        await RunSafeAsync(async ct =>
+        {
+            StatusMessage = $"Reading properties of {node.Schema}.{node.Name}…";
+            props = await _service.GetTablePropertiesAsync(_connInfo, node.Schema, node.Name, ct);
+            await ShowTablePropertiesAsync(props);
+            StatusMessage =
+                $"Table properties — {props.Schema}.{props.Name}, {props.Rows:N0} rows, {props.ReservedText} reserved.";
+        });
+    }
+
+    private async Task ViewDependenciesAsync(ManagerNode? node)
+    {
+        if (node == null || _connInfo == null || !node.CanViewDependencies) return;
+        if (ShowDependenciesAsync == null)
+        {
+            StatusMessage = "Dependencies dialog unavailable.";
+            return;
+        }
+        ObjectDependencies? deps = null;
+        await RunSafeAsync(async ct =>
+        {
+            StatusMessage = $"Reading dependencies of {node.Schema}.{node.Name}…";
+            deps = await _service.GetDependenciesAsync(_connInfo, node.Schema, node.Name, ct);
+            await ShowDependenciesAsync(deps);
+            StatusMessage = $"Dependencies — {deps.FullName}: {deps.SummaryText}";
+        });
+    }
+
     private Task OpenNodeAsync(ManagerNode? node)
     {
         if (node == null) return Task.CompletedTask;
@@ -637,6 +1191,63 @@ public partial class DbManagerViewModel : ObservableObject
         {
             await ShowScriptInDefinitionTabAsync(schema, table, DbObjectType.Table, script);
         }
+    }
+
+    private async Task NewObjectAsync(ManagerNode? node)
+    {
+        if (node == null || _connInfo == null) return;
+        var kind = node.Kind switch
+        {
+            NodeKind.ViewsFolder => DesignerKind.View,
+            NodeKind.ProcsFolder => DesignerKind.StoredProcedure,
+            _ => DesignerKind.Table
+        };
+        if (ShowObjectDesignerAsync == null)
+        {
+            StatusMessage = "Object designer unavailable.";
+            return;
+        }
+
+        var spec = await ShowObjectDesignerAsync(kind);
+        if (spec == null) return;
+
+        string script;
+        try
+        {
+            script = ManagerScriptBuilder.CreateObject(spec);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = ex.Message;
+            ShowError = true;
+            StatusMessage = "The definition is not complete — nothing was scripted.";
+            return;
+        }
+
+        var full = $"{spec.Schema}.{spec.Name}";
+        if (!spec.ExecuteNow)
+        {
+            var type = spec.Kind switch
+            {
+                DesignerKind.View => DbObjectType.View,
+                DesignerKind.StoredProcedure => DbObjectType.StoredProcedure,
+                _ => DbObjectType.Table
+            };
+            await ShowScriptInDefinitionTabAsync(spec.Schema, spec.Name, type, script);
+            return;
+        }
+
+        if (!await ConfirmAsync($"Create {spec.Kind}",
+                $"Creates {full} in {_connInfo.Database}.", script))
+            return;
+
+        await RunSafeAsync(async ct =>
+        {
+            StatusMessage = $"Creating {full}…";
+            await _service.ExecuteRawScriptAsync(_connInfo, script, ct);
+            StatusMessage = $"✓ {full} created.";
+            await ReloadFolderAsync(node);
+        });
     }
 
     private async Task CreatePartitionAsync(ManagerNode? node)
@@ -931,27 +1542,114 @@ public partial class DbManagerViewModel : ObservableObject
     private async Task RestoreDatabaseAsync(ManagerNode? node)
     {
         if (node == null || _connInfo == null || !node.CanRestore) return;
-        if (PickBackupFileAsync == null)
+        if (PickBackupFileAsync == null || ShowRestoreDialogAsync == null)
         {
-            StatusMessage = "File picker unavailable.";
+            StatusMessage = "Restore needs a file picker and a dialog host; neither is attached.";
             return;
         }
         var backupPath = await PickBackupFileAsync();
         if (string.IsNullOrWhiteSpace(backupPath)) return;
 
-        var db = _connInfo.Database;
-        var script = ManagerScriptBuilder.RestoreDatabase(db, backupPath);
-        if (!await ConfirmAsync(
-                "Restore database",
-                $"⚠ {db} will be OVERWRITTEN from the backup file. Anything not in the backup is lost; other connections are disconnected first." +
-                " Take a fresh backup of the current state first if you may need to roll back.",
-                script))
-            return;
+        RestorePlan? plan = null;
         await RunSafeAsync(async ct =>
         {
-            StatusMessage = $"Restoring {db} from {Path.GetFileName(backupPath)}…";
-            await _service.RestoreDatabaseAsync(_connInfo, backupPath, ct);
-            StatusMessage = $"✓ {db} restored from backup — reconnect the object tree to see the new contents.";
+            var file = Path.GetFileName(backupPath);
+            StatusMessage = $"Reading backup sets from {file}…";
+            var sets = await _service.ReadBackupSetsAsync(_connInfo, backupPath, ct);
+            if (sets.Count == 0)
+                throw new InvalidOperationException($"{file} contains no backup sets.");
+
+            var (dataDir, logDir) = await _service.GetDefaultFileLocationsAsync(_connInfo, ct);
+            var target = sets[^1].DatabaseName;
+            var exists = await _service.DatabaseExistsAsync(_connInfo, target, ct);
+
+            plan = await ShowRestoreDialogAsync(new RestoreDraft
+            {
+                BackupPath = backupPath,
+                ConnectedDatabase = _connInfo.Database,
+                Sets = sets,
+                DataDirectory = dataDir,
+                LogDirectory = logDir,
+                TargetExists = exists,
+                LoadFiles = position => _service.ReadBackupFilesAsync(_connInfo, backupPath, position, ct)
+            });
+            if (plan == null) StatusMessage = "Restore cancelled.";
+        });
+        if (plan == null) return;
+
+        var script = ManagerScriptBuilder.RestoreDatabase(plan);
+        var targetName = plan.TargetDatabase;
+        var overwrite = plan.ReplaceExisting;
+        if (!await ConfirmAsync(
+                "Restore database",
+                overwrite
+                    ? $"⚠ [{targetName}] will be overwritten from {Path.GetFileName(plan.BackupPath)} " +
+                      $"set #{plan.SetPosition}. Anything newer than that backup is lost and other connections are " +
+                      $"disconnected while it runs. Take a fresh backup of {targetName} first if you may need to roll back."
+                    : $"[{targetName}] will be created from {Path.GetFileName(plan.BackupPath)} " +
+                      $"set #{plan.SetPosition}" +
+                      (plan.RelocatedCount > 0 ? $", with {plan.RelocatedCount} file(s) relocated." : "."),
+                script))
+            return;
+
+        await RunSafeAsync(async ct =>
+        {
+            var progress = new Progress<string>(m => StatusMessage = m);
+            await _service.RestoreDatabaseAsync(_connInfo, plan, progress, ct);
+            StatusMessage = plan.NoRecovery
+                ? $"✓ {targetName} restored and left in a restoring state — the next backup can still be applied."
+                : $"✓ {targetName} restored from set #{plan.SetPosition} — reopen the object tree to see its contents.";
+            AppLog.Info(
+                $"Restore of [{targetName}] from {plan.BackupPath} set #{plan.SetPosition} succeeded " +
+                $"(overwrite={plan.ReplaceExisting}, relocated={plan.RelocatedCount}, stopAt={(plan.StopAt?.ToString("yyyy-MM-dd HH:mm:ss") ?? "none")}).");
+        });
+    }
+
+    private async Task BackupDatabaseAsync(ManagerNode? node)
+    {
+        if (node == null || _connInfo == null || !node.CanBackup) return;
+        if (ShowBackupDialogAsync == null)
+        {
+            StatusMessage = "Backup needs a dialog host, and this window has none attached.";
+            return;
+        }
+
+        BackupRequest? request = null;
+        await RunSafeAsync(async ct =>
+        {
+            var database = _connInfo.Database;
+            StatusMessage = $"Reading backup defaults for [{database}] from {_connInfo.Server}…";
+            var (backupDir, recoveryModel) = await _service.GetBackupDefaultsAsync(_connInfo, database, ct);
+            request = await ShowBackupDialogAsync(new BackupDraft
+            {
+                Database = database,
+                SuggestedFileName = ManagerScriptBuilder.SuggestedBackupFileName(database, DateTimeOffset.Now, false),
+                DefaultBackupDirectory = backupDir,
+                CanBackUpLog = !recoveryModel.Equals("SIMPLE", StringComparison.OrdinalIgnoreCase)
+            });
+            if (request == null) StatusMessage = "Backup cancelled.";
+        });
+        if (request == null) return;
+
+        var script = ManagerScriptBuilder.BackupDatabase(request);
+        if (!await ConfirmAsync(
+                request.LogBackup ? "Back up transaction log" : "Back up database",
+                $"SQL Server will write {request.FilePath} on the server host ({_connInfo.Server}), not on this PC. " +
+                (request.OverwriteMedia
+                    ? "The existing media file will be reformatted, discarding the backup sets it holds."
+                    : "A new backup set is appended, so earlier sets in that file stay restorable.") +
+                (request.CopyOnly ? " This is a copy-only backup and does not affect the normal recovery chain." : ""),
+                script))
+            return;
+
+        var target = request;
+        await RunSafeAsync(async ct =>
+        {
+            var progress = new Progress<string>(m => StatusMessage = m);
+            StatusMessage = $"BACKUP {(target.LogBackup ? "LOG" : "DATABASE")} [{target.Database}] accepted by {_connInfo.Server}.";
+            var result = await _backupService.BackupAsync(_connInfo, target, progress, ct);
+            StatusMessage = result;
+            AppLog.Info($"Backup of [{target.Database}] to {target.FilePath}: {result}");
         });
     }
 
@@ -969,9 +1667,50 @@ public partial class DbManagerViewModel : ObservableObject
 
     private async Task ReloadFolderAsync(ManagerNode folder)
     {
-        if (folder.Loader == null) return;
-        folder.HasLoaded = false;
-        await folder.RunLoaderNow();
+        if (folder.Loader != null)
+        {
+            folder.HasLoaded = false;
+            await folder.RunLoaderNow();
+            return;
+        }
+        await ReloadObjectFolderAsync(folder);
+    }
+
+    /// <summary>The object folders are filled eagerly when the database node loads and
+    /// carry no Loader of their own, so refreshing one has to re-query the catalogue and
+    /// swap its children in place — otherwise a created or dropped object stays invisible.</summary>
+    private async Task ReloadObjectFolderAsync(ManagerNode folder)
+    {
+        if (_connInfo == null) return;
+        var type = folder.Kind switch
+        {
+            NodeKind.TablesFolder => DbObjectType.Table,
+            NodeKind.ViewsFolder => DbObjectType.View,
+            NodeKind.ProcsFolder => DbObjectType.StoredProcedure,
+            NodeKind.FunctionsFolder => DbObjectType.Function,
+            NodeKind.TriggersFolder => DbObjectType.Trigger,
+            _ => (DbObjectType?)null,
+        };
+        if (type == null) return;
+
+        folder.IsLoading = true;
+        try
+        {
+            var items = await _service.GetObjectsAsync(_connInfo, type.Value,
+                CancellationToken.None, BuildExplorerFilter());
+            folder.Children.Clear();
+            foreach (var it in items)
+            {
+                var n = MakeObjectNode(it);
+                n.Parent = folder;
+                folder.Children.Add(n);
+            }
+            folder.Label = $"{folder.Label.Split(" (")[0].TrimEnd()} ({items.Count})";
+        }
+        finally
+        {
+            folder.IsLoading = false;
+        }
     }
 
     /// <summary>Re-runs the loader of the sibling folder of the given kind (from a leaf node).</summary>
@@ -1018,7 +1757,7 @@ public partial class DbManagerViewModel : ObservableObject
         ShowExecuteTab   = SelectedObject?.ObjectType == DbObjectType.StoredProcedure;
 
         if (SelectedObject == null || !IsConnected || SelectedConnection == null) return;
-        var info = SelectedConnection.ToConnectionInfo();
+        var info = CurrentConnection();
         var obj  = SelectedObject;
 
         switch (tab)
@@ -1171,7 +1910,7 @@ public partial class DbManagerViewModel : ObservableObject
             return;
         }
 
-        var info = SelectedConnection.ToConnectionInfo();
+        var info = CurrentConnection();
         var obj  = SelectedObject;
 
         await RunSafeAsync(async ct =>
@@ -1242,7 +1981,7 @@ public partial class DbManagerViewModel : ObservableObject
     {
         if (SelectedConnection == null || SelectedObject == null || SelectedRow == null)
             return;
-        var info = SelectedConnection.ToConnectionInfo();
+        var info = CurrentConnection();
         var obj  = SelectedObject;
         var row  = SelectedRow;
 
@@ -1301,7 +2040,7 @@ public partial class DbManagerViewModel : ObservableObject
         foreach (var ef in emptyFilters)
             TableFilters.Remove(ef);
 
-        await LoadTableDataAsync(SelectedConnection.ToConnectionInfo(), SelectedObject);
+        await LoadTableDataAsync(CurrentConnection(), SelectedObject);
     }
 
     private void AddFilter()
@@ -1436,7 +2175,7 @@ public partial class DbManagerViewModel : ObservableObject
     private async Task SaveDefinitionAsync()
     {
         if (SelectedConnection == null || SelectedObject == null || string.IsNullOrWhiteSpace(ObjectDefinition)) return;
-        var info = SelectedConnection.ToConnectionInfo();
+        var info = CurrentConnection();
         var obj = SelectedObject;
 
         await RunSafeAsync(async ct =>
@@ -1480,7 +2219,7 @@ public partial class DbManagerViewModel : ObservableObject
     {
         if (SelectedObject == null || SelectedConnection == null) return;
         var obj  = SelectedObject;
-        var info = SelectedConnection.ToConnectionInfo();
+        var info = CurrentConnection();
 
         await RunSafeAsync(async ct =>
         {
@@ -1523,7 +2262,7 @@ public partial class DbManagerViewModel : ObservableObject
         {
             IsLoadingTree = true;
             StatusMessage = $"Searching for \"{SearchText}\"…";
-            var info    = SelectedConnection.ToConnectionInfo();
+            var info    = CurrentConnection();
             var results = await _service.SearchObjectsAsync(info, SearchText, ct);
 
             ManagerTreeRoots.Clear();
@@ -1568,7 +2307,7 @@ public partial class DbManagerViewModel : ObservableObject
             await RunSafeAsync(async ct =>
             {
                 IsLoadingTree = true;
-                var info = SelectedConnection.ToConnectionInfo();
+                var info = CurrentConnection();
                 await LoadObjectTreeAsync(info, ct);
                 StatusMessage = "Search cleared.";
             });
@@ -1593,6 +2332,13 @@ public partial class DbManagerViewModel : ObservableObject
             await action(ct);
         }
         catch (OperationCanceledException) { }
+        // This token is only ever cancelled when a newer operation supersedes this
+        // one — typing in the filter box mid-load, for example. Its half-done failure
+        // must not land on top of the newer operation's status.
+        catch (Exception ex) when (ct.IsCancellationRequested)
+        {
+            AppLog.Info($"[Manager] Superseded operation stopped: {ex.Message}");
+        }
         catch (Exception ex)
         {
             ErrorMessage = ex.Message;

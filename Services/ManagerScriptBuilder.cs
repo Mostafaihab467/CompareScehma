@@ -174,10 +174,161 @@ public static class ManagerScriptBuilder
     public static string ShrinkDatabase(string database, int targetPercent = 10) =>
         $"DBCC SHRINKDATABASE ({Q(database)}, {targetPercent});";
 
-    /// <summary>RESTORE over an existing database; executed from master context
-    /// (see DbManagerService.RestoreDatabaseAsync) so the script itself is plain.</summary>
-    public static string RestoreDatabase(string database, string backupPath) =>
-        $"RESTORE DATABASE {Q(database)} FROM DISK = N'{backupPath.Replace("'", "''")}' WITH REPLACE, RECOVERY;";
+    /// <summary>
+    /// The RESTORE statement for a plan. Relocated files become MOVE clauses, an
+    /// in-place overwrite only happens when REPLACE was explicitly opted into, and
+    /// STOPAT is emitted last so the option list stays readable.
+    /// </summary>
+    public static string RestoreDatabase(RestorePlan plan)
+    {
+        plan.Validate();
+
+        var options = new List<string> { $"FILE = {plan.SetPosition}" };
+        foreach (var file in plan.Files)
+        {
+            if (plan.Moves.TryGetValue(file.LogicalName, out var target) &&
+                !string.IsNullOrWhiteSpace(target) &&
+                !string.Equals(target, file.PhysicalName, StringComparison.OrdinalIgnoreCase))
+                options.Add($"MOVE {Lit(file.LogicalName)} TO {Lit(target)}");
+        }
+
+        if (plan.ReplaceExisting) options.Add("REPLACE");
+        options.Add(plan.NoRecovery ? "NORECOVERY" : "RECOVERY");
+        if (plan.StopAt is { } stopAt) options.Add($"STOPAT = N'{stopAt:yyyy-MM-dd HH:mm:ss}'");
+        options.Add("STATS = 5");
+
+        return
+            $"RESTORE DATABASE {Q(plan.TargetDatabase)}\n    FROM DISK = {Lit(plan.BackupPath)}\n" +
+            $"    WITH {string.Join(",\n         ", options)};";
+    }
+
+    /// <summary>Where a restored file should land when relocating to the instance's
+    /// default folder. Renaming with the target database keeps side-by-side restores
+    /// from colliding with the source database's own files.</summary>
+    public static string SuggestedPath(BackupFileInfo file, string directory, string targetDatabase)
+    {
+        var dir = directory.TrimEnd('\\', '/');
+        var original = Path.GetFileName(file.PhysicalName);
+        var extension = Path.GetExtension(original);
+        if (string.IsNullOrEmpty(extension))
+            extension = file.IsLog ? ".ldf" : ".mdf";
+        var stem = Path.GetFileNameWithoutExtension(original);
+        return $@"{dir}\{targetDatabase}_{stem}{extension}";
+    }
+
+    private static string Lit(string value) => "N'" + value.Replace("'", "''") + "'";
+
+    /// <summary>
+    /// BACKUP DATABASE / BACKUP LOG written by the server to its own disk. Without
+    /// OverwriteMedia the statement appends a new backup set, which is what lets the
+    /// restore dialog offer a set picker instead of a single opaque file.
+    /// </summary>
+    public static string BackupDatabase(BackupRequest r)
+    {
+        r.Validate();
+
+        var options = new List<string>();
+        if (r.CopyOnly) options.Add("COPY_ONLY");
+        options.Add(r.Compress ? "COMPRESSION" : "NO_COMPRESSION");
+        if (r.Checksum) options.Add("CHECKSUM");
+        else options.Add("NO_CHECKSUM");
+        if (r.OverwriteMedia) options.Add("FORMAT, INIT");
+        if (!string.IsNullOrWhiteSpace(r.Description)) options.Add($"DESCRIPTION = {Lit(r.Description!)}");
+        options.Add($"STATS = {r.StatsPercent}");
+
+        var verb = r.LogBackup ? "BACKUP LOG" : "BACKUP DATABASE";
+        return $"{verb} {Q(r.Database)}\n    TO DISK = {Lit(r.FilePath)}\n" +
+               $"    WITH {string.Join(",\n         ", options)};";
+    }
+
+    /// <summary>RESTORE VERIFYONLY, so a backup nobody checked is not a backup.</summary>
+    public static string VerifyBackup(string filePath, bool checksum) =>
+        $"RESTORE VERIFYONLY FROM DISK = {Lit(filePath)}" + (checksum ? " WITH CHECKSUM;" : ";");
+
+    /// <summary>File name used by the backup dialog; log backups get a .trn extension.</summary>
+    public static string SuggestedBackupFileName(string database, DateTimeOffset at, bool logBackup) =>
+        $"{database.Replace(' ', '_')}_{at:yyyyMMdd_HHmm}{(logBackup ? ".trn" : ".bak")}";
+
+    // ─── SQL Agent jobs ──────────────────────────────────────────────────────
+
+    /// <summary>Agent procedures are called with a name, not a job_id, so the name has
+    /// to survive being quoted into a literal.</summary>
+    private static string JobLiteral(string job)
+    {
+        if (string.IsNullOrWhiteSpace(job))
+            throw new InvalidOperationException("Select a SQL Agent job first.");
+        if (job.Contains('\0'))
+            throw new InvalidOperationException("The job name contains invalid characters.");
+        return Lit(job.Trim());
+    }
+
+    public static string StartAgentJob(string job) =>
+        $"EXECUTE msdb.dbo.sp_start_job @job_name = {JobLiteral(job)};";
+
+    public static string SetAgentJobEnabled(string job, bool enabled) =>
+        $"EXECUTE msdb.dbo.sp_update_job @job_name = {JobLiteral(job)}, @enabled = {(enabled ? 1 : 0)};";
+
+    // ─── Query Store ─────────────────────────────────────────────────────────
+
+    /// <summary>Pins one plan to one query. Both ids come out of Query Store itself, so
+    /// they are checked as positive integers here and no free text reaches the call.</summary>
+    public static string ForceQueryPlan(long queryId, long planId)
+    {
+        PositiveId(queryId, "query id");
+        PositiveId(planId, "plan id");
+        return $"EXECUTE sys.sp_query_store_force_plan @query_id = {queryId}, @plan_id = {planId};";
+    }
+
+    /// <summary>Releases a pinned plan. The documentation names only <c>@query_id</c>, but
+    /// the procedure demands the plan too and fails with "insufficient number of arguments"
+    /// without it, so both ids are always sent.</summary>
+    public static string UnforceQueryPlan(long queryId, long planId)
+    {
+        PositiveId(queryId, "query id");
+        PositiveId(planId, "plan id");
+        return $"EXECUTE sys.sp_query_store_unforce_plan @query_id = {queryId}, @plan_id = {planId};";
+    }
+
+    /// <summary>Turning Query Store on is a database-wide setting, so the script spells out
+    /// the limits it is being given instead of a bare <c>= ON</c> nobody can review.</summary>
+    public static string EnableQueryStore(string database)
+    {
+        if (string.IsNullOrWhiteSpace(database))
+            throw new InvalidOperationException("Name the database to enable Query Store on.");
+        return
+            $"ALTER DATABASE {Q(database.Trim())} SET QUERY_STORE = ON\n" +
+            "(\n" +
+            "    OPERATION_MODE = READ_WRITE,\n" +
+            "    QUERY_CAPTURE_MODE = AUTO,\n" +
+            "    MAX_STORAGE_SIZE_MB = 1024,\n" +
+            "    INTERVAL_LENGTH_MINUTES = 60,\n" +
+            "    DATA_FLUSH_INTERVAL_SECONDS = 900,\n" +
+            "    CLEANUP_POLICY = (STALE_QUERY_THRESHOLD_DAYS = 30),\n" +
+            "    SIZE_BASED_CLEANUP_MODE = AUTO,\n" +
+            "    MAX_PLANS_PER_QUERY = 200\n" +
+            ");";
+    }
+
+    private static void PositiveId(long value, string what)
+    {
+        if (value <= 0)
+            throw new InvalidOperationException($"A {what} must be a positive number; {value} is not one.");
+    }
+
+
+    /// <summary>The batches to run, in order. An in-place overwrite of a live database
+    /// needs exclusive access first, and only gains it back once the restore recovers.</summary>
+    public static List<string> RestoreBatches(RestorePlan plan, bool targetExists)
+    {
+        var batches = new List<string>();
+        var inPlace = targetExists && plan.IsInPlaceRestore;
+        if (inPlace)
+            batches.Add($"ALTER DATABASE {Q(plan.TargetDatabase)} SET SINGLE_USER WITH ROLLBACK IMMEDIATE;");
+        batches.Add(RestoreDatabase(plan));
+        if (inPlace && !plan.NoRecovery)
+            batches.Add($"ALTER DATABASE {Q(plan.TargetDatabase)} SET MULTI_USER;");
+        return batches;
+    }
 
     /// <summary>Turns an object's CREATE definition into CREATE OR ALTER.</summary>
     public static string ToCreateOrAlter(string definition) =>
@@ -225,6 +376,110 @@ public static class ManagerScriptBuilder
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    // ─── Object designer DDL ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Builds the CREATE statement behind the New Table / View / Stored Procedure
+    /// designer. Invalid definitions are refused here so the preview, the confirmation
+    /// and the executed text are all the same valid script.
+    /// </summary>
+    public static string CreateObject(DesignerSpec s)
+    {
+        if (string.IsNullOrWhiteSpace(s.Name))
+            throw new InvalidOperationException("Give the object a name.");
+        var full = Qual(s.Schema.Trim(), s.Name.Trim());
+
+        return s.Kind switch
+        {
+            DesignerKind.Table => CreateTableScript(full, s),
+            DesignerKind.View => CreateBodyScript("VIEW", full, s.Body, "AS"),
+            DesignerKind.StoredProcedure => CreateBodyScript("PROCEDURE", full, s.Body, ""),
+            _ => throw new InvalidOperationException($"Unknown object kind {s.Kind}."),
+        };
+    }
+
+    private static string CreateTableScript(string full, DesignerSpec s)
+    {
+        var table = s.Name.Trim();
+        var lines = new List<string>();
+        var keys = new List<string>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var c in s.Columns)
+        {
+            var name = c.Name.Trim();
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(c.Type))
+                throw new InvalidOperationException("Every column needs a name and a type.");
+            if (!seen.Add(name))
+                throw new InvalidOperationException($"Column [{name}] is listed twice.");
+            if (!IsNumericType(c.Type) && c.IsIdentity)
+                throw new InvalidOperationException(
+                    $"[{name}] is {c.Type.Trim()}; only a numeric column can be an identity.");
+
+            var parts = new List<string> { Q(name), c.Type.Trim() };
+            if (c.IsIdentity)
+            {
+                parts.Add("IDENTITY(1, 1)");
+                parts.Add("NOT NULL");
+            }
+            else
+            {
+                parts.Add(c.IsKey ? "NOT NULL" : c.Nullable ? "NULL" : "NOT NULL");
+            }
+            lines.Add(string.Join(" ", parts));
+
+            if (c.IsKey) keys.Add(Q(name));
+            if (!string.IsNullOrWhiteSpace(c.Default))
+                lines.Add($"CONSTRAINT {Q($"DF_{Sanitize(table)}_{Sanitize(name)}")} " +
+                          $"DEFAULT ({DefaultLiteral(c.Default)}) FOR {Q(name)}");
+        }
+
+        if (lines.Count == 0)
+            throw new InvalidOperationException("A table needs at least one column.");
+        if (keys.Count > 0)
+            lines.Add($"CONSTRAINT {Q($"PK_{Sanitize(table)}")} PRIMARY KEY CLUSTERED ({string.Join(", ", keys)})");
+
+        var sb = new StringBuilder();
+        sb.AppendLine($"IF OBJECT_ID(N'{Unquote(full)}', N'U') IS NULL");
+        sb.AppendLine($"CREATE TABLE {full}");
+        sb.AppendLine("(");
+        sb.AppendLine(string.Join($",{Environment.NewLine}",
+            lines.Select(l => $"    {l}")));
+        sb.Append(");");
+        return sb.ToString();
+    }
+
+    private static string CreateBodyScript(string keyword, string full, string body, string separator)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+            throw new InvalidOperationException($"A {keyword.ToLowerInvariant()} needs a definition.");
+        var indented = body.Trim().Replace("\n", "\n    ", StringComparison.Ordinal);
+        var head = separator.Length == 0
+            ? $"CREATE OR ALTER {keyword} {full}"
+            : $"CREATE OR ALTER {keyword} {full}\n    {separator}";
+        return $"{head}\n    {indented}";
+    }
+
+    /// <summary>OBJECT_ID takes an unbracketed two-part name.</summary>
+    private static string Unquote(string bracketed) => bracketed.Replace("]", "").Replace("[", "");
+
+    private static bool IsNumericType(string type) =>
+        NumericTypes.Contains(type.Trim().Split('(')[0].Trim());
+
+    /// <summary>
+    /// A default is a T-SQL expression, not a string: numbers, function calls and text the
+    /// operator already quoted pass through, anything else becomes an N'…' literal.
+    /// </summary>
+    private static string DefaultLiteral(string raw)
+    {
+        var text = raw.Trim();
+        if (text.StartsWith('N') && text.Length > 2 && text[1] == '\''
+            || text.StartsWith('\'') || text.StartsWith('(')
+            || text.Contains('(') || double.TryParse(text, out _))
+            return text;
+        return "N'" + text.Replace("'", "''") + "'";
     }
 
     // ─── Helpers ─────────────────────────────────────────────────────────────

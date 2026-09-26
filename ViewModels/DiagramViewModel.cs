@@ -34,9 +34,13 @@ public partial class DiagramViewModel : ObservableObject
 
     [ObservableProperty] private string _server = "localhost";
     [ObservableProperty] private string _database = string.Empty;
+    [ObservableProperty] private AuthMethod _auth = AuthMethod.Windows;
     [ObservableProperty] private bool _useWindowsAuth = true;
     [ObservableProperty] private string _username = string.Empty;
     [ObservableProperty] private string _password = string.Empty;
+
+    /// <summary>Authentication dropdown contents (Windows, SQL, Entra ID flows).</summary>
+    public IReadOnlyList<AuthMethod> AuthMethods { get; } = AuthMethod.All;
     [ObservableProperty] private SavedConnection? _selectedSaved;
 
     [ObservableProperty] private bool _isLoading;
@@ -88,17 +92,18 @@ public partial class DiagramViewModel : ObservableObject
     }
 
     /// <summary>Prefills the picker from the main window's Source connection.</summary>
-    public void InitializeFrom(string server, string database, bool useWindowsAuth, string username, string password)
+    public void InitializeFrom(string server, string database, AuthMethod auth, string username, string password)
     {
         _applyingProfile = true;
         try
         {
             Server = server;
             Database = database;
-            UseWindowsAuth = useWindowsAuth;
+            Auth = auth;
             Username = username;
             Password = password;
-            SelectedSaved = SavedConnections.FirstOrDefault(c => c.Matches(server, database, useWindowsAuth, username));
+            SelectedSaved = SavedConnections.FirstOrDefault(c =>
+                c.Matches(server, database, auth.IsWindows, username, auth.AuthenticationMethod));
         }
         finally { _applyingProfile = false; }
     }
@@ -129,6 +134,15 @@ public partial class DiagramViewModel : ObservableObject
     partial void OnPasswordChanged(string value) => ClearSelectionOnManualEdit();
     partial void OnUseWindowsAuthChanged(bool value) => ClearSelectionOnManualEdit();
 
+    // The dropdown drives authentication; UseWindowsAuth mirrors it because saved
+    // profiles and ConnectionInfo still speak in those terms.
+    partial void OnAuthChanged(AuthMethod value)
+    {
+        UseWindowsAuth = value.IsWindows;
+        if (!value.NeedsCredentials) Password = string.Empty;
+        ClearSelectionOnManualEdit();
+    }
+
     partial void OnSelectedSavedChanged(SavedConnection? value)
     {
         if (value is null || _applyingProfile) return;
@@ -137,7 +151,7 @@ public partial class DiagramViewModel : ObservableObject
         {
             Server = value.Server;
             Database = value.Database;
-            UseWindowsAuth = value.UseWindowsAuth;
+            Auth = value.Auth;
             Username = value.Username;
             Password = value.Password;
         }
@@ -162,6 +176,7 @@ public partial class DiagramViewModel : ObservableObject
         Server = Server?.Trim() ?? string.Empty,
         Database = Database?.Trim() ?? string.Empty,
         UseWindowsAuth = UseWindowsAuth,
+        Authentication = Auth.AuthenticationMethod,
         Username = Username?.Trim() ?? string.Empty,
         Password = Password ?? string.Empty,
     };

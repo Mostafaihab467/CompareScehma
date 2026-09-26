@@ -738,6 +738,458 @@ public sealed class DbHealthService : IDisposable
     private static string Truncate(string text, int max) =>
         text.Length <= max ? text : text[..max] + " ...";
 
+    // -------------------------------------------------------------------------
+    // Error log and session actions
+    // -------------------------------------------------------------------------
+
+    /// <summary>
+    /// Reads the newest records from the SQL Server error log. xp_readerrorlog exposes
+    /// no severity column, so severity is parsed from the message text by the caller.
+    /// Needs permission to read the server error log (sysadmin or CONTROL SERVER).
+    /// </summary>
+    public async Task<List<HealthErrorLogRow>> ReadErrorLogAsync(
+        ConnectionInfo info, int tailRows = 500, string? containsText = null, CancellationToken ct = default)
+    {
+        // xp_readerrorlog rejects empty strings for its filters (NULL means "no filter") and
+        // only sorts newest-first when the last argument is 'desc'.
+        const string query = """
+            DECLARE @log TABLE (LogDate datetime, ProcessInfo nvarchar(64), [Text] nvarchar(max));
+            INSERT INTO @log
+                EXEC master.sys.xp_readerrorlog 0, 1, @contains, NULL, NULL, NULL, N'desc';
+            SELECT TOP (@tail) LogDate, ProcessInfo, [Text]
+            FROM @log
+            ORDER BY LogDate DESC;
+            """;
+
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new SqlCommand(query, conn) { CommandTimeout = 30 };
+        cmd.Parameters.Add("@contains", SqlDbType.NVarChar, 512).Value =
+            string.IsNullOrWhiteSpace(containsText) ? DBNull.Value : containsText.Trim();
+        cmd.Parameters.Add("@tail", SqlDbType.Int).Value = Math.Clamp(tailRows, 10, 20_000);
+        return ReadList(cmd, r => new HealthErrorLogRow
+        {
+            LogDate = r.IsDBNull(0) ? DateTime.MinValue : r.GetDateTime(0),
+            ProcessInfo = GetString(r, "ProcessInfo"),
+            Text = GetString(r, "Text", trimEnd: false)
+        }, ct);
+    }
+
+    /// <summary>
+    /// Ends one session. The id is an int that the caller has already shown to the
+    /// operator, so no free text reaches the statement.
+    /// </summary>
+    public async Task KillSessionAsync(ConnectionInfo info, int sessionId, CancellationToken ct = default)
+    {
+        if (sessionId < 0)
+            throw new ArgumentOutOfRangeException(nameof(sessionId), "A session id cannot be negative.");
+        if (sessionId <= 50)
+            throw new InvalidOperationException(
+                $"Session {sessionId} is a system process; KILL only applies to user sessions.");
+
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new SqlCommand($"KILL {sessionId};", conn) { CommandTimeout = 120 };
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    /// Walks blocking_session_id backwards from a blocked session to the head blocker,
+    /// returning the chain with the blocker first. Stops at a session that is not in
+    /// the sample and never loops on a cycle.
+    /// </summary>
+    public static List<BlockingChainLink> DescribeBlockingChain(
+        IReadOnlyList<HealthProcessRow> processes, int sessionId)
+    {
+        var chain = new List<BlockingChainLink>();
+        if (processes.Count == 0) return chain;
+
+        var bySession = new Dictionary<int, HealthProcessRow>();
+        foreach (var p in processes)
+            bySession[p.SessionId] = p;
+
+        var visited = new HashSet<int>();
+        var current = sessionId;
+        while (bySession.TryGetValue(current, out var row) && visited.Add(current))
+        {
+            chain.Add(new BlockingChainLink
+            {
+                SessionId = row.SessionId,
+                BlockedBy = row.BlockingSessionId,
+                Database = row.Database,
+                Login = row.Login,
+                Host = row.Host,
+                Program = row.Program,
+                Status = row.Status,
+                WaitType = row.WaitType,
+                WaitMs = row.WaitMs,
+                Statement = row.Statement
+            });
+            if (row.BlockingSessionId <= 0) break;
+            current = row.BlockingSessionId;
+        }
+
+        chain.Reverse();
+        if (chain.Count > 0)
+        {
+            var head = chain[0];
+            chain[0] = new BlockingChainLink
+            {
+                SessionId = head.SessionId,
+                BlockedBy = head.BlockedBy,
+                Database = head.Database,
+                Login = head.Login,
+                Host = head.Host,
+                Program = head.Program,
+                Status = head.Status,
+                WaitType = head.WaitType,
+                WaitMs = head.WaitMs,
+                Statement = head.Statement,
+                IsHeadBlocker = head.BlockedBy <= 0
+            };
+        }
+        return chain;
+    }
+
+    /// <summary>Every session waiting on another one, in the order an operator would act:
+    /// the sessions blocking the most work first.</summary>
+    public static List<HealthProcessRow> BlockedSessions(IReadOnlyList<HealthProcessRow> processes)
+    {
+        var victims = processes.Where(p => p.IsBlocked).ToList();
+        var blockerCounts = victims.GroupBy(p => p.BlockingSessionId)
+            .ToDictionary(g => g.Key, g => g.Count());
+        return victims
+            .OrderByDescending(p => blockerCounts.GetValueOrDefault(p.SessionId))
+            .ThenByDescending(p => p.WaitMs)
+            .ToList();
+    }
+
+    // ─── Query Store (one database at a time) ────────────────────────────────
+
+    /// <summary>Which column the Top-queries report ranks by. The keys are what the UI
+    /// sends; only these literal expressions can reach the ORDER BY.</summary>
+    private static readonly Dictionary<string, string> QueryStoreRanking = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["duration"] = "a.total_ms",
+        ["avg_duration"] = "a.avg_ms",
+        ["cpu"] = "a.total_cpu_ms",
+        ["avg_cpu"] = "a.avg_cpu_ms",
+        ["reads"] = "a.total_reads",
+        ["executions"] = "a.execs",
+    };
+
+    /// <summary>The options of one database's Query Store. A database where it was never
+    /// turned on answers with a row saying OFF — that is the reason the reports below are
+    /// empty, and the caller shows it instead of a blank grid.</summary>
+    public async Task<QueryStoreState> GetQueryStoreStateAsync(ConnectionInfo info, CancellationToken ct = default)
+    {
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+
+        // The options view gained columns in 2017 and 2019; asking an older server for
+        // wait_stats_capture_mode_desc would fail the whole read.
+        var has = await ViewColumnsAsync(conn, "sys.database_query_store_options", ct);
+        string Pick(string column, string alias, string fallback) =>
+            has.Contains(column) ? $"{column} AS {alias}" : $"{fallback} AS {alias}";
+
+        var sql = "SELECT DB_NAME() AS db, " +
+                  string.Join(", ",
+                      Pick("desired_state_desc", "desired_state", "N''"),
+                      Pick("actual_state_desc", "actual_state", "N''"),
+                      Pick("actual_state_additional_info", "additional_info", "N''"),
+                      Pick("query_capture_mode_desc", "capture_mode", "N''"),
+                      Pick("wait_stats_capture_mode_desc", "wait_capture", "N''"),
+                      Pick("size_based_cleanup_mode_desc", "cleanup_mode", "N''"),
+                      Pick("current_storage_size_mb", "used_mb", "0"),
+                      Pick("max_storage_size_mb", "max_mb", "0"),
+                      Pick("flush_interval_seconds", "flush_seconds", "0"),
+                      Pick("interval_length_minutes", "interval_minutes", "0"),
+                      Pick("stale_query_threshold_days", "stale_days", "0"),
+                      Pick("max_plans_per_query", "max_plans", "0")) +
+                  " FROM sys.database_query_store_options;";
+
+        await using var cmd = Cmd(conn, sql, ct, 30);
+        var state = ReadList(cmd, r => new QueryStoreState
+        {
+            Database = GetString(r, "db"),
+            DesiredState = GetString(r, "desired_state"),
+            ActualState = GetString(r, "actual_state"),
+            AdditionalInfo = GetString(r, "additional_info"),
+            QueryCaptureMode = GetString(r, "capture_mode"),
+            WaitStatsCapture = GetString(r, "wait_capture"),
+            SizeBasedCleanup = GetString(r, "cleanup_mode"),
+            CurrentStorageMb = GetInt64(r, "used_mb"),
+            MaxStorageMb = GetInt64(r, "max_mb"),
+            FlushIntervalSeconds = GetInt64(r, "flush_seconds"),
+            IntervalLengthMinutes = GetInt64(r, "interval_minutes"),
+            StaleQueryThresholdDays = GetInt64(r, "stale_days"),
+            MaxPlansPerQuery = GetInt32(r, "max_plans"),
+        }, ct).FirstOrDefault();
+
+        return state ?? new QueryStoreState
+        {
+            Database = info.Database,
+            ActualState = "not readable",
+            AdditionalInfo = "This connection cannot read sys.database_query_store_options."
+        };
+    }
+
+    /// <summary>Averages per query/plan over the first and second half of the window and
+    /// keeps the pairs that got slower by more than the threshold — the Regressed Queries
+    /// report, without the <c>sys.dm_qsn_*</c> difference views that only newer builds have.</summary>
+    public async Task<List<QueryStoreRegressedRow>> GetRegressedQueriesAsync(
+        ConnectionInfo info, int hours, double minChangePercent, double minExecutions,
+        int top = 50, CancellationToken ct = default)
+    {
+        const string sql = """
+            ;WITH stats AS
+            (
+                SELECT  q.query_id, p.plan_id,
+                        CASE WHEN i.start_time < @mid THEN 0 ELSE 1 END AS bucket,
+                        rs.count_executions, rs.avg_duration, rs.avg_cpu_time,
+                        rs.avg_logical_io_reads, rs.last_execution_time
+                FROM sys.query_store_runtime_stats AS rs
+                JOIN sys.query_store_runtime_stats_interval AS i
+                     ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id
+                JOIN sys.query_store_plan AS p ON p.plan_id = rs.plan_id
+                JOIN sys.query_store_query AS q ON q.query_id = p.query_id
+                WHERE i.start_time >= @from_utc AND i.start_time < @to_utc
+                  AND rs.execution_type_desc IN (N'Regular', N'Normal')
+                  AND rs.count_executions > 0
+                  AND q.is_internal_query = 0
+            ),
+            agg AS
+            (
+                SELECT  query_id, plan_id, bucket,
+                        SUM(count_executions) AS execs,
+                        SUM(avg_duration * count_executions) / NULLIF(SUM(count_executions), 0) AS dur_us,
+                        SUM(avg_cpu_time * count_executions) / NULLIF(SUM(count_executions), 0) AS cpu_us,
+                        SUM(avg_logical_io_reads * count_executions) / NULLIF(SUM(count_executions), 0) AS reads_v,
+                        MAX(last_execution_time) AS last_exec
+                FROM stats GROUP BY query_id, plan_id, bucket
+            ),
+            paired AS
+            (
+                SELECT  query_id, plan_id,
+                        MAX(CASE WHEN bucket = 0 THEN execs END)     AS before_execs,
+                        MAX(CASE WHEN bucket = 0 THEN dur_us END)    AS before_dur,
+                        MAX(CASE WHEN bucket = 0 THEN cpu_us END)    AS before_cpu,
+                        MAX(CASE WHEN bucket = 0 THEN reads_v END)   AS before_reads,
+                        MAX(CASE WHEN bucket = 1 THEN execs END)     AS after_execs,
+                        MAX(CASE WHEN bucket = 1 THEN dur_us END)    AS after_dur,
+                        MAX(CASE WHEN bucket = 1 THEN cpu_us END)    AS after_cpu,
+                        MAX(CASE WHEN bucket = 1 THEN reads_v END)   AS after_reads,
+                        MAX(CASE WHEN bucket = 1 THEN last_exec END) AS after_last_exec
+                FROM agg GROUP BY query_id, plan_id
+            )
+            SELECT TOP (@top)
+                    pr.query_id, pr.plan_id,
+                    ISNULL(OBJECT_SCHEMA_NAME(q.object_id) + N'.' + OBJECT_NAME(q.object_id), N'') AS object_name,
+                    CAST(qt.query_sql_text AS nvarchar(max)) AS query_text,
+                    ISNULL(pr.before_execs, 0) AS before_execs, ISNULL(pr.after_execs, 0) AS after_execs,
+                    ISNULL(pr.before_dur, 0) / 1000.0 AS before_ms, ISNULL(pr.after_dur, 0) / 1000.0 AS after_ms,
+                    ISNULL(pr.before_cpu, 0) / 1000.0 AS before_cpu_ms, ISNULL(pr.after_cpu, 0) / 1000.0 AS after_cpu_ms,
+                    ISNULL(pr.before_reads, 0) AS before_reads, ISNULL(pr.after_reads, 0) AS after_reads,
+                    p.is_forced_plan, p.force_failure_count,
+                    ISNULL(p.last_force_failure_reason_desc, N'') AS force_failure,
+                    pr.after_last_exec
+            FROM paired pr
+            JOIN sys.query_store_query q ON q.query_id = pr.query_id
+            JOIN sys.query_store_plan p ON p.plan_id = pr.plan_id
+            JOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id
+            WHERE pr.before_dur IS NOT NULL AND pr.after_dur IS NOT NULL
+              AND pr.after_dur > pr.before_dur * (1.0 + @min_change / 100.0)
+              AND pr.after_execs >= @min_execs
+            ORDER BY (pr.after_dur - pr.before_dur) * 1.0 / pr.before_dur DESC;
+            """;
+
+        var toUtc = DateTime.UtcNow;
+        var fromUtc = toUtc.AddHours(-Math.Clamp(hours, 1, 24 * 30));
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = Cmd(conn, sql, ct, 60);
+        cmd.Parameters.Add(UtcBound("@from_utc", fromUtc));
+        cmd.Parameters.Add(UtcBound("@mid", fromUtc.AddHours(Math.Clamp(hours, 1, 24 * 30) / 2.0)));
+        cmd.Parameters.Add(UtcBound("@to_utc", toUtc));
+        cmd.Parameters.Add("@top", SqlDbType.Int).Value = Math.Clamp(top, 5, 500);
+        cmd.Parameters.Add("@min_change", SqlDbType.Float).Value = Math.Clamp(minChangePercent, 0, 100_000);
+        cmd.Parameters.Add("@min_execs", SqlDbType.Float).Value = Math.Clamp(minExecutions, 1, 1_000_000);
+        return ReadList(cmd, MapRegressed, ct);
+    }
+
+    private static QueryStoreRegressedRow MapRegressed(SqlDataReader r) => new()
+    {
+        QueryId = GetInt64(r, "query_id"),
+        PlanId = GetInt64(r, "plan_id"),
+        ObjectName = GetString(r, "object_name"),
+        QueryText = GetString(r, "query_text", trimEnd: false),
+        BeforeExecutions = GetDouble(r, "before_execs"),
+        AfterExecutions = GetDouble(r, "after_execs"),
+        BeforeAvgMs = GetDouble(r, "before_ms"),
+        AfterAvgMs = GetDouble(r, "after_ms"),
+        BeforeCpuMs = GetDouble(r, "before_cpu_ms"),
+        AfterCpuMs = GetDouble(r, "after_cpu_ms"),
+        BeforeReads = GetDouble(r, "before_reads"),
+        AfterReads = GetDouble(r, "after_reads"),
+        LastExecutedUtc = GetDateTime(r, "after_last_exec"),
+        IsForced = GetInt32(r, "is_forced_plan") == 1,
+        ForceFailureCount = GetInt32(r, "force_failure_count"),
+        ForceFailureReason = GetString(r, "force_failure"),
+    };
+
+    /// <summary>The Top Resource Consuming Queries report: every query/plan pair that ran
+    /// in the window, ranked by the column the operator picked.</summary>
+    public async Task<List<QueryStoreTopRow>> GetTopQueriesAsync(
+        ConnectionInfo info, int hours, string ranking = "duration", int top = 50, CancellationToken ct = default)
+    {
+        var order = QueryStoreRanking.TryGetValue(ranking ?? "", out var col) ? col : QueryStoreRanking["duration"];
+        var sql = $$"""
+            ;WITH agg AS
+            (
+                SELECT  q.query_id, p.plan_id,
+                        SUM(rs.count_executions) AS execs,
+                        SUM(rs.avg_duration * rs.count_executions) / 1000.0 AS total_ms,
+                        SUM(rs.avg_duration * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) / 1000.0 AS avg_ms,
+                        SUM(rs.avg_cpu_time * rs.count_executions) / 1000.0 AS total_cpu_ms,
+                        SUM(rs.avg_cpu_time * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) / 1000.0 AS avg_cpu_ms,
+                        SUM(rs.avg_logical_io_reads * rs.count_executions) AS total_reads,
+                        SUM(rs.avg_logical_io_reads * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) AS avg_reads,
+                        SUM(rs.avg_logical_io_writes * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) AS avg_writes,
+                        SUM(rs.avg_rowcount * rs.count_executions) / NULLIF(SUM(rs.count_executions), 0) AS avg_rows,
+                        MAX(rs.last_execution_time) AS last_exec
+                FROM sys.query_store_runtime_stats rs
+                JOIN sys.query_store_runtime_stats_interval i
+                     ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id
+                JOIN sys.query_store_plan p ON p.plan_id = rs.plan_id
+                JOIN sys.query_store_query q ON q.query_id = p.query_id
+                WHERE i.start_time >= @from_utc AND i.start_time < @to_utc
+                  AND rs.execution_type_desc IN (N'Regular', N'Normal')
+                  AND rs.count_executions > 0
+                  AND q.is_internal_query = 0
+                GROUP BY q.query_id, p.plan_id
+            )
+            SELECT TOP (@top)
+                    a.query_id, a.plan_id,
+                    ISNULL(OBJECT_SCHEMA_NAME(q.object_id) + N'.' + OBJECT_NAME(q.object_id), N'') AS object_name,
+                    CAST(qt.query_sql_text AS nvarchar(max)) AS query_text,
+                    a.execs, a.avg_ms, a.total_ms, a.avg_cpu_ms, a.avg_reads, a.avg_writes, a.avg_rows, a.last_exec,
+                    p.is_forced_plan, p.force_failure_count,
+                    ISNULL(p.last_force_failure_reason_desc, N'') AS force_failure
+            FROM agg a
+            JOIN sys.query_store_query q ON q.query_id = a.query_id
+            JOIN sys.query_store_plan p ON p.plan_id = a.plan_id
+            JOIN sys.query_store_query_text qt ON qt.query_text_id = q.query_text_id
+            ORDER BY {{order}} DESC;
+            """;
+
+        var fromUtc = DateTime.UtcNow.AddHours(-Math.Clamp(hours, 1, 24 * 30));
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = Cmd(conn, sql, ct, 60);
+        cmd.Parameters.Add(UtcBound("@from_utc", fromUtc));
+        cmd.Parameters.Add(UtcBound("@to_utc", DateTime.UtcNow));
+        cmd.Parameters.Add("@top", SqlDbType.Int).Value = Math.Clamp(top, 5, 500);
+        return ReadList(cmd, r => new QueryStoreTopRow
+        {
+            QueryId = GetInt64(r, "query_id"),
+            PlanId = GetInt64(r, "plan_id"),
+            ObjectName = GetString(r, "object_name"),
+            QueryText = GetString(r, "query_text", trimEnd: false),
+            Executions = GetDouble(r, "execs"),
+            AvgMs = GetDouble(r, "avg_ms"),
+            TotalMs = GetDouble(r, "total_ms"),
+            AvgCpuMs = GetDouble(r, "avg_cpu_ms"),
+            AvgReads = GetDouble(r, "avg_reads"),
+            AvgWrites = GetDouble(r, "avg_writes"),
+            AvgRows = GetDouble(r, "avg_rows"),
+            LastExecutedUtc = GetDateTime(r, "last_exec"),
+            IsForced = GetInt32(r, "is_forced_plan") == 1,
+            ForceFailureReason = GetString(r, "force_failure"),
+        }, ct);
+    }
+
+    /// <summary>Every plan held for one query, cheapest-avg first by duration descending,
+    /// with the forcing state the operator needs before choosing which to pin.</summary>
+    public async Task<List<QueryStorePlanRow>> GetQueryPlansAsync(
+        ConnectionInfo info, long queryId, int hours = 24, CancellationToken ct = default)
+    {
+        if (queryId <= 0)
+            throw new ArgumentOutOfRangeException(nameof(queryId), "Select a query first.");
+
+        const string sql = """
+            SELECT  p.plan_id,
+                    p.initial_compile_start_time,
+                    p.last_execution_time,
+                    p.count_compiles,
+                    p.is_forced_plan,
+                    p.force_failure_count,
+                    ISNULL(p.last_force_failure_reason_desc, N'') AS force_failure,
+                    ISNULL(SUM(rs.count_executions), 0) AS execs,
+                    ISNULL(SUM(rs.avg_duration * rs.count_executions)
+                           / NULLIF(SUM(rs.count_executions), 0) / 1000.0, 0) AS avg_ms,
+                    CAST(p.query_plan AS nvarchar(max)) AS plan_xml
+            FROM sys.query_store_plan p
+            LEFT JOIN sys.query_store_runtime_stats rs ON rs.plan_id = p.plan_id
+            LEFT JOIN sys.query_store_runtime_stats_interval i
+                      ON i.runtime_stats_interval_id = rs.runtime_stats_interval_id
+            WHERE p.query_id = @query_id
+              AND (rs.runtime_stats_id IS NULL OR i.start_time >= @from_utc)
+            GROUP BY p.plan_id, p.initial_compile_start_time, p.last_execution_time, p.count_compiles,
+                     p.is_forced_plan, p.force_failure_count, p.last_force_failure_reason_desc, p.query_plan
+            ORDER BY avg_ms DESC;
+            """;
+
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = Cmd(conn, sql, ct, 60);
+        cmd.Parameters.Add("@query_id", SqlDbType.BigInt).Value = queryId;
+        cmd.Parameters.Add(UtcBound("@from_utc",
+            DateTime.UtcNow.AddHours(-Math.Clamp(hours, 1, 24 * 30))));
+        return ReadList(cmd, r => new QueryStorePlanRow
+        {
+            PlanId = GetInt64(r, "plan_id"),
+            CreatedUtc = GetDateTime(r, "initial_compile_start_time"),
+            LastExecutedUtc = GetDateTime(r, "last_execution_time"),
+            Compiles = GetInt32(r, "count_compiles"),
+            IsForced = GetInt32(r, "is_forced_plan") == 1,
+            ForceFailureCount = GetInt32(r, "force_failure_count"),
+            ForceFailureReason = GetString(r, "force_failure"),
+            Executions = GetDouble(r, "execs"),
+            AvgMs = GetDouble(r, "avg_ms"),
+            PlanXml = GetString(r, "plan_xml", trimEnd: false),
+        }, ct);
+    }
+
+    /// <summary>Runs a Query Store procedure or ALTER that the operator confirmed. The
+    /// script is built by <see cref="ManagerScriptBuilder"/> and is the same text that was
+    /// shown, and it has to run inside the database whose Query Store it changes.</summary>
+    public async Task RunQueryStoreScriptAsync(ConnectionInfo info, string script, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(script))
+            throw new InvalidOperationException("There is no script to run.");
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = Cmd(conn, script, ct, 120);
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    private static async Task<HashSet<string>> ViewColumnsAsync(
+        SqlConnection conn, string view, CancellationToken ct)
+    {
+        await using var cmd = Cmd(conn, """
+            SELECT c.name FROM sys.all_columns c WHERE c.object_id = OBJECT_ID(@view);
+            """, ct, 15);
+        cmd.Parameters.Add("@view", SqlDbType.NVarChar, 256).Value = view;
+        return ReadList(cmd, r => GetString(r, "name"), ct).ToHashSet(StringComparer.OrdinalIgnoreCase);
+    }
+
+    /// Query Store's time columns are <c>datetimeoffset</c> holding UTC instants, and SQL
+    /// Server reads a plain <c>datetime2</c> parameter in the session's own zone — on a
+    /// UTC+3 server that moves the whole window three hours earlier and the newest
+    /// intervals quietly fall outside it. Bounds therefore travel as +00:00 values.
+    private static SqlParameter UtcBound(string name, DateTime utc) =>
+        new(name, SqlDbType.DateTimeOffset) { Value = new DateTimeOffset(utc, TimeSpan.Zero) };
+
     private static string GetString(SqlDataReader r, string col, bool trimEnd = true)
     {
         var v = r[col];

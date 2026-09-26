@@ -5,6 +5,8 @@ using CommunityToolkit.Mvvm.Input;
 using SchemaCompare.Models;
 using SchemaCompare.Services;
 
+using SchemaCompare.Views;
+
 namespace SchemaCompare.ViewModels;
 
 /// <summary>
