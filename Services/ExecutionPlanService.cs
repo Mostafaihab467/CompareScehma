@@ -55,6 +55,13 @@ public static class ExecutionPlanService
                     statement.DegreeOfParallelism = ParseInt(queryPlan.Attribute("DegreeOfParallelism")?.Value);
                     statement.MemoryGrantKb = ParseInt(queryPlan.Attribute("MemoryGrant")?.Value);
                     statement.CachedPlanSizeKb = ParseInt(queryPlan.Attribute("CachedPlanSize")?.Value);
+                    var timings = queryPlan.Elements()
+                        .FirstOrDefault(e => e.Name.LocalName == "QueryTimeStats");
+                    if (timings != null)
+                    {
+                        statement.ActualElapsedMs = ParseDouble(timings.Attribute("ElapsedTime")?.Value);
+                        statement.ActualCpuMs = ParseDouble(timings.Attribute("CpuTime")?.Value);
+                    }
                 }
                 var rootRelOp = queryPlan?.Elements().FirstOrDefault(e => e.Name.LocalName == "RelOp");
                 if (rootRelOp != null)
@@ -71,11 +78,22 @@ public static class ExecutionPlanService
                          .SelectMany(s => s.Root!.SelfAndDescendants()))
                 node.CostPercent = node.SubtreeCost / total * 100.0;
         }
+        // An actual plan's most useful finding is the estimate that was wrong: the optimizer
+        // picked this join order and this index because of that row count.
+        foreach (var node in plan.Statements.Where(s => s.Root != null)
+                     .SelectMany(s => s.Root!.SelfAndDescendants()))
+        {
+            if (node.EstimateSkew is { } skew && skew >= ExecutionPlan.SkewWarningFactor)
+                node.Warnings.Add($"Row estimate off by {skew:0.#}× — estimated "
+                    + $"{ExecutionPlan.FormatRows(node.EstimatedRows)}, actually "
+                    + $"{ExecutionPlan.FormatRows(node.ActualRows!.Value)}");
+        }
         return plan;
     }
 
     private static PlanNode BuildNode(XElement relOp)
     {
+        var runtime = ReadRuntimeCounters(relOp);
         var node = new PlanNode
         {
             PhysicalOp = (string?)relOp.Attribute("PhysicalOp") ?? "",
@@ -85,7 +103,14 @@ public static class ExecutionPlanService
             SubtreeCost = ParseDouble(relOp.Attribute("EstimatedTotalSubtreeCost")?.Value),
             EstimatedIo = ParseDouble(relOp.Attribute("EstimateIO")?.Value),
             EstimatedCpu = ParseDouble(relOp.Attribute("EstimateCPU")?.Value),
-            EstimatedRowSize = ParseDouble(relOp.Attribute("EstimateRowSize")?.Value),
+            EstimatedRowSize = ParseDouble(relOp.Attribute("AvgRowSize")?.Value),
+            ActualRows = runtime?.Rows,
+            ActualRowsRead = runtime?.RowsRead,
+            ActualCpuMs = runtime?.CpuMs,
+            ActualTimeMs = runtime?.ElapsedMs,
+            ActualLogicalReads = runtime?.LogicalReads,
+            ActualPhysicalReads = runtime?.PhysicalReads,
+            Executions = runtime?.Executions,
             ObjectName = ExtractObjectName(relOp)
         };
 
@@ -121,9 +146,36 @@ public static class ExecutionPlanService
         }
     }
 
-    /// <summary>Descendants of an element, but never entering child RelOp subtrees.</summary>
-    private static IEnumerable<XElement> LocalDescendants(XElement element)
+    /// <summary>
+    /// What the operator actually did. SQL Server does not put this on RelOp: an executed plan
+    /// carries a RunTimeInformation child with one RunTimeCountersPerThread per thread. Rows and
+    /// reads therefore sum across threads (that is the operator's whole work) while elapsed time
+    /// takes the maximum — the threads ran at the same time, so adding their clocks is a lie.
+    /// </summary>
+    private static RuntimeCounters? ReadRuntimeCounters(XElement relOp)
     {
+        var threads = relOp.Elements()
+            .FirstOrDefault(e => e.Name.LocalName == "RunTimeInformation")?
+            .Elements().Where(e => e.Name.LocalName == "RunTimeCountersPerThread").ToList();
+        if (threads is not { Count: > 0 }) return null;
+
+        double Sum(string attr) => threads.Sum(t => ParseDouble(t.Attribute(attr)?.Value));
+        double Max(string attr) => threads.Max(t => ParseDouble(t.Attribute(attr)?.Value));
+        return new RuntimeCounters(
+            Rows: Sum("ActualRows"),
+            RowsRead: Sum("ActualRowsRead"),
+            CpuMs: Sum("ActualCPUms"),
+            ElapsedMs: Max("ActualElapsedms"),
+            LogicalReads: Sum("ActualLogicalReads"),
+            PhysicalReads: Sum("ActualPhysicalReads"),
+            Executions: (int)Max("ActualExecutions"));
+    }
+
+    private sealed record RuntimeCounters(double Rows, double RowsRead, double CpuMs, double ElapsedMs,
+                                          double LogicalReads, double PhysicalReads, int Executions);
+
+    /// <summary>Descendants of an element, but never entering child RelOp subtrees.</summary>
+    private static IEnumerable<XElement> LocalDescendants(XElement element)    {
         foreach (var child in element.Elements())
         {
             if (child.Name.LocalName == "RelOp")
@@ -137,7 +189,9 @@ public static class ExecutionPlanService
     /// <summary>Column names of the seek predicate or filter condition, for scan/seek/filter nodes.</summary>
     private static string? ExtractPredicate(XElement relOp)
     {
-        var wrapper = relOp.Elements().FirstOrDefault(e => e.Name.LocalName != "OutputList" && e.Name.LocalName != "Warnings");
+        // The physical operator's own element (IndexScan, NestedLoops, …). In an actual plan the
+        // runtime counters and the output list sit before it, so both are skipped here.
+        var wrapper = relOp.Elements().FirstOrDefault(e => e.Name.LocalName is not ("OutputList" or "Warnings" or "RunTimeInformation"));
         if (wrapper == null) return null;
         var scope = LocalDescendants(wrapper).ToList();
         var seek = scope.FirstOrDefault(e => e.Name.LocalName == "SeekPredicates");

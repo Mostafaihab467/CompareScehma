@@ -11,12 +11,15 @@ public readonly record struct SqlLintIssue(int Start, int Length, string Message
 /// </summary>
 public static class SqlLintService
 {
+    // A name in FROM/JOIN carries at most four parts (server.database.schema.table); matching
+    // only two turned "EgyptMart.sys.tables" into "EgyptMart.sys" and reported that as the
+    // unknown table.
     private static readonly Regex TableRefRegex = new(
-        @"\b(?:FROM|JOIN|INTO|UPDATE|TRUNCATE\s+TABLE|DELETE\s+FROM)\s+(?<t>\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?)?)",
+        @"\b(?:FROM|JOIN|INTO|UPDATE|TRUNCATE\s+TABLE|DELETE\s+FROM)\s+(?<t>\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?){0,3})",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex AliasRegex = new(
-        @"\b(?:FROM|JOIN)\s+(?<t>\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?)?)\s+(?:AS\s+)?(?<a>\[?[\w#$]+\]?)",
+        @"\b(?:FROM|JOIN)\s+(?<t>\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?){0,3})\s+(?:AS\s+)?(?<a>\[?[\w#$]+\]?)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
     private static readonly Regex QualifiedColRegex = new(
@@ -308,6 +311,7 @@ public static class SqlLintService
             var name = Unwrap(raw);
             if (name.Length == 0 || name[0] is '#' or '@') continue;
             if (SkipTableNames.Contains(name)) continue;
+            if (IsCatalogView(name)) continue;
             // "dbo." / "[dbo].[]" — an in-progress qualified name, not a real table.
             if (name.EndsWith(".")) continue;
 
@@ -439,6 +443,21 @@ public static class SqlLintService
 
     private static string Unwrap(string raw) =>
         raw.Trim().Replace("[", "").Replace("]", "").Replace(" ", "");
+
+    /// <summary>
+    /// True for a name qualified with a schema every database has and no schema cache
+    /// lists — <c>sys.all_objects</c>, <c>INFORMATION_SCHEMA.ROUTINES</c>, a
+    /// <c>otherdb.sys.tables</c> three-part name. They always resolve, so flagging one
+    /// as unknown is a false alarm on the query DBAs actually write.
+    /// </summary>
+    private static bool IsCatalogView(string name)
+    {
+        var parts = name.Split('.');
+        if (parts.Length < 2) return false;
+        var schema = Unwrap(parts[^2]);
+        return schema.Equals("sys", StringComparison.OrdinalIgnoreCase)
+               || schema.Equals("INFORMATION_SCHEMA", StringComparison.OrdinalIgnoreCase);
+    }
 
     /// <summary>Replace string/comment contents with spaces so regex offsets stay aligned.</summary>
     private static string StripStringsAndComments(string sql)

@@ -1,6 +1,6 @@
 # `Services/SqlLintService.cs`
 
-**Purpose:** Editor diagnostics: unmatched delimiters, typos, unknown tables, unqualified columns.
+**Purpose:** Editor diagnostics: unmatched delimiters, typos, unknown tables, unqualified columns — dotted names match up to four parts and sys / INFORMATION_SCHEMA views are exempt from the unknown-table rule, because catalog views are in every database and in no schema cache.
 
 **Namespace:** `SchemaCompare.Services`
 
@@ -20,4 +20,4 @@
 - `Services/SavedConnectionsService.cs`
 - `Services/SqlFormatter.cs`
 
-**Size:** 493 lines
+**Size:** 512 lines

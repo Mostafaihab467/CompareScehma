@@ -66,7 +66,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Controls/EditorFolding.cs`](files/Controls/EditorFolding.cs.md) — T-SQL folding: single-pass scanner for BEGIN/END, transactions, batches, comments, parens, plus FoldingManager glue.
 - [`Controls/EditorGotoLine.cs`](files/Controls/EditorGotoLine.cs.md) — Ctrl+G go-to-line overlay: clamps past the end, rejects non-numbers, Escape to close.
 - [`Controls/MiniChart.cs`](files/Controls/MiniChart.cs.md) — Sparkline chart control used by the DB Health graphs (CPU, waits).
-- [`Controls/PlanDiagramControl.cs`](files/Controls/PlanDiagramControl.cs.md) — Execution-plan diagram: left-to-right operator boxes with per-operator icons, details panel and Ctrl+wheel zoom.
+- [`Controls/PlanDiagramControl.cs`](files/Controls/PlanDiagramControl.cs.md) — Execution-plan diagram: left-to-right operator boxes with per-operator icons, details panel and Ctrl+wheel zoom, headed ACTUAL or ESTIMATED because the two answer different questions.
 - [`Controls/SearchableComboBox.cs`](files/Controls/SearchableComboBox.cs.md) — ComboBox with a search box above the list, used by every dropdown that can hold many items.
 - [`Controls/SqlCompletionProvider.cs`](files/Controls/SqlCompletionProvider.cs.md) — IntelliSense-style completion data for the editor: keywords, schema objects and column names.
 - [`Controls/SqlHighlightedEditor.cs`](files/Controls/SqlHighlightedEditor.cs.md) — Shared T-SQL editor control: highlighting, lint squiggles, diff line shading, find/fold/bookmark/goto wiring.
@@ -94,7 +94,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Models/DbHealthModels.cs`](files/Models/DbHealthModels.cs.md) — Health rows from DMVs: CPU samples, processes, waits, counters, missing indexes, deadlocks, plus QueryStoreState (option banner text) and the regressed/top/plan rows.
 - [`Models/DbObjectInfo.cs`](files/Models/DbObjectInfo.cs.md) — Object list row for the tree (schema, name, DbObjectType).
 - [`Models/DiagramModels.cs`](files/Models/DiagramModels.cs.md) — Diagram state: table nodes, columns, relations and the persisted layout.
-- [`Models/ExecutionPlanModel.cs`](files/Models/ExecutionPlanModel.cs.md) — Parsed execution plan: operators, statements, missing-index suggestions.
+- [`Models/ExecutionPlanModel.cs`](files/Models/ExecutionPlanModel.cs.md) — Parsed execution plan: operators, statements, missing-index suggestions, and the actual rows/time/reads an executed plan measured against the optimizer's estimate.
 - [`Models/HealthActionsModels.cs`](files/Models/HealthActionsModels.cs.md) — Rows for the health actions: error log record and one blocking-chain link.
 - [`Models/ImportModels.cs`](files/Models/ImportModels.cs.md) — ImportColumn (one file column and where it maps), TargetColumn, CsvTable and ImportResult for the import wizard.
 - [`Models/ManagerTreeModels.cs`](files/Models/ManagerTreeModels.cs.md) — Object Explorer node model: NodeKind for both the database and the server scope, ManagerNode with its lazy loader and context-menu flags, ExplorerQueryFilter and the index/key metadata records.
@@ -131,7 +131,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/DiagramAutoLayoutService.cs`](files/Services/DiagramAutoLayoutService.cs.md) — Layered auto-layout: parents above children.
 - [`Services/DiagramPersistenceService.cs`](files/Services/DiagramPersistenceService.cs.md) — Saves and loads diagram layouts as JSON.
 - [`Services/DiagramSchemaService.cs`](files/Services/DiagramSchemaService.cs.md) — Reads tables, columns and foreign keys of one database for the diagram.
-- [`Services/ExecutionPlanService.cs`](files/Services/ExecutionPlanService.cs.md) — Parses ShowPlanXML into the plan model, for both estimated and actual plans.
+- [`Services/ExecutionPlanService.cs`](files/Services/ExecutionPlanService.cs.md) — Parses ShowPlanXML into the plan model: estimates for a compiled plan, and for a run one the RuntimeCounters under RunTimeInformation (rows and reads summed across threads, elapsed time taken as the maximum) plus a warning wherever the row estimate missed by 10x or more.
 - [`Services/LineDiffer.cs`](files/Services/LineDiffer.cs.md) — Line-level LCS diff used to colour source-only and target-only lines.
 - [`Services/ManagerScriptBuilder.cs`](files/Services/ManagerScriptBuilder.cs.md) — Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.
 - [`Services/QueryBuilderService.cs`](files/Services/QueryBuilderService.cs.md) — Extras for the Constructor: FK-based join suggestions and per-table column lists.
@@ -147,7 +147,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/SqlExplainerService.cs`](files/Services/SqlExplainerService.cs.md) — Deterministic plain-English analysis of a script: steps, joins, effects and safety warnings.
 - [`Services/SqlFormatter.cs`](files/Services/SqlFormatter.cs.md) — T-SQL beautifier behind Ctrl+Shift+F: tokenizes first, so only case, whitespace and line breaks change.
 - [`Services/SqlKeywordLibrary.cs`](files/Services/SqlKeywordLibrary.cs.md) — Hand-written teaching content for the keyword explainer dialog.
-- [`Services/SqlLintService.cs`](files/Services/SqlLintService.cs.md) — Editor diagnostics: unmatched delimiters, typos, unknown tables, unqualified columns.
+- [`Services/SqlLintService.cs`](files/Services/SqlLintService.cs.md) — Editor diagnostics: unmatched delimiters, typos, unknown tables, unqualified columns — dotted names match up to four parts and sys / INFORMATION_SCHEMA views are exempt from the unknown-table rule, because catalog views are in every database and in no schema cache.
 - [`Services/TabSessionService.cs`](files/Services/TabSessionService.cs.md) — Saves and restores the open query tabs across runs.
 - [`Services/TsqlHighlighting.cs`](files/Services/TsqlHighlighting.cs.md) — Loads the bundled TSQL.xshd into the editor's highlighting definitions.
 

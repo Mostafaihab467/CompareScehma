@@ -1,6 +1,6 @@
 # `Controls/PlanDiagramControl.cs`
 
-**Purpose:** Execution-plan diagram: left-to-right operator boxes with per-operator icons, details panel and Ctrl+wheel zoom.
+**Purpose:** Execution-plan diagram: left-to-right operator boxes with per-operator icons, details panel and Ctrl+wheel zoom, headed ACTUAL or ESTIMATED because the two answer different questions.
 
 **Namespace:** `SchemaCompare.Controls`
 
@@ -17,4 +17,4 @@
 
 - `Views/QueryWindow.axaml`
 
-**Size:** 595 lines
+**Size:** 667 lines

@@ -523,7 +523,9 @@ public partial class QueryViewModel : ObservableObject
             if (capped > 0)
                 tab.StatusMessage += $" {capped} result set(s) capped at {QueryExecutionService.MaxRowsPerResult:N0} rows.";
             if (planStatementCount > 0)
-                tab.StatusMessage += $" Execution plan captured ({planStatementCount} statement(s)).";
+                tab.StatusMessage += tab.Plan!.HasRuntimeStats
+                    ? $" Execution plan captured ({planStatementCount} statement(s)) with actual rows, time and reads."
+                    : $" Execution plan captured ({planStatementCount} statement(s)) — the server reported no runtime metrics, so every number is an estimate.";
             if (useStats)
                 tab.StatusMessage += " IO/Time + client statistics in Messages.";
             StatusMessage = $"{tab.Title}: {tab.StatusMessage}";
@@ -632,7 +634,7 @@ public partial class QueryViewModel : ObservableObject
                 tab.ShowPlanView = true;
                 tab.Messages.Add($"Estimated plan: {statementCount} statement(s) compiled — nothing was executed.");
                 tab.HasMessages = true;
-                tab.StatusMessage = $"Estimated plan ready ({statementCount} statement(s)) — query was NOT executed.";
+                tab.StatusMessage = $"Estimated plan ready ({statementCount} statement(s)) — query was NOT executed, so the diagram holds estimates only.";
             }
             else
             {

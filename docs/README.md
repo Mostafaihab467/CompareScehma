@@ -61,7 +61,7 @@ Three conventions that matter when you change behaviour:
 | Object Explorer tree, filters, context menus, Script-As | `ViewModels/DbManagerViewModel.cs`, `Services/DbManagerService.cs`, `Models/ManagerTreeModels.cs`, `Views/DbManagerWindow.axaml(.cs)` |
 | Safe restore (backup sets, relocation, STOPAT) | `Views/RestoreDatabaseDialog.axaml.cs`, `Models/RestoreModels.cs`, `ManagerScriptBuilder.RestoreDatabase*`, `DbManagerService.ReadBackupSetsAsync` |
 | Native backup to .bak | `Views/BackupDatabaseDialog.axaml.cs`, `Services/DatabaseBackupService.cs`, `ManagerScriptBuilder.BackupDatabase/VerifyBackup` |
-| Query execution, results, plans | `Services/QueryExecutionService.cs`, `Models/QueryResultTable.cs`, `Services/ExecutionPlanService.cs`, `Controls/PlanDiagramControl.cs` |
+| Query execution, results, plans | `Services/QueryExecutionService.cs`, `Models/QueryResultTable.cs`, `Services/ExecutionPlanService.cs` (`ReadRuntimeCounters` for the measured numbers), `Models/ExecutionPlanModel.cs`, `Controls/PlanDiagramControl.cs` |
 | Editor behaviour (find, fold, bookmarks, goto, completion, lint) | `Controls/SqlHighlightedEditor.cs` and `Controls/EditorFindBar.cs` / `EditorFolding.cs` / `EditorBookmarks.cs` / `EditorGotoLine.cs` / `SqlCompletionProvider.cs`, plus `Services/SqlLintService.cs` |
 | Tabs, session restore, history, recent files | `ViewModels/QueryViewModel.cs`, `Services/TabSessionService.cs`, `QueryHistoryService.cs`, `RecentFilesService.cs` |
 | Health views, blocking chain, KILL, error log | `Services/DbHealthService.cs`, `ViewModels/DbHealthViewModel.cs`, `Models/DbHealthModels.cs`, `Models/HealthActionsModels.cs` |
@@ -86,7 +86,8 @@ The app is proven by a headless harness, not by eyeballing: `ReproSsms` in the
 scratch working directory drives real windows and dialogs through Avalonia's
 headless lifetime and writes PNGs with `RenderTargetBitmap`.
 
-- 828 assertions cover Tier 1, the five Tier 2 rounds and both Tier 3 rounds end to
+- 860 assertions cover Tier 1, the five Tier 2 rounds, both Tier 3 rounds and the round-8
+  plan and lint fixes end to
   end, against the local instance (EgyptMart) and a snapshot database of it. Objects the
   designer and the import wizard create are created in `tempdb`, verified on the server and
   dropped again; Query Store is verified against a `__sc19_qs` probe database the run
@@ -107,6 +108,10 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   picker" path, set the hook to `null` first — under headless Avalonia a real
   `StorageProvider` never answers, and the `await` hangs the whole run.
 - Do not kill a running SchemaCompare instance belonging to the user while testing.
+- When parsing a server format (ShowPlanXML, a backup header, a DMV column set), capture
+  one real sample first — `sqlcmd -S localhost -E -d EgyptMart -y 0 -i q.sql -o out.xml` —
+  and build the fixture from it. A fixture written from memory of the format passes offline
+  and fails the moment a live query runs against it, which is how round 8 spent a run.
 
 Feature status (done/verified vs not done) lives in
 [../PRODUCTION.md](../PRODUCTION.md) — update it in the same change as the code.

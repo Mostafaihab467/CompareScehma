@@ -17,6 +17,18 @@ public class PlanNode
     public double EstimatedCpu { get; init; }
     /// <summary>Average estimated row size in bytes.</summary>
     public double EstimatedRowSize { get; init; }
+    /// <summary>Rows the operator really produced. Null in an estimated plan — nothing ran.</summary>
+    public double? ActualRows { get; init; }
+    /// <summary>Rows the operator examined to produce those: a scan that read 65,000 to return 5.</summary>
+    public double? ActualRowsRead { get; init; }
+    /// <summary>Actual CPU time of this operator, in milliseconds.</summary>
+    public double? ActualCpuMs { get; init; }
+    /// <summary>Actual elapsed time of this operator, in milliseconds.</summary>
+    public double? ActualTimeMs { get; init; }
+    public double? ActualLogicalReads { get; init; }
+    public double? ActualPhysicalReads { get; init; }
+    /// <summary>How many times the operator ran; above 1 for a spool or a nested-loop inner side.</summary>
+    public int? Executions { get; init; }
     public bool IsParallel { get; init; }
     public string? OrderByDiagnostic { get; init; }
     /// <summary>SubtreeCost as a share of the whole plan, 0-100.</summary>
@@ -39,6 +51,19 @@ public class PlanNode
         "SELECT" => "Result",
         _ => PhysicalOp
     };
+
+    /// <summary>True when the server reported runtime metrics for this operator.</summary>
+    public bool HasRuntimeStats => ActualRows.HasValue;
+
+    /// <summary>
+    /// How far the optimizer's row estimate missed, always ≥ 1: actual ÷ estimated when it
+    /// under-guessed, the inverse when it over-guessed. Null while either side is unusable,
+    /// because "estimated 1, got 0" is not a 100× miss — it is an empty result.
+    /// </summary>
+    public double? EstimateSkew =>
+        ActualRows is { } actual && EstimatedRows > 0 && actual > 0
+            ? (actual >= EstimatedRows ? actual / EstimatedRows : EstimatedRows / actual)
+            : null;
 
     /// <summary>Depth-first flattened tree in draw order.</summary>
     public IEnumerable<PlanNode> SelfAndDescendants()
@@ -76,6 +101,9 @@ public class PlanStatement
     /// <summary>Compiled plan size, in KB.</summary>
     public int? CachedPlanSizeKb { get; set; }
     public double SubtreeCost { get; init; }
+    /// <summary>What the statement really took, from QueryTimeStats. Null in an estimated plan.</summary>
+    public double? ActualElapsedMs { get; set; }
+    public double? ActualCpuMs { get; set; }
 
     public MissingIndexSuggestion? MissingIndex { get; set; }
 }
@@ -87,6 +115,20 @@ public class ExecutionPlan
 
     /// <summary>Total subtree cost of the most expensive statement — the 100% baseline.</summary>
     public double TotalCost => Statements.Count == 0 ? 0 : Statements.Max(s => s.Root?.SubtreeCost ?? 0);
+
+    /// <summary>
+    /// False for an estimated plan: the query was compiled and never run, so every number in
+    /// the tree is the optimizer's guess. The diagram says which one the operator is looking at.
+    /// </summary>
+    public bool HasRuntimeStats => Statements.Any(s =>
+        s.Root?.SelfAndDescendants().Any(n => n.HasRuntimeStats) == true);
+
+    /// <summary>The operators whose row estimate missed by at least this factor are flagged.</summary>
+    public const double SkewWarningFactor = 10;
+
+    /// <summary>Total rows the whole plan actually returned, when it has runtime stats.</summary>
+    public double? ActualRowTotal =>
+        HasRuntimeStats ? Statements.Sum(s => s.Root?.ActualRows ?? 0) : null;
 
     public static string FormatRows(double rows) => rows switch
     {

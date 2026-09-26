@@ -229,6 +229,23 @@ public sealed class PlanDiagramControl : ContentControl
         // Horizontal tree: depth runs left→right, siblings stack top→bottom, and
         // each statement gets its own vertical band.
         var y = Edge;
+        // The one line that tells the two buttons apart: an estimated plan and an actual one
+        // draw the same boxes, and reading a guess as a measurement is the whole mistake.
+        var measured = Plan.HasRuntimeStats;
+        var kindLine = new TextBlock
+        {
+            Text = measured
+                ? "ACTUAL plan — rows, time and reads below were measured while the query ran."
+                : "ESTIMATED plan — the query was compiled, not run: every number below is the optimizer's guess.",
+            FontSize = 11,
+            FontWeight = FontWeight.Bold,
+            Foreground = Solid(measured ? "#9FE8BC" : "#D0A93F"),
+            Margin = new Thickness(0, 0, 0, 6)
+        };
+        Canvas.SetTop(kindLine, y);
+        Canvas.SetLeft(kindLine, Edge);
+        canvas.Children.Add(kindLine);
+        y += 22;
         var widestBand = 0.0;
         foreach (var stmt in Plan.Statements)
         {
@@ -246,7 +263,10 @@ public sealed class PlanDiagramControl : ContentControl
                 $"Degree of parallelism: {(stmt.DegreeOfParallelism == 0 ? "serial" : stmt.DegreeOfParallelism?.ToString() ?? "?")}\n" +
                 (stmt.MemoryGrantKb is { } mg ? $"Memory grant: {mg:N0} KB\n" : "") +
                 (stmt.CachedPlanSizeKb is { } cs ? $"Cached plan size: {cs:N0} KB\n" : "") +
-                $"Statement cost: {stmt.SubtreeCost:0.######}");
+                $"Statement cost: {stmt.SubtreeCost:0.######}" +
+                (stmt.ActualElapsedMs is { } elapsedMs
+                    ? $"\nMeasured by the server: {elapsedMs:N0} ms elapsed, {stmt.ActualCpuMs ?? 0:N0} ms CPU"
+                    : ""));
             Canvas.SetTop(header, y);
             Canvas.SetLeft(header, Edge);
             canvas.Children.Add(header);
@@ -279,7 +299,10 @@ public sealed class PlanDiagramControl : ContentControl
             Opacity = 0.75,
             TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(Edge, 4, Edge, 12),
-            Text = "Data flows left → right. Cost % = operator's share of the total estimated plan cost (box color: green cheap → red expensive). ⚠ = optimizer warning. Click any box for full details; Ctrl + scroll to zoom. Rows are optimizer estimates, not actual counts.",
+            Text = "Data flows left → right. Cost % = operator's share of the total estimated plan cost (box color: green cheap → red expensive). ⚠ = optimizer warning. Click any box for full details; Ctrl + scroll to zoom. "
+                + (measured
+                    ? "Rows read \"estimate → actual\"; ⚠ on a row estimate means the two differ by 10× or more."
+                    : "Rows are optimizer estimates, not actual counts — run with 🧭 Plan to measure them."),
             Foreground = ResourceBrush("OnSurfaceVariant", "#98A0B3")
         };
         Canvas.SetTop(legend, y);
@@ -401,11 +424,12 @@ public sealed class PlanDiagramControl : ContentControl
                     },
                     new TextBlock
                     {
-                        Text = $"≈ {ExecutionPlan.FormatRows(node.EstimatedRows)} rows   Cost {node.CostPercent:0.#}%",
+                        Text = RowsLine(node, Plan?.HasRuntimeStats == true),
                         FontSize = 10.5,
                         FontWeight = FontWeight.SemiBold,
                         Foreground = brush.Text,
-                        Opacity = 0.95
+                        Opacity = 0.95,
+                        TextTrimming = TextTrimming.CharacterEllipsis
                     }
                 }
             }
@@ -421,6 +445,25 @@ public sealed class PlanDiagramControl : ContentControl
         canvas.Children.Add(border);
     }
 
+    /// <summary>
+    /// The box's row line. Before the query runs there is only the optimizer's guess; after it,
+    /// the guess and the count that came out of the operator, because the gap between those two
+    /// is what makes an actual plan worth looking at.
+    /// </summary>
+    private static string RowsLine(PlanNode node, bool planMeasured)
+    {
+        var estimate = $"≈{ExecutionPlan.FormatRows(node.EstimatedRows)}";
+        // The box is 186 px wide and this is its longest line: every character here that is not
+        // a number costs the one that is.
+        var rows = node.ActualRows is { } actual
+            ? $"{estimate}→{ExecutionPlan.FormatRows(actual)} rows"
+              + (node.Executions > 1 ? $" ×{node.Executions:N0}" : "")
+            // An executed plan with no counters for one operator means the query never reached
+            // it — say so, or its estimate reads as a measurement like every other box.
+            : planMeasured ? estimate + " rows (not run)" : estimate + " rows";
+        return $"{rows}  Cost {node.CostPercent:0.#}%";
+    }
+
     private static string BuildTooltip(PlanNode node)
     {
         var rows = node.EstimatedRows == Math.Floor(node.EstimatedRows) && node.EstimatedRows < 1_000
@@ -433,6 +476,22 @@ public sealed class PlanDiagramControl : ContentControl
         if (node.SortOrder != null) sb.Append($"Sort output: {node.SortOrder}\n");
         sb.Append($"Estimated rows: {rows}\n");
         if (node.EstimatedRowSize > 0) sb.Append($"Est. row size: {node.EstimatedRowSize:0.#} bytes\n");
+        if (node.ActualRows is { } actual)
+        {
+            sb.Append($"Actual rows: {ExecutionPlan.FormatRows(actual)}");
+            if (node.Executions is > 1) sb.Append($" over {node.Executions:N0} executions");
+            sb.Append('\n');
+            // A scan that read 65,000 rows to hand back 5 is the story the estimate never tells.
+            if (node.ActualRowsRead is { } examined && examined > actual)
+                sb.Append($"Rows examined: {ExecutionPlan.FormatRows(examined)} to return "
+                          + $"{ExecutionPlan.FormatRows(actual)}\n");
+            var timing = new List<string>();
+            if (node.ActualTimeMs is { } ms) timing.Add($"{ms:0.###} ms elapsed");
+            if (node.ActualCpuMs is { } cpu) timing.Add($"{cpu:0.###} ms CPU");
+            if (node.ActualLogicalReads is { } logical && logical > 0) timing.Add($"{logical:N0} logical reads");
+            if (node.ActualPhysicalReads is { } physical && physical > 0) timing.Add($"{physical:N0} physical reads");
+            if (timing.Count > 0) sb.Append("Actual: ").Append(string.Join(", ", timing)).Append('\n');
+        }
         sb.Append($"Operator cost: {node.NodeCost:0.######}");
         if (node.EstimatedIo > 0 || node.EstimatedCpu > 0)
             sb.Append($"  (I/O {node.EstimatedIo:0.######}, CPU {node.EstimatedCpu:0.######})");
@@ -454,6 +513,19 @@ public sealed class PlanDiagramControl : ContentControl
         if (!string.IsNullOrEmpty(node.Predicate)) rows.Add(("Predicate", node.Predicate));
         if (!string.IsNullOrEmpty(node.SortOrder)) rows.Add(("Sort output", node.SortOrder));
         rows.Add(("Estimated rows", ExecutionPlan.FormatRows(node.EstimatedRows)));
+        if (node.ActualRows is { } actualRows)
+        {
+            rows.Add(("Actual rows", ExecutionPlan.FormatRows(actualRows)
+                      + (node.Executions is > 1 ? $" over {node.Executions:N0} executions" : "")));
+            if (node.EstimateSkew is { } skew && skew >= ExecutionPlan.SkewWarningFactor)
+                rows.Add(("Estimate was off by", $"{skew:0.#}×"));
+            if (node.ActualRowsRead is { } examined && examined > actualRows)
+                rows.Add(("Rows examined", $"{ExecutionPlan.FormatRows(examined):N0} to return {ExecutionPlan.FormatRows(actualRows)}"));
+        }
+        if (node.ActualTimeMs is { } timeMs) rows.Add(("Actual elapsed", $"{timeMs:0.###} ms"));
+        if (node.ActualCpuMs is { } cpuMs) rows.Add(("Actual CPU", $"{cpuMs:0.###} ms"));
+        if (node.ActualLogicalReads is > 0 || node.ActualPhysicalReads is > 0)
+            rows.Add(("Actual reads", $"{node.ActualLogicalReads ?? 0:N0} logical, {node.ActualPhysicalReads ?? 0:N0} physical"));
         if (node.EstimatedRowSize > 0) rows.Add(("Est. row size", $"{node.EstimatedRowSize:0.#} bytes"));
         rows.Add(("Cost", $"{node.CostPercent:0.#}% of plan — operator {node.NodeCost:0.######}" +
                           (node.EstimatedIo > 0 || node.EstimatedCpu > 0

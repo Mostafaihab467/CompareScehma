@@ -47,7 +47,8 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-828 assertions, 0 failures — Tier 1, all five Tier 2 rounds and both Tier 3 rounds —
+860 assertions, 0 failures — Tier 1, all five Tier 2 rounds, both Tier 3 rounds and the
+round-8 plan/lint fixes —
 including a live
 `COPY_ONLY` backup of EgyptMart read
 back through `RESTORE HEADERONLY` / `FILELISTONLY` (the probe file is deleted
@@ -63,7 +64,9 @@ Query Store tab against a probe database that really has captured history
 (`44_query_store.png`), and the deployment and rollback scripts generated from a
 probe pair that differs in all three ways a schema can differ
 (`45_rollback_script.png`), and the same three-way drift read back out of a captured
-`.dacpac` baseline instead of a live database (`46_snapshot_drift.png`). No restore,
+`.dacpac` baseline instead of a live database (`46_snapshot_drift.png`), and the same
+query through both plan buttons so the estimated diagram and the measured one are
+compared side by side (`47_estimated_plan_only.png`, `48_actual_plan_metrics.png`). No restore,
 no `KILL` and no Agent job is ever executed — all three are asserted up to the
 confirmation and declined, and a DOWN script is never executed at all: it is
 previewed, toggled against the UP text, copied and saved, and both probe databases
@@ -315,6 +318,57 @@ Seven things came out of building it:
 | Drift detection ("what changed since yesterday") | **Done, verified** | The same compare, pointed at a baseline: capture once, and every later run against that file answers what the database lost (`Added` — only the baseline has it), gained (`Deleted`) and widened or narrowed (`Changed`). The file carries its own provenance, so the card states `Captured from localhost/DB at … UTC` and `4 h ago` from the package, not from a sidecar the operator can lose |
 | Snapshot diff stored as a file the operator can keep | **Not done** | a capture is a file today; there is no "list my snapshots" view, and nothing remembers the last one used |
 
+## Round 8 — the two plan buttons stopped telling the same story
+
+Reported as a defect: *"what is the difference between the Plan button and the Estimated
+button, both give the same result."* There was a difference — one runs the query, one only
+compiles it — but the diagram threw away everything the run measured, so a guess and a
+measurement drew the same boxes with the same numbers.
+
+Fixing it meant reading a real plan instead of guessing at one. Captured off the local
+instance with `SET STATISTICS XML ON`, ShowPlanXML showed the old parser wrong in three places:
+
+- **Runtime metrics are not attributes on `RelOp`.** Every executed operator carries a
+  `RunTimeInformation` child with one `RunTimeCountersPerThread` per thread.
+  `ExecutionPlanService.ReadRuntimeCounters` reads them: rows, rows-read and page reads
+  **sum** across threads (that is the operator's whole work), while elapsed time and
+  executions take the **maximum** — the threads ran at the same instant, so adding their
+  clocks reports 695 ms for a 355 ms operator. `NumberOfExecutions` does not appear in the
+  XML at all; the count is `ActualExecutions`.
+- **Row size is `AvgRowSize`, not `EstimateRowSize`.** The parser asked for an attribute the
+  server never writes, so `EstimatedRowSize` has been a silent 0 in every plan this app drew.
+- **The statement's own clock is a `QueryTimeStats` element** under `QueryPlan`
+  (`ElapsedTime`, `CpuTime`), nothing to do with any operator — now `PlanStatement.ActualElapsedMs`
+  / `ActualCpuMs`, shown in the statement header's tooltip.
+
+Alongside the corrected parse: `ActualRowsRead` separates an operator that returned 5 rows from
+one that examined 65,000 to do it; every box of an executed plan reads `≈ 1K → 48K rows`;
+`PlanNode.EstimateSkew` turns that gap into a number and `ExecutionPlan.SkewWarningFactor` (10×)
+decides when it becomes a ⚠ on the box — with the two cases that are *not* misses stated
+explicitly: an estimate nobody measured, and an operator that legitimately returned nothing
+(0 actual rows is an empty result, not a 1000× error). An operator with no counters inside an
+executed plan never ran, and its box says `(not run)` rather than standing there with a bare
+estimate among measurements. The diagram opens with **ACTUAL plan — rows, time and reads below
+were measured while the query ran** or **ESTIMATED plan — the query was compiled, not run:
+every number below is the optimizer's guess**, and the status line under the results says the
+same thing in the operator's own words (`47_estimated_plan_only.png`, `48_actual_plan_metrics.png`).
+
+The real XML also exposed a regression on the way in: `ExtractPredicate` treated "the first
+child that is not `OutputList` or `Warnings`" as the physical-operator element, and
+`RunTimeInformation` sits in exactly that position — so predicates and filters disappeared from
+actual plans the moment runtime info started being read. It is excluded by name now.
+
+The other half of the round was a lint false alarm: `sys.all_objects`,
+`INFORMATION_SCHEMA.ROUTINES` and a three-part `EgyptMart.sys.tables` resolve in every database
+and in nobody's schema cache, so `SqlLintService.IsCatalogView` exempts them — while a
+misspelled `dbo.Ordrs` is still caught.
+
+| Feature | State | Notes |
+|---|---|---|
+| 🧭 actual plan ≠ 🌩 estimated plan | **Done, verified** | Same script through both buttons in a live `QueryWindow`: the estimated one has no runtime stats anywhere and says so, the executed one reports measured rows/CPU/elapsed/logical-physical reads per operator, the statement clock, the 48× estimate miss as a ⚠, and boxes that read estimate → actual |
+| ShowPlanXML runtime counters | **Done, verified** | `RunTimeInformation` / `RunTimeCountersPerThread` parsed with sum-across-threads for rows and reads, max for time and executions; `AvgRowSize` for row size; `QueryTimeStats` for the statement clock. Harness fixtures use the captured shape, including a two-thread operator that proves the difference between the two |
+| Lint leaves catalog views alone | **Done, verified** | `sys.*`, `INFORMATION_SCHEMA.*` and their three-part forms are exempt from the unknown-table rule; real misspellings still flagged |
+
 ## Already production-grade
 
 Security and data-safety from the hardening pass (verified by the same harness):
@@ -334,9 +388,5 @@ file IO and missing indexes — do not rebuild these as "Activity Monitor".
 
 ## Known product defects not in the tiers above
 
-- 🧭 Actual plan and 🌩 Estimated plan diagrams look identical: the plan parser
-  reads only optimizer estimates and discloses `ActualRows` / `ActualCpu` /
-  `ActualLogicalReads`.
-- SQL lint flags catalog views such as `sys.all_objects` as unknown tables.
 - The `eta` / `500600` credentials remain in **pushed git history** from before the
   defaults were cleaned; rotating them is an operator action, not a code fix.

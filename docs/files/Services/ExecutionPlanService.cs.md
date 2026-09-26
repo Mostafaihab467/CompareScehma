@@ -1,6 +1,6 @@
 # `Services/ExecutionPlanService.cs`
 
-**Purpose:** Parses ShowPlanXML into the plan model, for both estimated and actual plans.
+**Purpose:** Parses ShowPlanXML into the plan model: estimates for a compiled plan, and for a run one the RuntimeCounters under RunTimeInformation (rows and reads summed across threads, elapsed time taken as the maximum) plus a warning wherever the row estimate missed by 10x or more.
 
 **Namespace:** `SchemaCompare.Services`
 
@@ -16,4 +16,4 @@
 
 - `ViewModels/QueryViewModel.cs`
 
-**Size:** 276 lines
+**Size:** 330 lines
