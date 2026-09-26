@@ -64,6 +64,7 @@ Three conventions that matter when you change behaviour:
 | Query execution, results, plans | `Services/QueryExecutionService.cs`, `Models/QueryResultTable.cs`, `Services/ExecutionPlanService.cs` (`ReadRuntimeCounters` for the measured numbers), `Models/ExecutionPlanModel.cs`, `Controls/PlanDiagramControl.cs` |
 | Editor behaviour (find, fold, bookmarks, goto, completion, lint) | `Controls/SqlHighlightedEditor.cs` and `Controls/EditorFindBar.cs` / `EditorFolding.cs` / `EditorBookmarks.cs` / `EditorGotoLine.cs` / `SqlCompletionProvider.cs`, plus `Services/SqlLintService.cs` |
 | Tabs, session restore, history, recent files | `ViewModels/QueryViewModel.cs`, `Services/TabSessionService.cs`, `QueryHistoryService.cs`, `RecentFilesService.cs` |
+| Auto-JOIN: the ON clause a JOIN is reaching for | `Services/JoinSuggestionService.cs` (`Between`), `Models/JoinSuggestion.cs` (`ForeignKeyRef`, `JoinSide`), `Controls/SqlCompletionProvider.cs` (`SuggestJoins`, `JoinTailRegex`, `ForeignKeys`, the space trigger in `OnTextEntered`), `Services/QuerySchemaService.cs` (`GetForeignKeysAsync`), `ViewModels/QueryViewModel.cs` (`RefreshSchemaCacheAsync`) |
 | "What will this script destroy?" guard | `Services/QueryGuardService.cs` (`Analyze`, `Statements`, `FilterOf` / `CteFilter`), `Models/QueryGuard.cs` (`GuardReport`, `GuardFinding`, `GuardLevel`), `ViewModels/QueryViewModel.cs` (`ClearedToRunAsync`, `ReportToMessages`, `GuardAsksBeforeDangerousScripts`), `Views/QueryWindow.axaml.cs` (`ConfirmDangerousScriptAsync` → `ScriptActionDialog`), `Views/QueryWindow.axaml` (status-bar switch) |
 | Health views, blocking chain, KILL, error log | `Services/DbHealthService.cs`, `ViewModels/DbHealthViewModel.cs`, `Models/DbHealthModels.cs`, `Models/HealthActionsModels.cs` |
 | Query Store: option state, regressed and top queries, force / unforce a plan | `Views/DbHealthWindow.axaml` (Query Store tab), `ViewModels/DbHealthViewModel.cs` (`LoadQueryStoreAsync`, `ForcePlanAsync`), `Services/DbHealthService.cs` (`GetQueryStoreStateAsync`, `GetRegressedQueriesAsync`, `GetTopQueriesAsync`, `GetQueryPlansAsync`), `Services/ManagerScriptBuilder.cs` (`ForceQueryPlan`, `UnforceQueryPlan`, `EnableQueryStore`) |
@@ -89,9 +90,9 @@ The app is proven by a headless harness, not by eyeballing: `ReproSsms` in the
 scratch working directory drives real windows and dialogs through Avalonia's
 headless lifetime and writes PNGs with `RenderTargetBitmap`.
 
-- 982 assertions cover Tier 1, the five Tier 2 rounds, the Tier 3 rounds — rollback, snapshots,
+- 1018 assertions cover Tier 1, the five Tier 2 rounds, the Tier 3 rounds — rollback, snapshots,
   drift, the baseline library and saved comparisons — the round-8
-  plan and lint fixes and the round-11 destructive-script guard end to
+  plan and lint fixes, the round-11 destructive-script guard and the round-12 auto-JOIN end to
   end, against the local instance (EgyptMart) and a snapshot database of it. Objects the
   designer and the import wizard create are created in `tempdb`, verified on the server and
   dropped again; Query Store is verified against a `__sc19_qs` probe database the run
@@ -101,7 +102,9 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   those same three ways, and the snapshot library against a `__sc23_snap` capture driven
   through a real compare card (`49_snapshot_library.png`), and a saved `__sc24_cmp` ⇄ baseline
   pairing rebuilt from one pick and compared again (`50_saved_comparison.png`), and the query guard
-  against a `__sc25_guard` table it seeds, is refused on, confirms, truncates and counts (`51_query_guard.png`)
+  against a `__sc25_guard` table it seeds, is refused on, confirms, truncates and counts (`51_query_guard.png`), and the
+  auto-JOIN against the keys EgyptMart really enforces plus a composite one built and dropped in
+  `tempdb` (`52_auto_join.png`)
   — every file the run
   writes is deleted again.
 - It performs a live `COPY_ONLY` backup and reads it back; it never restores, never
@@ -127,13 +130,20 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
 - When parsing a server format (ShowPlanXML, a backup header, a DMV column set), capture
   one real sample first — `sqlcmd -S localhost -E -d EgyptMart -y 0 -i q.sql -o out.xml` —
   and build the fixture from it. A fixture written from memory of the format passes offline
-  and fails the moment a live query runs against it, which is how round 8 spent a run.
+  and fails the moment a live query runs against it, which is how round 8 spent a run. The same
+  applies to a *negative* claim about somebody else's database: prove the premise from the server
+  first (`sys.foreign_keys` said the "unrelated" pair in round 12 was related), so a schema change
+  reads as *the fixture moved* rather than as a defect in the feature.
 - For pure analyzer code (the query guard's rules, the lint, the formatter), develop against a
   throwaway console probe beside the harness — a table of `(label, input, expectation)` triples
   over a `ProjectReference` to `SchemaCompare.csproj` — and port the triples into the harness part
   afterwards. A full run costs ~9 minutes and stops at its first failure; a probe costs seconds and
   shows every miss at once, which is how round 11 found its statement-boundary bug and an infinite
   loop that the harness only reported as out-of-memory.
+- Drive the SQL editor through `ActiveTab.SqlText` and a `Pump()`, never by writing to the
+  `TextDocument` behind the window's back: `SyncActiveEditorText` pushes the tab's text into the
+  editor it shows, so a document written directly can be overwritten before the capture — and a
+  screenshot of the wrong query is how round 12 noticed.
 
 Feature status (done/verified vs not done) lives in
 [../PRODUCTION.md](../PRODUCTION.md) — update it in the same change as the code.

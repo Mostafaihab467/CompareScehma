@@ -1,6 +1,6 @@
 # `Services/QuerySchemaService.cs`
 
-**Purpose:** Schema cache used by IntelliSense: tables, views, columns, loaded lazily per connection.
+**Purpose:** Schema cache used by IntelliSense: tables, views, columns and the foreign keys a join suggestion is read from, loaded lazily per connection.
 
 **Namespace:** `SchemaCompare.Services`
 
@@ -11,7 +11,7 @@
 
 ## Public surface
 
-`QuerySchemaService`, `TableInfo()`, `GetTablesAsync()`, `GetColumnsByTableAsync()`
+`QuerySchemaService`, `TableInfo()`, `GetTablesAsync()`, `GetColumnsByTableAsync()`, `GetForeignKeysAsync()`
 
 ## Referenced by
 
@@ -24,4 +24,4 @@
 - `ViewModels/QueryViewModel.cs`
 - `Views/QueryBuilderWindow.axaml.cs`
 
-**Size:** 68 lines
+**Size:** 112 lines

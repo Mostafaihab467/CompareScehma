@@ -17,6 +17,7 @@
 
 - `Controls/EditorFindBar.cs`
 - `Controls/SqlHighlightedEditor.cs`
+- `Models/JoinSuggestion.cs`
 - `Models/QueryGuard.cs`
 - `Services/QueryGuardService.cs`
 - `Services/SavedConnectionsService.cs`

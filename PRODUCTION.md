@@ -47,7 +47,7 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-982 assertions, 0 failures — Tier 1, all five Tier 2 rounds, the Tier 3 rounds (rollback,
+1018 assertions, 0 failures — Tier 1, all five Tier 2 rounds, the Tier 3 rounds (rollback,
 snapshots, drift, the baseline library, saved comparisons), the round-8 plan/lint fixes and
 the round-11 destructive-script guard —
 including a live
@@ -69,7 +69,8 @@ probe pair that differs in all three ways a schema can differ
 query through both plan buttons so the estimated diagram and the measured one are
 compared side by side (`47_estimated_plan_only.png`, `48_actual_plan_metrics.png`), and the
 guard asked to stop an unfiltered `DELETE` in a real query window against a probe database it
-seeds, works and drops again (`51_query_guard.png`). No restore,
+seeds, works and drops again (`51_query_guard.png`), and the join suggestion accepted into a real
+editor against the keys EgyptMart actually enforces (`52_auto_join.png`). No restore,
 no `KILL` and no Agent job is ever executed — all three are asserted up to the
 confirmation and declined, and a DOWN script is never executed at all: it is
 previewed, toggled against the UP text, copied and saved, and both probe databases
@@ -535,6 +536,61 @@ shapes are now Part 25's offline assertions. Third, the switch-off note was firs
 `tab.StatusMessage` and the harness found it gone: everything after the guard overwrites that line
 with the run's own outcome, so a note that has to survive a run belongs in Messages — and the
 harness assertion moved with it, to the scrollback.
+
+## Round 12 (Tier 1 §1) — a JOIN answers with the key the database enforces
+
+FEATURES.md §1's last open bullet was Auto-JOIN: *type `FROM Orders o JOIN` and have the editor
+suggest `ON o.CustomerId = c.Id` from real FK metadata*. The query constructor already did that from
+dropdowns (`QueryBuilderService.GetJoinCandidates`), so the gap was the editor — the place a query
+is actually written. `SqlCompletionProvider.SuggestJoins` reads the join the caret is finishing and
+`JoinSuggestionService` writes the clause (`52_auto_join.png`).
+
+- **The clause comes from the constraint, never from a name that looks right.** One query on
+  connect — `sys.foreign_key_columns` joined to `sys.columns` on both sides — fills
+  `SqlCompletionProvider.ForeignKeys`, and every offer is a row of it. That is the whole reason the
+  feature is trustworthy: `ON o.UserId = u.UserID` is not a guess about two tables whose names
+  rhyme, it is `FK_Order_User`, and the tooltip says so.
+- **Restraint is the feature.** A name the metadata doesn't know, a `JOIN` whose table is still
+  being typed, an `ON` already written, a `CROSS JOIN`, a pair with no key between them — all give
+  an empty list, and the empty list is what keeps the popup credible. An operator accepts a
+  suggested `ON` without reading it, because it looks like the schema vouched for it; that only
+  holds if the schema really did.
+- **The editor does not decide what the operator meant.** Two keys between one pair
+  (`Cus_CustomerContact` → `Pre_Users` on both `CustomerID` and `SupplierID`) yield two offers,
+  because picking one silently picks the shape of the result set. A key over two columns yields
+  *one* clause naming both — half a composite key joins the wrong rows and says nothing wrong while
+  doing it — which is why the metadata arrives as one row per column pair and is regrouped by
+  constraint name.
+- **It is inserted, not typed over.** The word under the caret when a join suggestion appears is the
+  table's *alias* — `…JOIN dbo.Pre_Users u|` — and the completion segment the rest of the popup uses
+  would replace it, producing `…JOIN dbo.Pre_Users ON o.UserId = u.UserID` with the left side
+  pointing at nothing. So a join offer carries its own zero-width segment at the caret and a leading
+  space when the caret is against the name, and the harness asserts the resulting document reads as
+  a query that runs.
+- **A qualified name means its own schema.** `ResolveTableKey` had always thrown the schema away and
+  matched on the table name, which is fine for column completion and wrong here: with both
+  `dbo.Order` and `sales.Order` in the cache, `FROM sales.[Order] o JOIN dbo.Pre_Users u` was
+  offered `dbo`'s key. It now honours an explicit schema and only falls back to name matching when
+  the script didn't state one.
+
+| Feature | State | Notes |
+|---|---|---|
+| Auto-JOIN from real foreign keys | **Done, verified** | `Services/JoinSuggestionService.cs` (`Between` — both directions, composite regrouping, bracketing) + `Models/JoinSuggestion.cs` (`ForeignKeyRef` / `JoinSide` / `JoinSuggestion.Description`), `QuerySchemaService.GetForeignKeysAsync`, `Controls/SqlCompletionProvider.cs` (`ForeignKeys`, `SuggestJoins`, `JoinTailRegex`, the space trigger in `OnTextEntered`) |
+
+Three harness facts from the round. First, the probe caught the schema bug above — 19 of 20 script
+shapes matched on the first run and the twentieth was a real defect in code that had been shipping
+since the completion list was written, which is what the seconds-cheap probe is for. Second,
+`CloseWhenCaretAtBeginning` and the shared replacement segment are both properties of the *window*,
+not the item, so an offer that must be inserted rather than typed over has to change them both at
+once — setting the segment without disabling that flag leaves a popup that closes itself the instant
+it opens, and looks like a feature that never fires. Third, a negative assertion against somebody
+else's database is a guess: the live "these two tables share no key" check first named
+`Order` ⇄ `ShippingStatus`, which really are related by `FK_Order_ShippingStatus`, so the product
+was right and the test failed. That check now asks `sys.foreign_keys` whether the pair is unrelated
+before it asks the completion provider, so a schema change reports as *the fixture moved* instead of
+as a defect in the feature. (Part 25 also leaves the shared schema cache pointing at its
+`__sc25_guard` probe database, which has no keys in it; part 26 connects its own window and waits
+for the cache to repopulate rather than trusting what an earlier round loaded.)
 
 ## Already production-grade
 

@@ -15,6 +15,9 @@
 
 ## Referenced by
 
+- `Controls/SqlCompletionProvider.cs`
+- `Models/JoinSuggestion.cs`
+- `Services/JoinSuggestionService.cs`
 - `ViewModels/QueryBuilderViewModel.cs`
 
 **Size:** 84 lines

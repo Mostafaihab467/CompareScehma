@@ -18,6 +18,7 @@
 
 - `Controls/EditorGotoLine.cs`
 - `Controls/SqlHighlightedEditor.cs`
+- `Models/JoinSuggestion.cs`
 - `Models/QueryGuard.cs`
 - `Services/SavedConnectionsService.cs`
 - `Services/SqlFormatter.cs`

@@ -64,5 +64,49 @@ public sealed class QuerySchemaService
         }
         return map;
     }
+
+    /// <summary>
+    /// Every foreign key the database enforces, as one row per <em>column pair</em>: a key over
+    /// two columns arrives as two rows sharing a name, which is what lets a composite join be
+    /// offered whole instead of on its first column only.
+    /// </summary>
+    public async Task<List<ForeignKeyRef>> GetForeignKeysAsync(
+        ConnectionInfo info, CancellationToken ct = default)
+    {
+        const string sql = """
+            SELECT fk.name,
+                   OBJECT_SCHEMA_NAME(fk.parent_object_id),
+                   OBJECT_NAME(fk.parent_object_id),
+                   fc.name,
+                   fkc.constraint_column_id,
+                   OBJECT_SCHEMA_NAME(fk.referenced_object_id),
+                   OBJECT_NAME(fk.referenced_object_id),
+                   tc.name
+            FROM sys.foreign_key_columns fkc
+            JOIN sys.foreign_keys fk ON fk.object_id = fkc.constraint_object_id
+            JOIN sys.columns fc ON fc.object_id = fkc.parent_object_id
+                               AND fc.column_id = fkc.parent_column_id
+            JOIN sys.columns tc ON tc.object_id = fkc.referenced_object_id
+                               AND tc.column_id = fkc.referenced_column_id
+            ORDER BY fk.name, fkc.constraint_column_id
+            """;
+        var list = new List<ForeignKeyRef>();
+        await using var conn = new SqlConnection(info.ConnectionString);
+        await conn.OpenAsync(ct);
+        await using var cmd = new SqlCommand(sql, conn) { CommandTimeout = 60 };
+        await using var rdr = await cmd.ExecuteReaderAsync(ct);
+        while (await rdr.ReadAsync(ct))
+        {
+            // A key aimed at something the metadata no longer names (a dropped view, an object in
+            // another database) has no schema to report, and a null would become the string "NULL"
+            // in the middle of a join clause.
+            if (rdr.IsDBNull(1) || rdr.IsDBNull(2) || rdr.IsDBNull(5) || rdr.IsDBNull(6))
+                continue;
+            list.Add(new ForeignKeyRef(
+                rdr.GetString(0), rdr.GetString(1), rdr.GetString(2), rdr.GetString(3),
+                rdr.GetString(5), rdr.GetString(6), rdr.GetString(7), rdr.GetInt32(4)));
+        }
+        return list;
+    }
 }
 

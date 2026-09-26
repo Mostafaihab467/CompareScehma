@@ -409,8 +409,10 @@ public partial class QueryViewModel : ObservableObject
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
             var tables = await _schemaService.GetTablesAsync(info, cts.Token);
             var columns = await _schemaService.GetColumnsByTableAsync(info, cts.Token);
+            var foreignKeys = await _schemaService.GetForeignKeysAsync(info, cts.Token);
             Controls.SqlCompletionProvider.Tables = tables;
             Controls.SqlCompletionProvider.ColumnsByTable = columns;
+            Controls.SqlCompletionProvider.ForeignKeys = foreignKeys;
             Controls.SqlCompletionProvider.NotifySchemaChanged();
             StatusMessage = $"Connected to {ConnectedDatabaseLabel}. Schema loaded ({tables.Count:N0} tables/views). Press F5 to execute.";
         }

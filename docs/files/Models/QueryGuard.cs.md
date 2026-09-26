@@ -17,6 +17,7 @@
 ## Referenced by
 
 - `Controls/EditorFindBar.cs`
+- `Models/JoinSuggestion.cs`
 - `Services/QueryGuardService.cs`
 - `Services/SavedConnectionsService.cs`
 - `Services/SqlFormatter.cs`

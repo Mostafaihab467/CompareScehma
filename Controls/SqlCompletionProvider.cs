@@ -5,6 +5,7 @@ using AvaloniaEdit.CodeCompletion;
 using AvaloniaEdit.Document;
 using AvaloniaEdit.Editing;
 using Avalonia.Input;
+using SchemaCompare.Models;
 using SchemaCompare.Services;
 
 namespace SchemaCompare.Controls;
@@ -16,6 +17,8 @@ namespace SchemaCompare.Controls;
 /// columns of referenced tables after SELECT/WHERE/ON). The list is rebuilt
 /// and re-ranked on every keystroke; AvaloniaEdit's built-in prefix filter is
 /// disabled so nearest/fuzzy matches stay visible.
+/// On top of names, a JOIN is answered with the <c>ON</c> clause the database's own
+/// foreign keys allow — see <see cref="SuggestJoins"/>.
 /// </summary>
 public static class SqlCompletionProvider
 {
@@ -81,6 +84,35 @@ public static class SqlCompletionProvider
         @"\b(?:FROM|JOIN)\s+(?<t>\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?)?)\s+(?:AS\s+)?(?<a>\[?[\w#$]+\]?)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    /// <summary>A (possibly schema-qualified, possibly bracketed) table reference.</summary>
+    private const string TableRefPattern = @"\[?[\w#$]+\]?(?:\s*\.\s*\[?[\w#$]+\]?)?";
+
+    /// <summary>Every table the query has introduced, alias included when it declared one. The
+    /// alias is optional here, which is what separates this from <see cref="AliasRegex"/>.</summary>
+    private static readonly Regex JoinedTableRegex = new(
+        $@"\b(?:FROM|JOIN|INTO|UPDATE)\s+(?<t>{TableRefPattern})(?:\s+(?:AS\s+)?(?<a>\[?[\w#$]+\]?))?",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>The clause being typed: a JOIN, its table, and its alias when one is there — with
+    /// nothing after it, because a JOIN that already has an ON does not need advice.</summary>
+    private static readonly Regex JoinTailRegex = new(
+        $@"\bJOIN\s+(?<t>{TableRefPattern})(?:\s+(?:AS\s+)?(?<a>\[?[\w#$]+\]?))?\s*$",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+    /// <summary>Legal T-SQL allows spaces around the dot in <c>dbo . Orders</c>; a column prefix
+    /// built from that text would not be.</summary>
+    private static readonly Regex DotSpacing = new(
+        @"\s*\.\s*", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    /// <summary>Words that can follow a table name but are never its alias. Without this the
+    /// alias slot swallows the next keyword and the suggestion names a table that is not there.</summary>
+    private static readonly HashSet<string> NotAnAlias = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ON", "WHERE", "GROUP", "ORDER", "HAVING", "SET", "VALUES", "INNER", "LEFT", "RIGHT",
+        "FULL", "CROSS", "OUTER", "JOIN", "UNION", "EXCEPT", "INTERSECT", "SELECT", "WITH",
+        "OPTION", "AND", "OR", "AS", "WHEN", "THEN", "ELSE", "END", "IN", "APPLY", "BY"
+    };
+
     /// <summary>Raised after Tables / ColumnsByTable are refreshed so open editors re-lint.</summary>
     public static event EventHandler? SchemaChanged;
 
@@ -89,10 +121,18 @@ public static class SqlCompletionProvider
     public static Dictionary<string, List<string>> ColumnsByTable { get; set; } =
         new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Foreign keys of the connected database, one row per column pair, so a join can be
+    /// suggested from what the schema actually enforces rather than from a name that looks right.</summary>
+    public static List<ForeignKeyRef> ForeignKeys { get; set; } = [];
+
     private static CompletionWindow? _window;
 
     /// <summary>True while the completion popup is open (editors hide hover tips).</summary>
     public static bool IsPopupOpen => _window != null;
+
+    /// <summary>The open popup, or null. Exposed because what a completion is worth depends on
+    /// where it says it may write, and that is the popup's segment rather than the item's text.</summary>
+    public static CompletionWindow? CurrentWindow => _window;
 
     public static void Attach(TextEditor editor)
     {
@@ -126,9 +166,16 @@ public static class SqlCompletionProvider
         }
         var ch = e.Text[0];
         // Trigger on word chars and dot; dot shows columns of the preceding table.
-        if (!char.IsLetterOrDigit(ch) && ch != '_' && ch != '.')
+        if (char.IsLetterOrDigit(ch) || ch == '_' || ch == '.')
+        {
+            Show(area, area.Caret.Offset);
             return;
-        Show(area, area.Caret.Offset);
+        }
+        // A space is the end of a table name, which is exactly where the ON clause belonging to
+        // that name is wanted — so it opens the list only when there is a join to finish.
+        if (ch == ' ' && area.Document != null
+            && SuggestJoins(area.Document.GetText(0, area.Caret.Offset)).Count > 0)
+            Show(area, area.Caret.Offset);
     }
 
     /// <summary>Shows the completion list anchored at the current word.</summary>
@@ -144,10 +191,10 @@ public static class SqlCompletionProvider
         var tableContext = TableContextKeywords.Contains(prevKeyword);
         var columnContext = ColumnContextKeywords.Contains(prevKeyword);
 
-        var candidates = new Dictionary<string, (string Text, string Kind, int Score)>(
+        var candidates = new Dictionary<string, (string Text, string Kind, int Score, string? Detail)>(
             StringComparer.OrdinalIgnoreCase);
 
-        void Offer(string text, string kind, int bonus)
+        void Offer(string text, string kind, int bonus, string? detail = null)
         {
             if (string.IsNullOrWhiteSpace(text)) return;
             var match = MatchScore(text, word);
@@ -155,7 +202,7 @@ public static class SqlCompletionProvider
             var score = match + bonus;
             if (candidates.TryGetValue(text, out var existing) && existing.Score >= score)
                 return;
-            candidates[text] = (text, kind, score);
+            candidates[text] = (text, kind, score, detail);
         }
 
         if (dotContext != null)
@@ -197,17 +244,30 @@ public static class SqlCompletionProvider
             }
         }
 
+        // The ON clause a join is reaching for outranks every name in the list, and is inserted
+        // rather than typed over: the word under the caret is the alias that clause names, so
+        // replacing it would delete the very thing the suggestion is built from.
+        var joins = dotContext is null && ForeignKeys.Count > 0
+            ? SuggestJoins(doc.GetText(0, caretOffset))
+            : [];
+        if (joins.Count > 0)
+        {
+            var lead = NeedsLeadingSpace(doc, caretOffset) ? " " : "";
+            foreach (var join in joins)
+                candidates[join.Text] = (lead + join.Text, "foreign key", 900, join.Description);
+        }
+
         if (candidates.Count == 0)
             return; // nothing relevant - don't pop up
 
         var window = new CompletionWindow(area)
         {
             CloseAutomatically = true,
-            CloseWhenCaretAtBeginning = true,
+            CloseWhenCaretAtBeginning = joins.Count == 0,
             // Replacement segment must span the WHOLE word typed so far, not just
             // from the caret — otherwise accepting (Enter/Tab) keeps the already-
             // typed prefix and yields e.g. "s" + "SELECT" = "sSELECT".
-            StartOffset = wordStart,
+            StartOffset = joins.Count > 0 ? caretOffset : wordStart,
             EndOffset = caretOffset
         };
         // We rank candidates ourselves (nearest/fuzzy included); AvaloniaEdit's
@@ -222,7 +282,7 @@ public static class SqlCompletionProvider
                      .ThenBy(c => c.Text, StringComparer.OrdinalIgnoreCase)
                      .Take(80))
         {
-            var item = new SqlCompletionData(c.Text, c.Kind);
+            var item = new SqlCompletionData(c.Text, c.Kind, c.Detail);
             data.Add(item);
             first ??= item;
         }
@@ -238,6 +298,83 @@ public static class SqlCompletionProvider
         };
         window.Show();
     }
+
+    /// <summary>
+    /// The <c>ON</c> clauses that fit the join the caret is finishing: the table typed after
+    /// JOIN, matched against every table the query has already introduced.
+    /// </summary>
+    /// <remarks>
+    /// Returns nothing rather than guessing. A name the schema cache does not know, an ON already
+    /// written, a <c>CROSS JOIN</c> that takes none, or no key between the two tables all give an
+    /// empty list — a suggested join that is merely plausible is the one thing an operator will
+    /// not check, so this only speaks when the database itself backs it up.
+    /// </remarks>
+    public static IReadOnlyList<JoinSuggestion> SuggestJoins(string textBeforeCaret)
+    {
+        if (string.IsNullOrWhiteSpace(textBeforeCaret) || ForeignKeys.Count == 0)
+            return [];
+
+        var tail = JoinTailRegex.Match(textBeforeCaret);
+        if (!tail.Success) return [];
+        // CROSS JOIN is the one join that takes no ON clause to offer.
+        if (textBeforeCaret[..tail.Index].TrimEnd().EndsWith("CROSS", StringComparison.OrdinalIgnoreCase))
+            return [];
+
+        var rightWritten = Clean(tail.Groups["t"].Value);
+        var rightKey = ResolveTableKey(rightWritten);
+        if (rightKey is null) return [];
+        var right = new JoinSide(rightKey, AliasOf(tail), rightWritten);
+
+        var suggestions = new List<JoinSuggestion>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var left in TablesBefore(textBeforeCaret, tail.Index))
+        {
+            // The same table twice is a self-join only when the script gave it two names.
+            if (left.Key.Equals(right.Key, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(left.Ref, right.Ref, StringComparison.OrdinalIgnoreCase)) continue;
+            foreach (var suggestion in JoinSuggestionService.Between(left, right, ForeignKeys))
+                if (seen.Add(suggestion.Text))
+                    suggestions.Add(suggestion);
+        }
+        return suggestions;
+    }
+
+    /// <summary>Tables introduced before <paramref name="beforeIndex"/>, nearest first, each
+    /// resolved to its schema-qualified key and dropped when the cache does not know it.</summary>
+    private static List<JoinSide> TablesBefore(string text, int beforeIndex)
+    {
+        var sides = new List<JoinSide>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (Match m in JoinedTableRegex.Matches(text))
+        {
+            if (m.Index >= beforeIndex) break;
+            var written = Clean(m.Groups["t"].Value);
+            var key = ResolveTableKey(written);
+            if (key is null) continue;
+            var alias = AliasOf(m);
+            if (seen.Add($"{key}|{alias}")) sides.Add(new JoinSide(key, alias, written));
+        }
+        sides.Reverse();
+        return sides;
+    }
+
+    /// <summary>The alias a table reference captured, or null when the slot holds the next
+    /// keyword rather than a name.</summary>
+    private static string? AliasOf(Match match)
+    {
+        var raw = match.Groups["a"].Value;
+        if (raw.Length == 0) return null;
+        var alias = Clean(raw);
+        return NotAnAlias.Contains(alias) ? null : alias;
+    }
+
+    /// <summary>Collapses the spaces around a dotted name — <c>dbo . Order</c> is legal T-SQL
+    /// and would otherwise be offered back as a broken column prefix.</summary>
+    private static string Clean(string identifier) =>
+        DotSpacing.Replace(identifier.Trim(), ".");
+
+    private static bool NeedsLeadingSpace(TextDocument doc, int offset) =>
+        offset > 0 && !char.IsWhiteSpace(doc.GetCharAt(offset - 1));
 
     private static (int Start, string Word) GetCurrentWord(TextDocument doc, int offset)
     {
@@ -332,23 +469,37 @@ public static class SqlCompletionProvider
     }
 
     /// <summary>Resolves "Orders" / "dbo.Orders" / "[dbo].[Orders]" to the
-    /// "schema.Name" key used by <see cref="ColumnsByTable"/>.</summary>
+    /// "schema.Name" key used by <see cref="ColumnsByTable"/>. A reference that names its
+    /// schema must match it: two tables can share a name across schemas, and picking the wrong
+    /// one hands the operator a clause built from the other table's columns.</summary>
     private static string? ResolveTableKey(string raw)
     {
-        var name = raw.Trim();
-        var dot = name.LastIndexOf('.');
-        if (dot >= 0) name = name[(dot + 1)..];
-        name = name.Trim().Trim('[', ']').Trim();
+        var text = Clean(raw);
+        var dot = text.LastIndexOf('.');
+        var schema = dot >= 0 ? Unquote(text[..dot]) : null;
+        var name = Unquote(dot >= 0 ? text[(dot + 1)..] : text);
         if (name.Length == 0) return null;
+
         foreach (var t in Tables)
-            if (string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))
-                return $"{t.Schema}.{t.Name}";
+        {
+            if (!string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase)) continue;
+            if (schema != null && !string.Equals(t.Schema, schema, StringComparison.OrdinalIgnoreCase))
+                continue;
+            return $"{t.Schema}.{t.Name}";
+        }
+
         // Unknown to metadata (e.g. temp table) - fall back to the columns map.
         foreach (var key in ColumnsByTable.Keys)
-            if (key.EndsWith("." + name, StringComparison.OrdinalIgnoreCase))
-                return key;
+        {
+            var matches = schema is null
+                ? key.EndsWith("." + name, StringComparison.OrdinalIgnoreCase)
+                : string.Equals(key, $"{schema}.{name}", StringComparison.OrdinalIgnoreCase);
+            if (matches) return key;
+        }
         return null;
     }
+
+    private static string Unquote(string identifier) => identifier.Trim().Trim('[', ']').Trim();
 
     /// <summary>
     /// Ranks <paramref name="text"/> against the typed <paramref name="word"/>:
@@ -428,12 +579,14 @@ public static class SqlCompletionProvider
         return prev[b.Length];
     }
 
-    private sealed class SqlCompletionData(string text, string kind) : ICompletionData
+    /// <param name="detail">What the entry means — the kind of object, or for a suggested join
+    /// the foreign key it came from. Nothing in the list is worth inserting on a name alone.</param>
+    private sealed class SqlCompletionData(string text, string kind, string? detail = null) : ICompletionData
     {
         public Avalonia.Media.IImage? Image => null;
         public string Text { get; } = text;
         public object Content => Text;
-        public object Description => kind;
+        public object Description => detail ?? kind;
         public double Priority => 0;
 
         public void Complete(TextArea textArea, ISegment completionSegment, EventArgs insertionRequestEventArgs)

@@ -14,17 +14,28 @@ Legend: 🏆 exclusive (hard to copy) · ⚡ fast win · 🧭 bigger bet later �
 ### 1. Schema-Aware Query Intelligence (beyond SSMS IntelliSense)
 We already load schema metadata + FKs (`QuerySchemaService`, `DataMoveService` FK ordering). Extend it:
 - ✅ **Visual Query Constructor** (`QueryBuilderWindow` + `SqlBuilder`): pick tables/columns/JOINs/WHERE/GROUP BY/ORDER BY from dropdowns, see the generated T-SQL live, push it into the active query tab or open a new tab and select it. Auto-suggests JOIN ON columns from `sys.foreign_key_columns`.
-- **Auto-JOIN**: type `FROM Orders o JOIN` → suggest `ON o.CustomerId = c.Id` from real FK metadata
-- **Inline query linting**: red squiggle on columns that don't exist in referenced tables *before* executing (SSMS can't)
-- **"Explain my query" panel**: parse the SELECT, show which tables/columns it touches — click a column → jump to definition
+- ✅ **Auto-JOIN in the editor** (`SqlCompletionProvider.SuggestJoins` + `JoinSuggestionService`): type
+  `FROM dbo.[Order] o JOIN dbo.Pre_Users u` and the popup offers `ON o.UserId = u.UserID` — read off the
+  key the database enforces, both directions, composite keys whole, one offer per key when a pair has
+  two. Silence when there is no key, because an operator does not re-read a suggested ON.
+- ✅ **Inline query linting** (`SqlLintService`): unknown tables and qualified/unqualified unknown
+  columns are flagged before executing, from the same schema cache IntelliSense uses (SSMS can't).
+- ✅ **"Explain my query" panel** (`QueryExplainDialog`, the Explain button): the SELECT parsed into
+  which tables it touches, what each clause does and what the aggregates mean. *Not* built: click a
+  column in the panel → jump to its definition in the editor.
 
 ### 2. Diff-Driven Development workflow
 Our core advantage — no competitor combines these:
-- **Schema snapshots as files**: save a DB schema to a JSON/DACPAC-like snapshot; compare
-  schema-vs-schema, DB-vs-snapshot, snapshot-vs-snapshot → Git-friendly DB versioning
-  without paying for Redgate
-- **"What changed since yesterday?"**: auto-snapshot on connect, one-click diff of last N snapshots
-- **Migration script generator with rollback**: UP and DOWN scripts for any diff
+- ✅ **Schema snapshots as files** (`SchemaSnapshotService` → `.dacpac`): capture a database, then
+  compare schema-vs-schema, DB-vs-snapshot, snapshot-vs-snapshot → Git-friendly DB versioning
+  without paying for Redgate. The library (`SnapshotLibraryService`) remembers what was captured
+  where, and a pairing can be saved under a name (`SavedComparisonsService`).
+- ✅ **"What changed since the baseline?"** (`DetectDriftAsync`): diff a live database against a
+  captured `.dacpac` and get the three-way answer — added, altered, dropped. *Not* built: capturing
+  automatically on connect; a baseline is something the operator takes.
+- ✅ **Migration script generator with rollback** (`GenerateScriptBetweenAsync` /
+  `GenerateRollbackScriptAsync`): UP and DOWN scripts for any diff, the DOWN previewed, copied and
+  saved but never executed by the app.
 
 ### 3. Safe Query Guard (exclusive safety angle)
 - ✅ **Danger detection before execute** (`QueryGuardService` + `QueryViewModel`): an
@@ -73,9 +84,11 @@ Five of the five shipped; the fifth landed in a different shape from the one thi
 
 1. **Query history + tab sessions** — done (`Services/QueryHistoryService.cs`,
    `Services/TabSessionService.cs`, the searchable history window)
-2. **Auto-JOIN + column validation** — done (`Services/QueryBuilderService.cs` proposes the
-   `JOIN … ON` candidates from FK metadata; `Services/SqlLintService.cs` reports unknown tables
-   and unknown columns against the schema cache)
+2. **Auto-JOIN + column validation** — done, in both places a join gets written:
+   `Services/QueryBuilderService.cs` proposes the `JOIN … ON` candidates to the Constructor's
+   dropdowns, and `Services/JoinSuggestionService.cs` + `SqlCompletionProvider.SuggestJoins` offer
+   the same clause in the editor as the JOIN is typed (round 12).
+   `Services/SqlLintService.cs` reports unknown tables and unknown columns against the schema cache.
 3. **Safe Query Guard** — done (`Services/QueryGuardService.cs`, `Models/QueryGuard.cs`,
    `QueryViewModel.ClearedToRunAsync`): the ad-hoc `UPDATE`/`DELETE`-without-a-`WHERE` case this
    list asked for, plus TRUNCATE / DROP / dropped column, gated before F5 posts anything. The

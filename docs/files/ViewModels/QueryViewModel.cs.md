@@ -19,4 +19,4 @@
 - `Views/QueryWindow.axaml`
 - `Views/QueryWindow.axaml.cs`
 
-**Size:** 1012 lines
+**Size:** 1014 lines

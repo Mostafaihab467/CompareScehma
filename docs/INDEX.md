@@ -68,7 +68,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Controls/MiniChart.cs`](files/Controls/MiniChart.cs.md) — Sparkline chart control used by the DB Health graphs (CPU, waits).
 - [`Controls/PlanDiagramControl.cs`](files/Controls/PlanDiagramControl.cs.md) — Execution-plan diagram: left-to-right operator boxes with per-operator icons, details panel and Ctrl+wheel zoom, headed ACTUAL or ESTIMATED because the two answer different questions.
 - [`Controls/SearchableComboBox.cs`](files/Controls/SearchableComboBox.cs.md) — ComboBox with a search box above the list, used by every dropdown that can hold many items.
-- [`Controls/SqlCompletionProvider.cs`](files/Controls/SqlCompletionProvider.cs.md) — IntelliSense-style completion data for the editor: keywords, schema objects and column names.
+- [`Controls/SqlCompletionProvider.cs`](files/Controls/SqlCompletionProvider.cs.md) — IntelliSense-style completion data for the editor: keywords, schema objects and column names, plus the ON clause a JOIN is reaching for (SuggestJoins reads the join tail and offers the real foreign key, inserted at the caret so the alias survives).
 - [`Controls/SqlHighlightedEditor.cs`](files/Controls/SqlHighlightedEditor.cs.md) — Shared T-SQL editor control: highlighting, lint squiggles, diff line shading, find/fold/bookmark/goto wiring.
 
 ## ViewModels
@@ -97,6 +97,7 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Models/ExecutionPlanModel.cs`](files/Models/ExecutionPlanModel.cs.md) — Parsed execution plan: operators, statements, missing-index suggestions, and the actual rows/time/reads an executed plan measured against the optimizer's estimate.
 - [`Models/HealthActionsModels.cs`](files/Models/HealthActionsModels.cs.md) — Rows for the health actions: error log record and one blocking-chain link.
 - [`Models/ImportModels.cs`](files/Models/ImportModels.cs.md) — ImportColumn (one file column and where it maps), TargetColumn, CsvTable and ImportResult for the import wizard.
+- [`Models/JoinSuggestion.cs`](files/Models/JoinSuggestion.cs.md) — The join metadata as data: one column pair of a foreign key, one table as the script names it (key, alias, text as written) and the ON clause offered from them with the key it came from.
 - [`Models/ManagerTreeModels.cs`](files/Models/ManagerTreeModels.cs.md) — Object Explorer node model: NodeKind for both the database and the server scope, ManagerNode with its lazy loader and context-menu flags, ExplorerQueryFilter and the index/key metadata records.
 - [`Models/ObjectDependencyModels.cs`](files/Models/ObjectDependencyModels.cs.md) — Object dependency graph: one Uses/Used-by edge with its sys type_desc translated for a DBA, and the whole set of neighbours around one catalog object.
 - [`Models/ObjectDesignerModels.cs`](files/Models/ObjectDesignerModels.cs.md) — DesignerKind (table, view, procedure), one DesignerColumn per table column and the DesignerSpec the designer hands back with its Execute-now choice.
@@ -135,13 +136,14 @@ One page per source file: purpose, declared types, public surface and who refere
 - [`Services/DiagramPersistenceService.cs`](files/Services/DiagramPersistenceService.cs.md) — Saves and loads diagram layouts as JSON.
 - [`Services/DiagramSchemaService.cs`](files/Services/DiagramSchemaService.cs.md) — Reads tables, columns and foreign keys of one database for the diagram.
 - [`Services/ExecutionPlanService.cs`](files/Services/ExecutionPlanService.cs.md) — Parses ShowPlanXML into the plan model: estimates for a compiled plan, and for a run one the RuntimeCounters under RunTimeInformation (rows and reads summed across threads, elapsed time taken as the maximum) plus a warning wherever the row estimate missed by 10x or more.
+- [`Services/JoinSuggestionService.cs`](files/Services/JoinSuggestionService.cs.md) — Writes the ON clause a join needs from the keys the database enforces: either direction, a composite key offered whole, one offer per key when a pair has two, brackets only where the name needs them. Pure — it never connects, so the pairing rules hold without a server.
 - [`Services/LineDiffer.cs`](files/Services/LineDiffer.cs.md) — Line-level LCS diff used to colour source-only and target-only lines.
 - [`Services/ManagerScriptBuilder.cs`](files/Services/ManagerScriptBuilder.cs.md) — Pure T-SQL builders: script-as, index/partition DDL, CreateObject for the designer, restore batches, backup/verify, SQL Agent job calls and the Query Store force/unforce/enable scripts — preview equals execution, and an invalid definition or id throws a one-line reason instead of emitting broken DDL.
 - [`Services/QueryBuilderService.cs`](files/Services/QueryBuilderService.cs.md) — Extras for the Constructor: FK-based join suggestions and per-table column lists.
 - [`Services/QueryExecutionService.cs`](files/Services/QueryExecutionService.cs.md) — Executes ad-hoc batches: GO splitting, cancellation, messages, result streaming, statistics and plan capture.
 - [`Services/QueryGuardService.cs`](files/Services/QueryGuardService.cs.md) — Reads a script's blast radius off the text before it reaches the server: DELETE/UPDATE with no outer filter (a sub-query's WHERE does not count, a CTE's does), WHERE 1=1, TRUNCATE, DROP TABLE/DATABASE, DROP COLUMN as Dangerous; DROP INDEX/PROCEDURE as Advisory. Works on string- and comment-masked text so a commented-out DELETE cannot start a warning.
 - [`Services/QueryHistoryService.cs`](files/Services/QueryHistoryService.cs.md) — Persistent, capped query history store in the data folder.
-- [`Services/QuerySchemaService.cs`](files/Services/QuerySchemaService.cs.md) — Schema cache used by IntelliSense: tables, views, columns, loaded lazily per connection.
+- [`Services/QuerySchemaService.cs`](files/Services/QuerySchemaService.cs.md) — Schema cache used by IntelliSense: tables, views, columns and the foreign keys a join suggestion is read from, loaded lazily per connection.
 - [`Services/RecentFilesService.cs`](files/Services/RecentFilesService.cs.md) — Most-recently-opened .sql paths, stored without file contents.
 - [`Services/ResultsExportService.cs`](files/Services/ResultsExportService.cs.md) — Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script.
 - [`Services/SavedComparisonsService.cs`](files/Services/SavedComparisonsService.cs.md) — The pairings the operator names and re-runs: alphabetical, replaced by name, capped — and stored as references (a profile id, a snapshot path), so a pairing can never hold a credential and a missing reference is named on apply instead of pruned.
@@ -174,4 +176,4 @@ One page per source file: purpose, declared types, public surface and who refere
 
 - [`Tools/DBPressureTest.ps1`](files/Tools/DBPressureTest.ps1.md) — PowerShell load generator used to exercise blocking, waits and CPU sampling.
 
-_142 pages. Regenerate after any code change with `python docs/build_docs.py`._
+_144 pages. Regenerate after any code change with `python docs/build_docs.py`._

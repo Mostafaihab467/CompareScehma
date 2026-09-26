@@ -1,6 +1,6 @@
 # `Controls/SqlCompletionProvider.cs`
 
-**Purpose:** IntelliSense-style completion data for the editor: keywords, schema objects and column names.
+**Purpose:** IntelliSense-style completion data for the editor: keywords, schema objects and column names, plus the ON clause a JOIN is reaching for (SuggestJoins reads the join tail and offers the real foreign key, inserted at the caret so the alias survives).
 
 **Namespace:** `SchemaCompare.Controls`
 
@@ -10,7 +10,7 @@
 
 ## Public surface
 
-`SqlCompletionProvider`, `NotifySchemaChanged()`, `Tables`, `ColumnsByTable`, `Attach()`, `Detach()`, `Close()`, `Show()`, `Text`, `Complete()`
+`SqlCompletionProvider`, `NotifySchemaChanged()`, `Tables`, `ColumnsByTable`, `ForeignKeys`, `Attach()`, `Detach()`, `Close()`, `Show()`, `SuggestJoins()`, `Text`, `Complete()`
 
 ## Referenced by
 
@@ -19,4 +19,4 @@
 - `ViewModels/QueryViewModel.cs`
 - `Views/QueryWindow.axaml.cs`
 
-**Size:** 447 lines
+**Size:** 600 lines
