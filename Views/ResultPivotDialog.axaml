@@ -1,0 +1,62 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        x:Class="SchemaCompare.Views.ResultPivotDialog"
+        Title="Pivot the rows on screen"
+        Width="760" Height="560" MinWidth="620" MinHeight="440"
+        CanResize="True" WindowStartupLocation="CenterOwner"
+        Background="{StaticResource PageBackground}">
+
+    <Grid RowDefinitions="Auto,Auto,*,Auto" Margin="14">
+
+        <!-- Header: which result is being grouped, and how much of it is on screen -->
+        <StackPanel Spacing="2" Margin="0,0,0,10">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <TextBlock Text="📊" FontSize="18" VerticalAlignment="Center" />
+                <TextBlock x:Name="HeaderText" FontSize="15" FontWeight="Bold" VerticalAlignment="Center" />
+            </StackPanel>
+            <TextBlock x:Name="ScopeText" FontSize="11" Foreground="{StaticResource OnSurfaceVariant}"
+                       TextWrapping="Wrap" />
+        </StackPanel>
+
+        <!-- The three questions a GROUP BY asks -->
+        <Border Grid.Row="1" Classes="card" Padding="12,10">
+            <StackPanel Spacing="8">
+                <!-- Star-sized: three fixed 220/240 px boxes plus their labels overflow a 760 px
+                     window and the last box — the one naming the column to sum — is cut off. -->
+                <Grid ColumnDefinitions="Auto,*,Auto,1.4*,Auto,1.2*" ColumnSpacing="8">
+                    <TextBlock Text="Group by:" VerticalAlignment="Center" FontSize="12" />
+                    <ComboBox x:Name="GroupBox" Grid.Column="1" FontSize="12" MinWidth="100" HorizontalAlignment="Stretch" />
+                    <TextBlock Grid.Column="2" Text="Aggregate:" VerticalAlignment="Center" FontSize="12" />
+                    <ComboBox x:Name="KindBox" Grid.Column="3" FontSize="12" MinWidth="100" HorizontalAlignment="Stretch" />
+                    <TextBlock Grid.Column="4" Text="On column:" VerticalAlignment="Center" FontSize="12" />
+                    <ComboBox x:Name="ValueBox" Grid.Column="5" FontSize="12" MinWidth="100" HorizontalAlignment="Stretch" />
+                </Grid>
+                <TextBlock x:Name="NoteText" FontSize="11" TextWrapping="Wrap"
+                           Foreground="{StaticResource OnSurfaceVariant}" />
+            </StackPanel>
+        </Border>
+
+        <!-- What the answer looks like, before it is added as a result tab -->
+        <Border Grid.Row="2" Classes="card" Padding="0" Margin="0,8,0,0">
+            <Grid RowDefinitions="Auto,*">
+                <Border Background="{StaticResource SubtleHeader}" Padding="10,6">
+                    <TextBlock Text="Result preview" FontWeight="Bold" FontSize="12" />
+                </Border>
+                <ScrollViewer Grid.Row="1" Padding="10,8"
+                              HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                    <TextBlock x:Name="PreviewText" FontFamily="Consolas" FontSize="11"
+                               Foreground="#CDD6F4" TextWrapping="NoWrap" />
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="3" Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8" Margin="0,10,0,0">
+            <Button x:Name="CancelBtn" Padding="14,7" FontSize="12">
+                <TextBlock Text="Cancel" />
+            </Button>
+            <Button x:Name="AddBtn" Classes="primary" Padding="14,7" FontSize="12">
+                <TextBlock Text="➕  Add as a result tab" />
+            </Button>
+        </StackPanel>
+    </Grid>
+</Window>

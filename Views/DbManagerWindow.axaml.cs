@@ -265,7 +265,14 @@ public partial class DbManagerWindow : Window
             grid.Columns.Add(new DataGridTextColumn
             {
                 Header    = col,
-                Binding   = new Binding($"[{col}]") { TargetNullValue = "(NULL)" },
+                // OneWay: this grid has no editing, and a TwoWay binding over a dictionary row
+                // writes the cell's display text back into it — turning a rendered decimal into the
+                // string "3900.00" for exactly the rows that were on screen.
+                Binding   = new Binding($"[{col}]")
+                {
+                    Mode = BindingMode.OneWay,
+                    TargetNullValue = "(NULL)",
+                },
                 Width     = new DataGridLength(120),
                 IsReadOnly = true
             });

@@ -67,6 +67,7 @@ Three conventions that matter when you change behaviour:
 | Auto-JOIN: the ON clause a JOIN is reaching for | `Services/JoinSuggestionService.cs` (`Between`), `Models/JoinSuggestion.cs` (`ForeignKeyRef`, `JoinSide`), `Controls/SqlCompletionProvider.cs` (`SuggestJoins`, `JoinTailRegex`, `ForeignKeys`, the space trigger in `OnTextEntered`), `Services/QuerySchemaService.cs` (`GetForeignKeysAsync`), `ViewModels/QueryViewModel.cs` (`RefreshSchemaCacheAsync`) |
 | "What will this script destroy?" guard | `Services/QueryGuardService.cs` (`Analyze`, `Statements`, `FilterOf` / `CteFilter`), `Models/QueryGuard.cs` (`GuardReport`, `GuardFinding`, `GuardLevel`), `ViewModels/QueryViewModel.cs` (`ClearedToRunAsync`, `ReportToMessages`, `GuardAsksBeforeDangerousScripts`), `Views/QueryWindow.axaml.cs` (`ConfirmDangerousScriptAsync` → `ScriptActionDialog`), `Views/QueryWindow.axaml` (status-bar switch) |
 | Ctrl+Shift+P command palette: fuzzy-jump to an object and write its script | `Services/FuzzySearch.cs` (`Score`, `Order`), `Models/PaletteItem.cs`, `Services/CommandCatalogService.cs` (`GetObjectsAsync`, `RowsFor`), `ViewModels/CommandPaletteViewModel.cs`, `Views/CommandPaletteWindow.axaml(.cs)`, `ViewModels/QueryViewModel.cs` (`OpenPaletteAsync`, `PaletteCommandRows`, `ApplyPaletteChoiceAsync`, `ShowPaletteAsync`), `Views/QueryWindow.axaml.cs` (the chord and the palette host) |
+| Filtering a result's rows and pivoting them into a new tab | `Services/ResultGridService.cs` (`DistinctValues`, `VisibleRows`, `Pivot`), `Models/ResultGridModels.cs` (`ResultFilter`, `ResultValue`, `ResultAggregates`, `PivotRequest`), `Models/QueryResultTable.cs` (`Filters`, `VisibleRows`, `ApplyFilters`, `FilterNote`, `Summary`), `Views/QueryWindow.axaml.cs` (`BuildResultHeader`, `OpenColumnFilter`, `PaintFunnel`), `Views/ResultPivotDialog.axaml(.cs)`, `ViewModels/QueryViewModel.cs` (`PivotAsync`, `ReportFilter`, `AskPivotAsync`) |
 | Health views, blocking chain, KILL, error log | `Services/DbHealthService.cs`, `ViewModels/DbHealthViewModel.cs`, `Models/DbHealthModels.cs`, `Models/HealthActionsModels.cs` |
 | Query Store: option state, regressed and top queries, force / unforce a plan | `Views/DbHealthWindow.axaml` (Query Store tab), `ViewModels/DbHealthViewModel.cs` (`LoadQueryStoreAsync`, `ForcePlanAsync`), `Services/DbHealthService.cs` (`GetQueryStoreStateAsync`, `GetRegressedQueriesAsync`, `GetTopQueriesAsync`, `GetQueryPlansAsync`), `Services/ManagerScriptBuilder.cs` (`ForceQueryPlan`, `UnforceQueryPlan`, `EnableQueryStore`) |
 | Server-level Object Explorer (databases, logins, Agent jobs, linked servers) and switching the working database | `Models/ServerBrowserModels.cs`, `DbManagerService.GetDatabasesAsync` / `GetServerSecurityAsync` / `GetAgentJobsAsync` / `GetLinkedServersAsync`, `DbManagerViewModel.Make*Folder`, `ManagerScriptBuilder.StartAgentJob` |
@@ -91,7 +92,7 @@ The app is proven by a headless harness, not by eyeballing: `ReproSsms` in the
 scratch working directory drives real windows and dialogs through Avalonia's
 headless lifetime and writes PNGs with `RenderTargetBitmap`.
 
-- 1068 assertions cover Tier 1, the five Tier 2 rounds and its command palette, the Tier 3 rounds —
+- 1158 assertions cover Tier 1, the six Tier 2 rounds and its command palette, the Tier 3 rounds —
   rollback, snapshots,
   drift, the baseline library and saved comparisons — the round-8
   plan and lint fixes, the round-11 destructive-script guard and the round-12 auto-JOIN end to
@@ -108,7 +109,9 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   auto-JOIN against the keys EgyptMart really enforces plus a composite one built and dropped in
   `tempdb` (`52_auto_join.png`), and the palette through its own chord over the live catalog, with
   a procedure created in `tempdb` mid-run to prove the catalog is never cached
-  (`53_command_palette.png`)
+  (`53_command_palette.png`), and the result grid's funnel opened by clicking the glyph in a live
+  header, ticked, applied, exported and pivoted into a second result tab over a real money column
+  (`54_result_filter_popup.png`, `55_result_filtered.png`, `56_result_pivot.png`)
   — every file the run
   writes is deleted again.
 - It performs a live `COPY_ONLY` backup and reads it back; it never restores, never
@@ -148,6 +151,12 @@ headless lifetime and writes PNGs with `RenderTargetBitmap`.
   `TextDocument` behind the window's back: `SyncActiveEditorText` pushes the tab's text into the
   editor it shows, so a document written directly can be overwritten before the capture — and a
   screenshot of the wrong query is how round 12 noticed.
+- A read-only `DataGrid` whose rows are `Dictionary<string, object?>` must bind `Mode.OneWay`.
+  The column binding is two-way by default and the dictionary's indexer is writable, so rendering a
+  cell wrote its display text back into the row: a `decimal` became the `string` `"3900.00"` for the
+  rows on screen only, and `SUM` then refused a money column as "not numbers". When a live part
+  behaves as if a value's *type* changed, print `value.GetType()` from a throwaway probe before
+  suspecting the reader — round 14 found both this and the batch splitter that way in minutes.
 
 Feature status (done/verified vs not done) lives in
 [../PRODUCTION.md](../PRODUCTION.md) — update it in the same change as the code.

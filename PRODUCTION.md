@@ -4,7 +4,7 @@ Tracks what SchemaCompare can actually do in production versus what is still
 missing. "Verified" below means the headless Avalonia harness exercises it
 (`ReproSsms` in the scratch working directory), not that it was eyeballed once.
 
-Last updated: 2026-09-26.
+Last updated: 2026-09-27.
 
 ---
 
@@ -17,7 +17,7 @@ file's folder is always its namespace. Start any session with:
 - [`AGENTS.md`](AGENTS.md) — build command, conventions, non-negotiable test rules.
 - [`docs/README.md`](docs/README.md) — module map plus a "where to look for a
   feature" table.
-- [`docs/INDEX.md`](docs/INDEX.md) — all 150 source files, one line each;
+- [`docs/INDEX.md`](docs/INDEX.md) — all 154 source files, one line each;
   `docs/files/<path>.md` gives that file's purpose, types, public surface,
   named controls and who references it. Regenerate with `python docs/build_docs.py`
   after moving or renaming code (purpose lines live in `docs/purposes.py`).
@@ -47,7 +47,7 @@ Every Tier 1 row is now done and harness-verified (2026-09-25).
 | Double-click table properties | **Done, verified** | `Views/TablePropertiesDialog.axaml`, `DbManagerService.GetTablePropertiesAsync`, `DbManagerViewModel.DoubleTapNodeCommand` — space, columns, PK, FKs both directions, indexes with usage, triggers, stats, partitioning |
 
 Verified means the headless harness ran it end to end against the local instance:
-1068 assertions, 0 failures — Tier 1, all five Tier 2 rounds and its command palette, the
+1158 assertions, 0 failures — Tier 1, all six Tier 2 rounds and its command palette, the
 Tier 3 rounds (rollback,
 snapshots, drift, the baseline library, saved comparisons), the round-8 plan/lint fixes,
 the round-11 destructive-script guard and the round-12 auto-JOIN —
@@ -73,7 +73,10 @@ guard asked to stop an unfiltered `DELETE` in a real query window against a prob
 seeds, works and drops again (`51_query_guard.png`), and the join suggestion accepted into a real
 editor against the keys EgyptMart actually enforces (`52_auto_join.png`), and the command palette
 opened by its own chord over the live catalog, where the accepted row leaves a script in the editor
-and an empty results grid (`53_command_palette.png`). No restore,
+and an empty results grid (`53_command_palette.png`), and the result grid's own funnel — opened by
+clicking the glyph in a live header, ticked, applied, exported and pivoted into a second result tab
+on EgyptMart's real money column (`54_result_filter_popup.png`, `55_result_filtered.png`,
+`56_result_pivot.png`). No restore,
 no `KILL` and no Agent job is ever executed — all three are asserted up to the
 confirmation and declined, and a DOWN script is never executed at all: it is
 previewed, toggled against the UP text, copied and saved, and both probe databases
@@ -87,7 +90,7 @@ The guard's two approved statements are the only destructive SQL the run ever le
 and only inside `__sc25_guard`, whose table it counts on both sides of every declined
 confirmation to prove a stop really stopped.
 
-Seven defects surfaced during that verification and are fixed:
+Nine defects surfaced during that verification and are fixed:
 `RESTORE HEADERONLY` has no `Type`/`Description` columns (backup sets showed a blank
 type and lost their description — now mapped from `BackupType` / `BackupTypeDescription`);
 typing a `STOPAT` date never refreshed the preview or re-enabled OK; renaming the
@@ -101,7 +104,12 @@ one (typing again mid-tree-load) reported its half-finished failure as an error;
 and folding threw on any CRLF script — a fold span ended on the `\n` of a `\r\n`
 line, i.e. inside the line delimiter, so AvaloniaEdit aborted the next layout pass
 with "produced an element which ends within the line delimiter". Fold ends now stop
-at the delimiter, and three harness assertions fold a CRLF document to keep it that way.
+at the delimiter, and three harness assertions fold a CRLF document to keep it that way. Round 14
+added two more: the `GO` splitter dropped every line break, so a multi-line script reached the
+server as `… AS SizeBandFROM dbo.[Order]` and was rejected for a syntax error it never had; and the
+read-only result grids bound their cells *into* the row dictionaries, so painting a cell replaced
+the server's `decimal` with its own display text — `"3900.00"` — and `SUM` then refused a money
+column as "not numbers".
 
 ## Tier 2 — multi-server and enterprise reality
 
@@ -131,6 +139,7 @@ the code.
 | SQL beautifier / formatter | **Done** | `Services/SqlFormatter.cs` (Ctrl+Shift+F or ✨ Beautify): keywords upper-cased, one clause per line, blocks indented, literals/brackets/comments untouched, idempotent. `GO` resets the batch indent |
 | New Table / View / Stored Procedure designer | **Done, verified** | `Views/ObjectDesignerDialog.axaml` opens from ➕ New Table… / New View… / New Stored Procedure… on the three object folders in the tree (`ManagerNode.CanNewObject`, `DbManagerViewModel.NewObjectCommand`, `Models/ObjectDesignerModels.cs`). A table is built from a column grid (name, type, null, key, identity, default) and a view/procedure from a body editor with a per-kind template; both feed one source of truth, `ManagerScriptBuilder.CreateObject`, so the live preview, the confirmation dialog and the executed script are the same text — the preview shows a one-line refusal instead of invalid DDL. ▶ Execute asks for confirmation and then reloads the folder it created into; 📄 Script to Definition Tab writes nothing and hands the script to the editor for review. The Index and Partition dialogs and Script As → CREATE OR ALTER were already there |
 | Query Store: regressed queries, top queries, force / unforce a plan | **Done, verified** | `DbHealthService.GetQueryStoreStateAsync` reads `sys.database_query_store_options` through `ViewColumnsAsync`, so a build missing `wait_stats_capture_mode_desc` still loads instead of throwing; `GetRegressedQueriesAsync` averages each query/plan pair over the first and second half of the window (the `sys.dm_qsn_*` difference views are newer-build only) and keeps pairs slower by the threshold the operator set; `GetTopQueriesAsync` ranks every pair that ran by a whitelisted `ORDER BY`; `GetQueryPlansAsync` returns each plan with `is_forced_plan`, `force_failure_count` and its reason. The Query Store tab in `Views/DbHealthWindow.axaml` has database / window / ranking / "regressed by ≥" pickers, both grids side by side, the selected query's plans and the text as it was captured. All three writes go through `ManagerScriptBuilder` (`ForceQueryPlan`, `UnforceQueryPlan`, `EnableQueryStore`) and the same confirmation host as `KILL`: unforce refuses a plan that is not pinned before it even asks, and with no host attached both commands fail closed. A database with Query Store off says so and states that history from before it was turned on cannot be recovered |
+| Result-grid filters and an instant pivot | **Done, verified** | A funnel in every column header opens that column's picker (`Views/QueryWindow.axaml.cs`, `Models/ResultGridModels.cs`), the rules live in `Services/ResultGridService.cs` and the rows that survive are `QueryResultTable.VisibleRows` — which the grid, the copy and all four exports read, while `RowCount` stays the server's count. 📊 Pivot asks three questions in `Views/ResultPivotDialog.axaml(.cs)` and adds the answer as a second result tab, grouped over the rows on screen. Nothing is re-queried: the rows are already here |
 
 Four defects surfaced while verifying round 2, all of them the kind a live run is
 the only way to catch:
@@ -642,6 +651,112 @@ And that template's type comment was `TYPE_NAME(...)`, which for a `nvarchar(40)
 only `nvarchar` — an operator filling the template cannot tell 40 from 4000, so the size and
 precision are composed in the query now, the way the import wizard already inferred them.
 
+## Round 14 (Tier 2 §5) — the grid answers a question about the rows already on it
+
+FEATURES.md §5 listed three things the results grid lacked: a copy that follows what is on
+screen, per-column filter boxes, and an instant pivot. All three turned out to be the same
+feature wearing three hats, because they share one rule — **the rows the operator is looking
+at are the rows the app owes them**. So this round grew one collection,
+`QueryResultTable.VisibleRows`, and pointed the grid, the copy, the four exports, the summary
+line and the pivot at it.
+
+- **A funnel in every column header.** Clicking it opens that column's picker: the values the
+  result actually holds, each with how many rows hold it, and a contains-box to hunt through
+  them. Nothing is asked of the server — the rows are already here, which is exactly why a
+  filter here is instant and a `WHERE` typed by hand is a second query. `DistinctValues` lists
+  the null and the `DBNull` as one `(NULL)` entry with one count, because the grid prints them
+  identically and a picker that offered two would be lying about a difference nobody can see.
+- **The semantics are SSMS's, and they are stated in one place.** Ticked values OR within a
+  column; the free text must *also* be contained, so text and ticks intersect rather than
+  union; columns AND. Free text never matches NULL — ticking `(NULL)` is how an empty cell gets
+  asked for. A filter on a column this result does not have keeps nothing, because keeping
+  everything would look like a filter that worked.
+- **`VisibleRows` is seeded from `Rows` on first use, not by a call.** Every construction site
+  (`QueryExecutionService` ×2 and `ResultGridService.Pivot`) makes a plain result, and a result
+  nobody filtered rendering an empty grid is the kind of bug that ships. Filtering repaints the
+  collection in place instead of re-assigning it, so the DataGrid keeps its columns, widths and
+  sort. `RowCount` stays the server's count: the summary reads
+  `4 of 6 row(s) shown in 0.12s`, and a copy, a CSV, a JSON, a Markdown table or three INSERTs
+  hand over the visible rows — the status line says so out loud
+  (*only the rows the filters leave on screen*), because an export that quietly obeyed a filter
+  the operator forgot about is worse than one that admits it.
+- **A pivot is a result tab, not a mode.** 📊 Pivot asks the three questions a `GROUP BY` has:
+  group by which column, reduce each group how, and read which column doing it. The value box is
+  disabled while COUNT is chosen, and the preview at the bottom is the real
+  `ResultGridService.Pivot` call over the rows on screen — the same call the view-model makes
+  when the dialog closes — so what the operator saw is what they get, or the refusal shows in
+  the box before they commit. Cancel adds no tab and says `Pivot cancelled`.
+- **Refusals are the feature.** An unknown column names the result's actual column count; SUM or
+  AVERAGE over a text column refuses with the value that gave it away instead of writing zeros;
+  SUM with no column says which box to fill; a group whose every cell was empty sorts last and
+  shows empty, because a pivot row reading `0` for a group of NULLs is a number nobody measured.
+  Groups come back ordered by their own aggregate, biggest first — the row a pivot exists to
+  produce.
+- **The filter and the pivot never leave the grid's own state.** `QueryViewModel` holds no copy
+  of the rows, `QueryWindow` holds no arithmetic, and the dialog holds no view-model: the VM asks
+  its host through `Func<QueryResultTable?, Task<PivotRequest?>>? AskPivotAsync` and fails closed
+  — “no window is attached to ask what to group by” — rather than guessing the first column.
+- **Details the harness keeps honest.** One filter popup at a time (a second one would show
+  counts computed from rows that have since moved); the funnel's click consumes its own press so
+  filtering a column does not also sort it; the header glyph turns blue and its tooltip becomes
+  the filter that is active; the ✕ filters button only exists while a filter does; and the value
+  list is capped at 50 entries with a note saying so and telling the operator to type, because a
+  2 000-value column is a list no window can hold.
+
+| Feature | State | Notes |
+|---|---|---|
+| Per-column result filters + instant pivot | **Done, verified** | `Models/ResultGridModels.cs` (`ResultFilter`, `ResultValue`, `ResultAggregateKind`/`ResultAggregates`, `PivotRequest`) + `Services/ResultGridService.cs` (pure: `Display`, `DistinctValues`, `VisibleRows`, `Pivot`) + `Models/QueryResultTable.cs` (`Filters`, `VisibleRows`, `ApplyFilters`, `ClearFilters`, `FilterNote`, `Summary`) + `Views/QueryWindow.axaml(.cs)` (funnel headers, the picker flyout, the widened result bar) + `Views/ResultPivotDialog.axaml(.cs)` + `ViewModels/QueryViewModel.cs` (`PivotCommand`, `ClearFiltersCommand`, `ReportFilter`, the `AskPivotAsync` host) (`54_result_filter_popup.png`, `55_result_filtered.png`, `56_result_pivot.png`) |
+
+Six things came out of verifying it, all of them worth repeating.
+
+- **Rendering a result grid used to rewrite the rows.** A `DataGridTextColumn` binds two-way, and
+  the result grid's rows are `Dictionary<string, object?>` — whose indexer is writable, so the
+  binding ran backwards: every cell that got painted wrote its *display text* into the row. The
+  server sent `Total` as the decimal `3900.00`; after the grid showed it, the row held the
+  **string** `"3900.00"` — for the rows that happened to be on screen, and a decimal for the ones
+  that were not. Everything downstream read that: `SUM`/`AVERAGE` refused a money column, `MIN`/`MAX`
+  ordered `900` after `1000`, `IsNumericColumn` said no, and JSON export quoted numbers. The two
+  read-only grids (the query result and the DB Manager exec grid) bind one-way now; the editable
+  top-rows grid keeps its two-way binding, because there the write-back *is* the edit. Proved with
+  a throwaway probe that printed each column's CLR type before and after one render, and locked by
+  an assertion that asks the live result what type it still holds.
+- **A batch splitter was eating the script's line breaks.** `QueryExecutionService.SplitBatches`
+  appended each line and dropped the break that ended it, so a multi-line batch reached the
+  server with its lines fused. Most scripts survive that by luck — the next line begins with a
+  space — but
+  ```sql
+  SELECT TOP (60) OrderId, Total,
+         CASE WHEN Total >= 100 THEN 'big' ELSE 'small' END AS SizeBand
+  FROM dbo.[Order]
+  ```
+  became `… AS SizeBandFROM dbo.[Order]`, and the server answered *Incorrect syntax near 'dbo'*
+  about a statement that was never wrong. This is the app's own contract broken — the text you
+  write is not the text that runs — and it had been shipping since the splitter was written: no
+  earlier script in the harness happened to have a line ending in a bare identifier followed by a
+  line starting with a keyword. Breaks are preserved now (normalised to LF, so CRLF counts as one
+  and not two), `GO` still divides, and three offline assertions keep it that way.
+- **A pivot's first row is not the first group.** Rows come back ordered by their own aggregate,
+  so the group sitting at `Rows[0]` under `COUNT` (the biggest one) is not the one at `Rows[0]`
+  under `MIN(date)`. The first version of the date assertion asked `Rows[0]` for the paid group
+  and got `held` — correct output, wrong question. Group-dependent assertions look their group up
+  by key; the ordering claim is then a separate assertion, where it can say what it means.
+- **A flyout is not in the window's visual tree.** `Capture(window)` with a picker open renders
+  the window and its rows, not the popup: the popup lives in its own top level. The screenshot of
+  the filter picker is taken from `TopLevel.GetTopLevel(pickerBody)`, which is the only thing that
+  can see it.
+- **A composite header breaks the layout guard.** The result grid is rebuilt on every
+  `LayoutUpdated`, and the "has the shape changed?" test read `column.Header` as a string — which
+  a funnel header is not, so every pass looked like a change and every pass rebuilt. Headers are
+  read through a shape guard now (text, string, or a panel's first text block), and an unchanged
+  shape still repaints the funnel colour so an active filter shows without a rebuild.
+- **A green assertion does not mean the dialog is readable.** Every pivot check passed while the
+  picker's third box — the one naming the column to sum — was cut off by the window's own edge:
+  three fixed-width boxes plus their labels need ~900 px in a 760 px window. The numbers were only
+  wrong-looking in `56_result_pivot.png`, which is why the screenshot is reviewed and not just
+  written. The three boxes share the width now.
+
+
+
 ## Already production-grade
 
 Security and data-safety from the hardening pass (verified by the same harness):
@@ -687,5 +802,7 @@ would otherwise assume the tiers covered:
   one highlighted row and Enter. It also has no Execute row: F5 is the only path to the server, so
   one keystroke cannot both search and post a query.
 - **Tier 2 items 8 and 10 are still open**: multi-connection execution (one script against N
-  servers, results diffed) and snippets that expand with real column context. Item 5's per-column
-  filter boxes and instant pivot, and item 10's JSON snippet store, are the other named gaps.
+  servers, results diffed) and snippets that expand with real column context, plus their JSON
+  snippet store. Item 5 is closed except for one word of it: round 14 made the copy follow the
+  *rows on screen*, and a copy of a dragged **cell range** is still the grid's own unverified
+  Ctrl+C rather than a feature with an assertion behind it.

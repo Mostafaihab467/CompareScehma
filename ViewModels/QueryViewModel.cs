@@ -128,6 +128,19 @@ public partial class QueryViewModel : ObservableObject
     public ICommand SaveJsonCommand { get; }
     public ICommand SaveMarkdownCommand { get; }
     public ICommand SaveInsertScriptCommand { get; }
+
+    /// <summary>Group the rows on screen by one column. Needs a picker, so it needs <see cref="AskPivotAsync"/>.</summary>
+    public ICommand PivotCommand { get; }
+
+    /// <summary>Drop every column filter on one result and show the whole thing again.</summary>
+    public ICommand ClearFiltersCommand { get; }
+
+    /// <summary>
+    /// Set by the view — asks the operator what to group by and what to do with each group.
+    /// Without a host there is no group-by to guess, so the command reports that instead of
+    /// pivoting on whatever the first column happens to be.
+    /// </summary>
+    public Func<QueryResultTable?, Task<PivotRequest?>>? AskPivotAsync { get; set; }
     public ICommand FormatSqlCommand { get; }
     public ICommand ClearResultsCommand { get; }
     public ICommand ExplainCommand { get; }
@@ -287,6 +300,7 @@ public partial class QueryViewModel : ObservableObject
         CommandRow("Query history", "", OpenHistoryCommand),
         CommandRow("Query constructor", "", new RelayCommand(() => OpenQueryBuilderAction?.Invoke())),
         CommandRow("Clear the results", "", ClearResultsCommand),
+        CommandRow("Pivot the rows on screen", "", PivotCommand),
         CommandRow("Show or hide the execution plan tab", "", TogglePlanCommand),
         CommandRow("Show or hide IO/Time statistics", "", ToggleIoTimeCommand),
         CommandRow("Stop the running query", "", CancelCommand)
@@ -350,6 +364,8 @@ public partial class QueryViewModel : ObservableObject
         SaveJsonCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "json"));
         SaveMarkdownCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "md"));
         SaveInsertScriptCommand = new AsyncRelayCommand<QueryResultTable?>(t => SaveResultAsync(t, "sql"));
+        PivotCommand = new AsyncRelayCommand<QueryResultTable?>(PivotAsync);
+        ClearFiltersCommand = new RelayCommand<QueryResultTable?>(ClearFiltersOfResult);
         FormatSqlCommand = new RelayCommand(FormatActiveSql);
         ClearResultsCommand = new RelayCommand<QueryTab?>(ClearResults);
         ExplainCommand      = new RelayCommand(ExplainActiveTab);
@@ -877,50 +893,64 @@ public partial class QueryViewModel : ObservableObject
     private async Task CopyResultsAsync(QueryTab? tab)
     {
         if (tab == null || CopyToClipboardAsync == null) return;
-        var source = tab.SelectedResult is { Rows.Count: > 0 } selected
+        var source = tab.SelectedResult is { VisibleRowCount: > 0 } selected
             ? selected
-            : tab.Results.FirstOrDefault(r => r.Rows.Count > 0);
+            : tab.Results.FirstOrDefault(r => r.VisibleRowCount > 0);
         if (source == null)
         {
-            tab.StatusMessage = "Nothing to copy — no result rows.";
+            // Rows the server sent but the filters hide are not "no results" — saying so is the
+            // difference between a confusing message and a wrong one.
+            tab.StatusMessage = tab.Results.Any(r => r.RowCount > 0)
+                ? "Nothing to copy — the column filters hide every row of this result."
+                : "Nothing to copy — no result rows.";
             return;
         }
         var sb = new System.Text.StringBuilder();
         sb.AppendLine(string.Join("\t", source.Columns));
-        foreach (var row in source.Rows.Take(1_000))
+        foreach (var row in source.VisibleRows.Take(1_000))
             sb.AppendLine(string.Join("\t", source.Columns.Select(c =>
                 row.TryGetValue(c, out var v) ? v?.ToString() ?? "NULL" : "NULL")));
         if (await CopyToClipboardAsync(sb.ToString()))
-            tab.StatusMessage = $"Copied {Math.Min(source.Rows.Count, 1_000):N0} row(s) from “{source.Title}” (TSV).";
+            tab.StatusMessage =
+                $"Copied {Math.Min(source.VisibleRowCount, 1_000):N0} row(s) from “{source.Title}” (TSV)" +
+                (source.HasFilters ? $" — {source.FilterNote}." : ".");
         else
             tab.StatusMessage = "Copy failed: the system clipboard is unavailable (another app may be holding it). Nothing was changed.";
     }
 
-    /// <summary>SSMS "Copy with Headers": the whole result set incl. the header row (TSV).</summary>
+    /// <summary>SSMS "Copy with Headers": the rows on screen incl. the header row (TSV).</summary>
     private async Task CopyWithHeadersAsync(QueryResultTable? table)
     {
         var tab = ActiveTab;
         if (table == null || CopyToClipboardAsync == null) return;
-        if (table.Rows.Count == 0)
+        if (table.VisibleRowCount == 0)
         {
-            if (tab != null) tab.StatusMessage = "Nothing to copy — this result set has no rows.";
+            if (tab != null)
+                tab.StatusMessage = table.RowCount > 0
+                    ? "Nothing to copy — the column filters hide every row of this result."
+                    : "Nothing to copy — this result set has no rows.";
             return;
         }
         if (await CopyToClipboardAsync(ResultsExportService.ToTsv(table)))
-            tab?.StatusMessage = $"Copied {table.Rows.Count:N0} row(s) with headers from “{table.Title}” (TSV).";
+            tab?.StatusMessage =
+                $"Copied {table.VisibleRowCount:N0} row(s) with headers from “{table.Title}” (TSV)" +
+                (table.HasFilters ? $" — {table.FilterNote}." : ".");
         else
             tab?.StatusMessage = "Copy failed: the system clipboard is unavailable. Nothing was changed.";
     }
 
-    /// <summary>SSMS "Save Results As…": the result set as CSV, JSON, Markdown or
+    /// <summary>SSMS "Save Results As…": the rows on screen as CSV, JSON, Markdown or
     /// INSERT scripts, chosen by the menu item that fired.</summary>
     private async Task SaveResultAsync(QueryResultTable? table, string format)
     {
         var tab = ActiveTab;
         if (table == null || PickSavePathAsync == null) return;
-        if (table.Rows.Count == 0)
+        if (table.VisibleRowCount == 0)
         {
-            if (tab != null) tab.StatusMessage = "Nothing to save — this result set has no rows.";
+            if (tab != null)
+                tab.StatusMessage = table.RowCount > 0
+                    ? "Nothing to save — the column filters hide every row of this result."
+                    : "Nothing to save — this result set has no rows.";
             return;
         }
 
@@ -953,14 +983,105 @@ public partial class QueryViewModel : ObservableObject
         try
         {
             await File.WriteAllTextAsync(path, body, new System.Text.UTF8Encoding(true));
-            var rows = Math.Min(table.Rows.Count, ResultsExportService.DefaultMaxRows);
-            if (tab != null) tab.StatusMessage = $"Saved {rows:N0} row(s) as {label} to {path}";
+            var rows = Math.Min(table.VisibleRowCount, ResultsExportService.DefaultMaxRows);
+            if (tab != null)
+                tab.StatusMessage = $"Saved {rows:N0} row(s) as {label} to {path}" +
+                    (table.HasFilters && rows < table.RowCount
+                        ? $" — only the rows the filters leave on screen ({table.FilterNote})."
+                        : string.Empty);
             StatusMessage = tab != null ? $"{tab.Title}: saved {label} to {path}" : StatusMessage;
         }
         catch (Exception ex)
         {
             if (tab != null) tab.StatusMessage = $"Save failed: {ex.Message}";
         }
+    }
+
+    /// <summary>Group the rows the grid is showing by one column, as a new result tab.</summary>
+    private async Task PivotAsync(QueryResultTable? table)
+    {
+        var tab = ActiveTab;
+        table ??= tab?.SelectedResult ?? tab?.Results.FirstOrDefault(r => r.RowCount > 0);
+        if (table == null)
+        {
+            StatusMessage = "Nothing to pivot — run a query and select a result first.";
+            return;
+        }
+        if (AskPivotAsync == null)
+        {
+            if (tab != null)
+                tab.StatusMessage = "Pivot: no window is attached to ask which column to group by — nothing was computed.";
+            return;
+        }
+        if (table.VisibleRowCount == 0)
+        {
+            tab?.StatusMessage = table.RowCount > 0
+                ? "Nothing to pivot — the column filters hide every row of this result."
+                : "Nothing to pivot — this result set has no rows.";
+            return;
+        }
+
+        var request = await AskPivotAsync(table);
+        if (request == null)
+        {
+            if (tab != null) tab.StatusMessage = "Pivot cancelled — no result was added.";
+            return;
+        }
+
+        try
+        {
+            // The filters travel with the pivot: grouping everything the operator filtered away
+            // would answer a question they stopped asking.
+            var pivot = ResultGridService.Pivot(
+                table, request.GroupBy, request.Kind, request.ValueColumn, table.Filters);
+            if (tab == null) return;
+            tab.Results.Add(pivot);
+            tab.HasResults = true;
+            tab.SelectedResult = pivot;
+            var shown = table.VisibleRowCount;
+            tab.StatusMessage = $"{pivot.Title}: {pivot.RowCount:N0} group(s) from {shown:N0} row(s)" +
+                                (table.HasFilters ? " on screen" : string.Empty) + ".";
+            StatusMessage = $"{tab.Title}: {pivot.Summary}";
+        }
+        catch (Exception ex)
+        {
+            // The service names the column and the reason; a pivot that failed is not a pivot
+            // that shows zeros.
+            if (tab != null) tab.StatusMessage = ex.Message;
+        }
+    }
+
+    /// <summary>Undo every filter on one result. The rows never left, so this only repaints.</summary>
+    private void ClearFiltersOfResult(QueryResultTable? table)
+    {
+        var tab = ActiveTab;
+        if (table == null) return;
+        if (!table.HasFilters)
+        {
+            if (tab != null) tab.StatusMessage = "No filters to clear on this result.";
+            return;
+        }
+        table.ClearFilters();
+        ReportFilter(table);
+    }
+
+    /// <summary>
+    /// One line for the tab after a column filter changes: what is on screen now, and which
+    /// columns asked for it. The result's own summary bar carries the same numbers, so this is
+    /// the message that explains why they moved.
+    /// </summary>
+    public void ReportFilter(QueryResultTable table, string? column = null)
+    {
+        var tab = ActiveTab;
+        if (tab == null) return;
+        if (!table.HasFilters)
+        {
+            tab.StatusMessage = $"Filters cleared — all {table.RowCount:N0} row(s) of “{table.Title}” are on screen.";
+            return;
+        }
+        tab.StatusMessage = column == null
+            ? $"{table.VisibleRowCount:N0} of {table.RowCount:N0} row(s) shown — {table.FilterNote}"
+            : $"{table.VisibleRowCount:N0} of {table.RowCount:N0} row(s) shown after filtering “{column}”.";
     }
 
     /// <summary>Beautify the active tab's script in place. Nothing is ever

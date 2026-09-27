@@ -15,8 +15,8 @@ PURPOSES = {
     # ── Views: windows ──
     "Views/MainWindow.axaml": "Layout of the launcher window: the saved-comparisons card, source and target cards that are each a live database or a snapshot file with a remembered-baseline picker, compare, the one script pane that toggles UP/DOWN, buttons into every other window.",
     "Views/MainWindow.axaml.cs": "Launcher window code-behind: opens saved connections, copies and saves whichever script the pane shows, the snapshot file pickers both directions, and every other window from the menu.",
-    "Views/QueryWindow.axaml": "Layout of the query window: tab strip, SQL editor, results grid, messages, plan panes, and the status-bar switch that asks before a destructive script runs.",
-    "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G/Ctrl+Shift+P), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, the palette host that returns the chosen row, session restore on close.",
+    "Views/QueryWindow.axaml": "Layout of the query window: tab strip, SQL editor, results grid bound to the filtered rows, a per-result bar (copy, CSV/JSON/Markdown/INSERT, pivot, clear filters, summary), messages, plan panes, and the status-bar switch that asks before a destructive script runs.",
+    "Views/QueryWindow.axaml.cs": "Query window code-behind: shortcuts (F5/Ctrl+L/Ctrl+F/Ctrl+M/Ctrl+B/Ctrl+G/Ctrl+Shift+P), open/save .sql, drag-drop, clipboard guard, the script-confirmation host the query guard asks through, the palette host that returns the chosen row, the funnel in every result header that opens that column's filter picker, and the pivot dialog host — session restore on close.",
     "Views/DbManagerWindow.axaml": "Layout of Object Explorer: server/database tree, filter bar, and the Data/Structure/Definition/Execute tabs.",
     "Views/DbManagerWindow.axaml.cs": "Object Explorer code-behind: tree context menus, Script-As, dialog hosts (restore, backup, properties, script confirm), filter UI wiring.",
     "Views/DbHealthWindow.axaml": "Layout of the DB Health window: CPU/waits/processes/missing-indexes/query-store/error-log tabs, Activity Monitor style.",
@@ -73,7 +73,7 @@ PURPOSES = {
 
     # ── ViewModels ──
     "ViewModels/MainViewModel.cs": "Launcher view-model: the two comparison sides (live database or snapshot file, each capturable, each able to pick a baseline the app remembers), the named pairings of those two sides that save and re-apply as references, the difference list, and both directions of the deployment script — UP preview and DOWN rollback, one of them shown at a time.",
-    "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook, and the Ctrl+Shift+P palette that reads the catalog fresh and hands a chosen script to the caret without running it.",
+    "ViewModels/QueryViewModel.cs": "Query window view-model: tabs, execute/cancel, results, plans, open/save, history, session restore and persist — the guard that asks before F5 runs a script that destroys data, failing closed when the host supplies no confirmation hook, the Ctrl+Shift+P palette that reads the catalog fresh and hands a chosen script to the caret without running it, and the pivot that groups the rows on screen into a new result tab and says so when no host can ask what to group by.",
     "ViewModels/DbManagerViewModel.cs": "Object Explorer view-model: server and database tree loading, filters, scripting, database switching, restore/backup, Agent job and new-object designer flows, all fail-closed when a dialog host is missing. ReloadFolderAsync re-queries a folder — including the eagerly-filled object folders, which have no Loader — so the tree shows what a create or drop just did to the server.",
     "ViewModels/DbHealthViewModel.cs": "DB Health view-model: polling, samples, blocking chain, KILL, error log tail and the Query Store tab (state banner, regressed and top queries, plan list, force/unforce behind the confirmation host).",
     "ViewModels/DiagramViewModel.cs": "Diagram view-model: schema load, table search, layout, persistence.",
@@ -93,7 +93,7 @@ PURPOSES = {
     "Models/QueryTab.cs": "One open query tab: text, file path, dirty flag, results, execution state.",
     "Models/QueryGuard.cs": "What a script will destroy, as data: one finding (level, stable rule id, prose) and the report that says whether it needs a confirmation and what to lead a dialog with.",
     "Models/JoinSuggestion.cs": "The join metadata as data: one column pair of a foreign key, one table as the script names it (key, alias, text as written) and the ON clause offered from them with the key it came from.",
-    "Models/QueryResultTable.cs": "One result set or affected-rows summary produced by a batch.",
+    "Models/QueryResultTable.cs": "One result set or affected-rows summary produced by a batch, plus what the operator has narrowed it to: the active column filters and the VisibleRows the grid, the copy and every export read.",
     "Models/QueryHistoryEntry.cs": "One persisted history entry: script, timing, server, database, outcome.",
     "Models/SchemaDiffItem.cs": "One schema-compare diff line and its Added/Removed/Modified status.",
     "Models/CompareResultSummary.cs": "Aggregate counts for a schema-compare run.",
@@ -137,8 +137,14 @@ PURPOSES = {
     "Services/SqlLintService.cs": "Editor diagnostics: unmatched delimiters, typos, unknown tables, unqualified columns — dotted names match up to four parts and sys / INFORMATION_SCHEMA views are exempt from the unknown-table rule, because catalog views are in every database and in no schema cache.",
     "Services/TsqlHighlighting.cs": "Loads the bundled TSQL.xshd into the editor's highlighting definitions.",
     "Services/LineDiffer.cs": "Line-level LCS diff used to colour source-only and target-only lines.",
-    "Services/ResultsExportService.cs": "Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script.",
+    "Services/ResultsExportService.cs": "Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script. Every format walks VisibleRows, so an export never hands over rows the operator filtered out of sight.",
     "Services/SqlFormatter.cs": "T-SQL beautifier behind Ctrl+Shift+F: tokenizes first, so only case, whitespace and line breaks change.",
+
+    # ── Tier 2 round 14: result-grid filtering and pivot ──
+    "Services/ResultGridService.cs": "The grid's arithmetic, pure: a column's distinct values with their counts (the null and the DBNull sharing one (NULL) entry), the rows a set of filters leaves visible (columns AND, ticks OR, free text that never matches NULL), and a pivot grouped over those visible rows only. An unknown column or a SUM over text throws a one-line reason instead of showing zeros.",
+    "Models/ResultGridModels.cs": "Filter and pivot as data: one column's filter (text plus ticked values, and how it describes itself in a status line), one value with how many rows hold it, the aggregate kinds and the pivot request the dialog returns.",
+    "Views/ResultPivotDialog.axaml": "Pivot picker layout: group-by, aggregate and value-column boxes, the scope line naming how many rows are being grouped, and a live Markdown preview of the first groups.",
+    "Views/ResultPivotDialog.axaml.cs": "Pivot picker code-behind: the value column is disabled for COUNT, and the preview is built by the same ResultGridService.Pivot the app later uses for the real tab — so what the operator saw is what they got, or the refusal says why.",
 
     # ── Tier 2 round 13: command palette ──
     "Services/FuzzySearch.cs": "The palette's matcher: one point per matched character, a penalty for any run break that does not land on a word start (so an acronym scores as well as a prefix), a small length penalty, and NoMatch for anything that misses. Stable ordering, case-insensitive, pure.",

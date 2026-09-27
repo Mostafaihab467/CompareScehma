@@ -57,9 +57,9 @@ another connection/database with FK-order handling. SSMS requires manual scripti
 
 | # | Feature | Notes |
 |---|---------|-------|
-| 5 | **Result grid upgrades** | Excel/CSV/JSON/Markdown copy of selection, instant pivot, per-column filter boxes |
-| 6 | **Query history** | Every executed query stored locally, searchable, per connection, with row counts + duration (SSMS history is useless) |
-| 7 | **Tab sessions** | Persist open tabs + connections to `%AppData%`, restore on restart |
+| 5 | ✅ **Result grid upgrades** | CSV/JSON/Markdown/INSERT export and copy follow `VisibleRows` — what is on screen is what ships. Per-column filter boxes (a funnel in each header: values with counts + a contains-box, ticks OR, text intersects, columns AND) and an instant pivot into a new result tab, both over the rows already held, nothing re-queried: `ResultGridService` + `QueryResultTable.VisibleRows` + `ResultPivotDialog`. A dragged cell range is still the grid's own Ctrl+C |
+| 6 | ✅ **Query history** | Every executed query stored locally, searchable, per connection, with row counts + duration (SSMS history is useless) — `QueryHistoryService` + `QueryHistoryWindow` |
+| 7 | ✅ **Tab sessions** | Open tabs and their connections persist and restore on restart — `TabSessionService`, `QueryViewModel.RestoreSession/PersistSession` |
 | 8 | **Multi-connection execution** | Run one query against N servers side-by-side, diff the results (huge for multi-tenant shops) |
 | 9 | ✅ **Command palette (Ctrl+Shift+P)** | Fuzzy-jump to any table/view/proc and write its SELECT / INSERT / EXEC at the caret — `FuzzySearch` + `CommandCatalogService` + `CommandPaletteWindow`. Not Ctrl+K: the editor spends that chord on bookmark-next. *No* DROP row and no run verbs: one Enter on a highlighted row must never destroy a table or reach the server, so F5 stays the only path to it (through the guard). |
 | 10 | **Snippets with schema context** | `s sel * from` expands using real table columns; snippets saved to JSON |

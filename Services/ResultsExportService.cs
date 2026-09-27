@@ -136,8 +136,10 @@ public static class ResultsExportService
 
     private static IEnumerable<Dictionary<string, object?>> Rows(QueryResultTable table, int maxRows)
     {
-        var count = Math.Min(table.Rows.Count, maxRows);
-        for (var i = 0; i < count; i++) yield return table.Rows[i];
+        // The rows on screen, not the rows the server sent: an export that quietly ignored the
+        // filters the operator is looking at hands them 5 000 rows they never asked to see.
+        var count = Math.Min(table.VisibleRows.Count, maxRows);
+        for (var i = 0; i < count; i++) yield return table.VisibleRows[i];
     }
 
     private static string Qualified(string name)
@@ -171,10 +173,10 @@ public static class ResultsExportService
     {
         var sb = new StringBuilder();
         sb.AppendLine(string.Join(sep, table.Columns.Select(c => Escape(c, quote))));
-        var count = Math.Min(table.Rows.Count, maxRows);
+        var count = Math.Min(table.VisibleRows.Count, maxRows);
         for (var i = 0; i < count; i++)
         {
-            var row = table.Rows[i];
+            var row = table.VisibleRows[i];
             sb.AppendLine(string.Join(sep, table.Columns.Select(c =>
                 Escape(Format(row.TryGetValue(c, out var v) ? v : null), quote))));
         }

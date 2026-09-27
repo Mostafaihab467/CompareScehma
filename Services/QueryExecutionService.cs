@@ -252,6 +252,12 @@ public sealed class QueryExecutionService
     /// Splits a script on GO batch separators: a line holding only GO plus an
     /// optional repeat count (trailing -- comment allowed). String literals and
     /// block comments are respected so GO inside them is not treated as a separator.
+    /// <para>
+    /// Every line break survives the split (normalised to LF): a script that reaches the
+    /// server with its lines joined is not the script the operator wrote, and
+    /// <c>… AS SizeBand</c> + <c>FROM dbo.[Order]</c> becomes
+    /// <c>SizeBandFROM</c> — a syntax error on a statement that was never wrong.
+    /// </para>
     /// </summary>
     internal static List<string> SplitBatches(string sql)
     {
@@ -262,7 +268,7 @@ public sealed class QueryExecutionService
         var lineStart = 0;
         var i = 0;
 
-        void EndLine(bool keepBreak)
+        void EndLine()
         {
             var line = sql.Substring(lineStart, i - lineStart);
             if (!inSingleQuote && !inBlockComment && IsGoSeparator(line))
@@ -275,8 +281,7 @@ public sealed class QueryExecutionService
             else
             {
                 current.Append(line);
-                if (keepBreak)
-                    current.Append('\n');
+                current.Append('\n');
             }
             lineStart = i + 1;
         }
@@ -288,12 +293,16 @@ public sealed class QueryExecutionService
 
             if (c == '\n')
             {
-                EndLine(keepBreak: false);
+                EndLine();
             }
             else if (c == '\r')
             {
-                EndLine(keepBreak: next != '\n');
-                if (next == '\n') i++; // CRLF counts as one line break
+                EndLine();
+                if (next == '\n')
+                {
+                    i++; // CRLF counts as one line break, not two
+                    lineStart = i + 1;
+                }
             }
             else if (inBlockComment)
             {
@@ -320,7 +329,7 @@ public sealed class QueryExecutionService
         if (lineStart <= sql.Length)
         {
             i = sql.Length;
-            EndLine(keepBreak: false);
+            EndLine();
         }
 
         var tail = current.ToString().Trim();

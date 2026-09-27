@@ -1,6 +1,6 @@
 # `Services/ResultsExportService.cs`
 
-**Purpose:** Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script.
+**Purpose:** Renders results as TSV, CSV, JSON, Markdown or INSERT scripts, and works out the INSERT target from the script. Every format walks VisibleRows, so an export never hands over rows the operator filtered out of sight.
 
 **Namespace:** `SchemaCompare.Services`
 
@@ -15,5 +15,6 @@
 ## Referenced by
 
 - `ViewModels/QueryViewModel.cs`
+- `Views/ResultPivotDialog.axaml.cs`
 
-**Size:** 207 lines
+**Size:** 209 lines

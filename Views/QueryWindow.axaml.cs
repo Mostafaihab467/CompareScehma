@@ -23,6 +23,10 @@ public partial class QueryWindow : Window
     private QueryHistoryWindow? _historyWindow;
     private CommandPaletteWindow? _paletteWindow;
 
+    /// <summary>The open column-filter popup. One at a time: a second funnel while the first
+    /// is still up would leave the operator editing a list built from rows that moved.</summary>
+    private Avalonia.Controls.Primitives.FlyoutBase? _openFilter;
+
     public QueryWindow()
     {
         InitializeComponent();
@@ -48,6 +52,10 @@ public partial class QueryWindow : Window
         _vm.ShowQueryExplanation = sql => _ = QueryExplainDialog.ShowAsync(this, sql);
         _vm.ConfirmDangerousScriptAsync = (title, warning, script) =>
             ScriptActionDialog.ShowAsync(this, title, warning, script);
+        // The pivot picker is this window's job; grouping the rows and adding the tab is not.
+        _vm.AskPivotAsync = table => table == null
+            ? Task.FromResult<PivotRequest?>(null)
+            : ResultPivotDialog.ShowAsync(this, table);
     _vm.PickSavePathAsync = async suggested =>
     {
         var file = await StorageProvider.SaveFilePickerAsync(new FilePickerSaveOptions
@@ -373,7 +381,20 @@ public partial class QueryWindow : Window
             RebuildResultGridColumns(grid);
     }
 
-    private static void RebuildResultGridColumns(DataGrid grid)
+    /// <summary>
+    /// The column name read back out of a header, whatever the header is built from. A
+    /// composite header's <c>ToString()</c> is a type name that matches nothing, and a guard
+    /// that never matches rebuilds on every layout pass — invalidating layout again, forever.
+    /// </summary>
+    private static string? ResultHeaderText(DataGridColumn column) => column.Header switch
+    {
+        TextBlock text => text.Text,
+        string name => name,
+        Panel panel => panel.Children.OfType<TextBlock>().FirstOrDefault()?.Text,
+        _ => null
+    };
+
+    private void RebuildResultGridColumns(DataGrid grid)
     {
         if (grid.Tag is not QueryResultTable result)
             return;
@@ -381,28 +402,34 @@ public partial class QueryWindow : Window
             .Where(c => !string.IsNullOrWhiteSpace(c)).ToList();
         if (names.Count == 0)
             return;
-        // Avoid rebuilding when the shape is unchanged. Compare the header's
-        // text (headers are TextBlocks) — a broken guard here would rebuild on
-        // every layout pass, invalidating layout again: infinite loop + crash.
+        // Avoid rebuilding when the shape is unchanged. Columns are not rebuilt by a filter —
+        // only the funnel's colour and tooltip are, which costs no layout pass.
         if (grid.Columns.Count == names.Count &&
-            grid.Columns.Select(c => (c.Header as TextBlock)?.Text ?? c.Header?.ToString())
-                .SequenceEqual(names))
+            grid.Columns.Select(ResultHeaderText).SequenceEqual(names))
+        {
+            PaintFilterGlyphs(grid, result);
             return;
+        }
 
         grid.Columns.Clear();
         foreach (var col in names)
         {
-            // Header shows the real column name (used to look up cell values).
-            var header = new TextBlock
-            {
-                Text = col,
-                FontWeight = Avalonia.Media.FontWeight.Bold
-            };
-            ToolTip.SetTip(header, col);
+            // Header shows the real column name (used to look up cell values) plus the funnel
+            // that narrows this column.
             grid.Columns.Add(new DataGridTextColumn
             {
-                Header = header,
-                Binding = new Binding($"[{col}]") { TargetNullValue = "(NULL)" },
+                Header = BuildResultHeader(result, col),
+                // OneWay, deliberately. A DataGrid column binds TwoWay, and the source here is a
+                // Dictionary<string, object?> whose indexer is writable — so rendering a cell wrote
+                // its *display text* back into the row: Total came off the server as decimal 3900.00
+                // and left the grid as the string "3900.00". Every reader of the result downstream
+                // (SUM/AVERAGE, MIN/MAX order, JSON export, "is this column numeric") then saw text
+                // for the rows that happened to be on screen and numbers for the rest.
+                Binding = new Binding($"[{col}]")
+                {
+                    Mode = BindingMode.OneWay,
+                    TargetNullValue = ResultGridService.NullText,
+                },
                 // Fixed pixel width fitted to the bold header and cell content
                 // (star sizing degenerates under unconstrained measure: the first
                 // column swallows the viewport). Wide grids scroll horizontally.
@@ -416,6 +443,210 @@ public partial class QueryWindow : Window
         // "Column: value" inspector updates on plain arrow/click navigation.
         grid.CurrentCellChanged -= ResultGrid_CurrentCellChanged;
         grid.CurrentCellChanged += ResultGrid_CurrentCellChanged;
+    }
+
+    // -- Per-column result filters (the funnel in each header) --
+
+    /// <summary>Values listed at once; the search box and the counts stay honest either way.</summary>
+    private const int MaxFilterValues = 50;
+
+    private static readonly Avalonia.Media.IBrush FilterIdle =
+        new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#6C7086"));
+
+    private static readonly Avalonia.Media.IBrush FilterOn =
+        new Avalonia.Media.SolidColorBrush(Avalonia.Media.Color.Parse("#89B4FA"));
+
+    private Control BuildResultHeader(QueryResultTable result, string column)
+    {
+        var name = new TextBlock
+        {
+            Text = column,
+            FontWeight = Avalonia.Media.FontWeight.Bold
+        };
+        ToolTip.SetTip(name, column);
+
+        var funnel = new Button
+        {
+            Content = new TextBlock { Text = "▼", FontSize = 9 },
+            Padding = new Thickness(4, 0),
+            Background = Avalonia.Media.Brushes.Transparent,
+            BorderThickness = new Thickness(0),
+            VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center
+        };
+        // The header sorts on click; the arrow inside it must not. Button consumes the press
+        // before this runs, so marking it handled here only stops the bubble to the header.
+        funnel.AddHandler(
+            PointerPressedEvent,
+            new EventHandler<PointerPressedEventArgs>((_, e) => e.Handled = true),
+            RoutingStrategies.Bubble,
+            handledEventsToo: true);
+        funnel.Click += (_, _) => OpenColumnFilter(result, column, funnel);
+
+        var panel = new StackPanel
+        {
+            Orientation = Avalonia.Layout.Orientation.Horizontal,
+            Spacing = 3
+        };
+        panel.Children.Add(name);
+        panel.Children.Add(funnel);
+        PaintFunnel(result, column, funnel);
+        return panel;
+    }
+
+    private static void PaintFilterGlyphs(DataGrid grid, QueryResultTable result)
+    {
+        foreach (var column in grid.Columns)
+        {
+            if (column.Header is not Panel panel ||
+                panel.Children.OfType<Button>().FirstOrDefault() is not { } funnel) continue;
+            if (ResultHeaderText(column) is { } name)
+                PaintFunnel(result, name, funnel);
+        }
+    }
+
+    private static void PaintFunnel(QueryResultTable result, string column, Button funnel)
+    {
+        var active = result.Filters.FirstOrDefault(f =>
+            string.Equals(f.Column, column, StringComparison.OrdinalIgnoreCase) && f.IsActive);
+        if (funnel.Content is TextBlock glyph)
+            glyph.Foreground = active == null ? FilterIdle : FilterOn;
+        ToolTip.SetTip(funnel, active?.ToString() ?? $"Filter the rows of {column}");
+    }
+
+    /// <summary>
+    /// The picker for one column: a contains-box and the values this result actually holds,
+    /// each with how many rows hold it. Ticked values OR together and the text must also be
+    /// contained; the whole set of column filters ANDs. Nothing is asked of the server — the
+    /// rows are already here.
+    /// </summary>
+    private void OpenColumnFilter(QueryResultTable result, string column, Control anchor)
+    {
+        var filter = result.FilterFor(column);
+
+        // Only the *other* columns narrow this list. A value the operator just ticked has to
+        // stay on screen, or the tick that hid it also removed it from the box being edited.
+        var others = result.Filters
+            .Where(f => !string.Equals(f.Column, column, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        var values = ResultGridService.DistinctValues(result, column, others);
+        var picked = new HashSet<string>(filter.Values, StringComparer.Ordinal);
+
+        var text = new TextBox
+        {
+            Text = filter.Text,
+            PlaceholderText = "contains…",
+            FontSize = 11
+        };
+        var list = new StackPanel { Spacing = 1 };
+        var listing = new TextBlock { FontSize = 10, Foreground = FilterIdle, TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        var chosen = new TextBlock { FontSize = 10, Foreground = FilterOn };
+
+        void RefreshList()
+        {
+            var hunt = (text.Text ?? string.Empty).Trim();
+            list.Children.Clear();
+            var matches = values.Where(v => hunt.Length == 0 ||
+                            v.Display.Contains(hunt, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+            foreach (var value in matches.Take(MaxFilterValues))
+            {
+                var box = new CheckBox
+                {
+                    Content = $"{value.Display}   {value.Count:N0}",
+                    IsChecked = picked.Contains(value.Display),
+                    FontSize = 11,
+                    Tag = value.Display
+                };
+                box.PropertyChanged += (_, e) =>
+                {
+                    if (e.Property != Avalonia.Controls.Primitives.ToggleButton.IsCheckedProperty) return;
+                    if (box.IsChecked == true) picked.Add(value.Display);
+                    else picked.Remove(value.Display);
+                };
+                list.Children.Add(box);
+            }
+            listing.Text = matches.Count > MaxFilterValues
+                ? $"{matches.Count:N0} value(s) match — the {MaxFilterValues} most frequent are listed; type to narrow"
+                : $"{matches.Count:N0} distinct value(s) here";
+            chosen.Text = picked.Count > 0
+                ? $"{picked.Count:N0} ticked — rows with any of these{(hunt.Length > 0 ? ", and containing the text," : string.Empty)} stay"
+                : "Nothing ticked — the text alone filters";
+        }
+
+        text.PropertyChanged += (_, e) =>
+        {
+            if (e.Property == TextBox.TextProperty) RefreshList();
+        };
+        RefreshList();
+
+        var apply = new Button { Content = new TextBlock { Text = "Apply", FontSize = 11 } };
+        apply.Classes.Add("primary");
+        var clear = new Button
+        {
+            Content = new TextBlock { Text = "✕ clear", FontSize = 11 },
+            Margin = new Thickness(6, 0, 0, 0)
+        };
+        clear.Classes.Add("link");
+
+        var flyout = new Avalonia.Controls.Flyout
+        {
+            Placement = Avalonia.Controls.PlacementMode.Bottom,
+            Content = new StackPanel
+            {
+                Spacing = 6,
+                MinWidth = 260,
+                MaxWidth = 380,
+                Children =
+                {
+                    new TextBlock { Text = column, FontSize = 11, FontWeight = Avalonia.Media.FontWeight.SemiBold },
+                    text,
+                    new ScrollViewer
+                    {
+                        Content = list,
+                        MaxHeight = 300,
+                        HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                        VerticalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto
+                    },
+                    listing,
+                    chosen,
+                    new StackPanel
+                    {
+                        Orientation = Avalonia.Layout.Orientation.Horizontal,
+                        HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
+                        Children = { clear, apply }
+                    }
+                }
+            }
+        };
+
+        apply.Click += (_, _) =>
+        {
+            filter.Text = (text.Text ?? string.Empty).Trim();
+            filter.Values.Clear();
+            foreach (var value in picked) filter.Values.Add(value);
+            // Nothing asked for is not a filter: drop it, so the note and "✕ filters" stay honest.
+            if (!filter.IsActive) result.Filters.Remove(filter);
+            result.ApplyFilters();
+            _vm?.ReportFilter(result, column);
+            flyout.Hide();
+        };
+        clear.Click += (_, _) =>
+        {
+            result.Filters.Remove(filter);
+            result.ApplyFilters();
+            _vm?.ReportFilter(result);
+            flyout.Hide();
+        };
+
+        // One popup at a time: the previous column's list was built from the rows before this
+        // one moved, so it goes away rather than sitting on screen showing stale counts.
+        _openFilter?.Hide();
+        _openFilter = flyout;
+        flyout.Closed += (_, _) =>
+        {
+            if (ReferenceEquals(_openFilter, flyout)) _openFilter = null;
+        };
+        flyout.ShowAt(anchor);
     }
 
     private const double ResultGridFontSize = 12; // matches the DataGrid FontSize in XAML

@@ -250,7 +250,7 @@
                                         <DataTemplate DataType="models:QueryResultTable">
                                             <Grid RowDefinitions="Auto,*">
                                                 <Border Background="{StaticResource CodeBg}" Padding="10,4">
-                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto">
+                                                    <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto,Auto,Auto,Auto,Auto">
                                                         <TextBlock Text="{Binding Title}" FontWeight="Bold"
                                                                    FontSize="12" Foreground="#CDD6F4"
                                                                    VerticalAlignment="Center" />
@@ -284,12 +284,26 @@
                                                                 ToolTip.Tip="Save this result set as INSERT statements into the table the SELECT read from">
                                                             <TextBlock Text="INSERT" />
                                                         </Button>
-                                                        <TextBlock Grid.Column="7" Text="{Binding Summary}" FontSize="11"
+                                                        <Button Grid.Column="7" Classes="link" FontSize="11" Padding="6,2" Margin="6,0,0,0"
+                                                                Command="{Binding $parent[Window].DataContext.PivotCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                ToolTip.Tip="Group the rows on screen by one column and count, total, average, smallest or largest each group — a new result tab, nothing sent to the server">
+                                                            <TextBlock Text="📊 Pivot" />
+                                                        </Button>
+                                                        <Button Grid.Column="8" Classes="link" FontSize="11" Padding="6,2" Margin="6,0,0,0"
+                                                                Command="{Binding $parent[Window].DataContext.ClearFiltersCommand}"
+                                                                CommandParameter="{Binding}"
+                                                                IsVisible="{Binding HasFilters}"
+                                                                ToolTip.Tip="Drop every column filter and show the whole result again">
+                                                            <TextBlock Text="✕ filters" Foreground="#F9A8D4" />
+                                                        </Button>
+                                                        <TextBlock Grid.Column="9" Text="{Binding Summary}" FontSize="11"
                                                                    Foreground="{StaticResource Primary500}"
                                                                    VerticalAlignment="Center" Margin="12,0,0,0" />
                                                     </Grid>
                                                 </Border>
-                                                <DataGrid Grid.Row="1" ItemsSource="{Binding Rows}"
+                                                <!-- VisibleRows, not Rows: what the operator filtered is what they see, copy and export. -->
+                                                <DataGrid Grid.Row="1" ItemsSource="{Binding VisibleRows}"
                                                           Tag="{Binding}"
                                                           AutoGenerateColumns="False"
                                                           CanUserReorderColumns="True"

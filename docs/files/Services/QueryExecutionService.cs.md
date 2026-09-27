@@ -16,4 +16,4 @@
 
 - `ViewModels/QueryViewModel.cs`
 
-**Size:** 346 lines
+**Size:** 355 lines
